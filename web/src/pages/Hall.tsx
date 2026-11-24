@@ -1,0 +1,239 @@
+import { useEffect, useState } from 'react';
+import { api, getToken, UserProfile } from '../api';
+import { inNativeApp, isEmbedded, openNativeWeb, WebOrientation } from '../bridge';
+import { useApp } from '../store';
+import { GuideProjectBody } from './GuideProject';
+import { TreeholeFeed } from './Treehole';
+import { GalleryFeed } from './Gallery';
+import { PullToRefresh } from '../components/PullToRefresh';
+import { lang, t } from '../i18n';
+
+interface ProjectItem {
+  id: number;
+  name: string;
+  icon: string;
+  desc: string;
+  cover: string;
+  /** native=客户端内置页 h5=横幅内嵌网页 game=小游戏（九宫格） */
+  type: string;
+  entry: string;
+  /** 小游戏屏幕方向：portrait / landscape（App 游戏页按此旋转） */
+  orientation?: string;
+}
+
+/** 大厅页版本标记，日志里用来确认 App 加载到的是不是新部署的 H5 */
+const HALL_VERSION = '2026-09-15-hall-tabs-v4';
+
+type HallTab = 'guide' | 'games' | 'gallery' | 'treehole';
+const ALL_TABS: { key: HallTab; label: string }[] = [
+  { key: 'guide', label: t('guide.localBuddy') },
+  { key: 'games', label: t('hall.tabGames') },
+  // 「养眼图片」名称后台可改（GET /gallery/settings），按性别分流内容
+  { key: 'gallery', label: t('gallery.defaultTitle') },
+  { key: 'treehole', label: t('plaza.tab.treehole') },
+];
+const TAB_KEY = 'hall_tab';
+const GALLERY_TITLE_KEY = 'hall_gallery_title';
+const TAB_ORDER_KEY = 'hall_tab_order';
+
+/** 后台配的 tab 顺序（GET /modules/hall-tabs），先用上次缓存的；没配过 / 漏掉的 key 按默认顺序排到最后 */
+function readTabOrder(): HallTab[] {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(TAB_ORDER_KEY) || '[]');
+    return Array.isArray(saved) ? saved : [];
+  } catch {
+    return [];
+  }
+}
+function sortTabs(order: HallTab[]) {
+  const rank = (k: HallTab) => { const i = order.indexOf(k); return i < 0 ? order.length + ALL_TABS.findIndex((t) => t.key === k) : i; };
+  return [...ALL_TABS].sort((a, b) => rank(a.key) - rank(b.key));
+}
+
+/** App 内嵌大厅不显示私密树洞（iOS/Android 已在广场做了原生版本），仅浏览器网页版保留 */
+function visibleTabs(order: HallTab[]) {
+  const tabs = sortTabs(order);
+  return isEmbedded() ? tabs.filter((t) => t.key !== 'treehole') : tabs;
+}
+
+const COVERS = [
+  'linear-gradient(120deg, #3d0f1f 0%, #7a1f3d 55%, #b32b53 100%)',
+  'linear-gradient(120deg, #101a2e 0%, #1c3a6e 60%, #2b5cb0 100%)',
+  'linear-gradient(120deg, #241436 0%, #4a2580 60%, #7a3fd1 100%)',
+];
+
+/** 游戏链接占位符：{token} 登录态、{uid} 用户 ID（后台配置时选填，仅自有游戏用） */
+function fillEntry(entry: string, uid: string): string {
+  return entry
+    .replace(/\{token\}/g, encodeURIComponent(getToken() ?? ''))
+    .replace(/\{uid\}/g, encodeURIComponent(uid));
+}
+
+/**
+ * 打开小游戏：App 内走原生全屏 WebView（独立于大厅页，带标题栏/关闭）；
+ * 浏览器新标签打开；被拦截则当前页跳转。
+ */
+function openGameUrl(url: string, title: string, orientation: WebOrientation) {
+  const w = window as any;
+  console.log(
+    `[Game] open url=${url} title=${title} orientation=${orientation} ` +
+      `bridge: wk=${!!w.webkit?.messageHandlers?.peiwan} droid=${!!w.PeiwanNative} droid.openWeb=${typeof w.PeiwanNative?.openWeb}`,
+  );
+  if (openNativeWeb(url, title, orientation)) {
+    console.log('[Game] native bridge accepted');
+    return;
+  }
+  if (inNativeApp()) {
+    console.log('[Game] in app but no openWeb bridge (old app), fallback location.href');
+    location.href = url;
+    return;
+  }
+  console.log('[Game] browser fallback window.open');
+  const win = window.open(url, '_blank', 'noopener');
+  if (!win) location.href = url;
+}
+
+/** 大厅：三个 tab —— 同城搭子（项目内容内联）/ 休闲游戏（九宫格）/ 私密树洞（匿名信息流） */
+export function HallPage() {
+  const user = useApp((s) => s.user);
+  const setUser = useApp((s) => s.setUser);
+  const [tabOrder, setTabOrder] = useState<HallTab[]>(readTabOrder);
+  const tabs = visibleTabs(tabOrder);
+  // 默认打开排在第一位的 tab（后台可调顺序）；本会话内切过就记住
+  const [tab, setTab] = useState<HallTab>(() => {
+    const saved = sessionStorage.getItem(TAB_KEY) as HallTab | null;
+    return saved && tabs.some((t) => t.key === saved) ? saved : tabs[0]?.key ?? 'guide';
+  });
+  useEffect(() => {
+    api<{ order: HallTab[] }>('/modules/hall-tabs').then((r) => {
+      if (!Array.isArray(r?.order)) return;
+      setTabOrder(r.order);
+      sessionStorage.setItem(TAB_ORDER_KEY, JSON.stringify(r.order));
+      // 首次进入（没手动切过 tab）时跟随后台的第一位
+      if (!sessionStorage.getItem(TAB_KEY)) {
+        const first = visibleTabs(r.order)[0]?.key;
+        if (first) setTab(first);
+      }
+    }).catch(() => {});
+  }, []);
+  const [projects, setProjects] = useState<ProjectItem[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  // 养眼图片 tab 名称（后台可改）：先用上次缓存的，再拉最新
+  // 非中文界面：后台填了英文名才返回，空串时用自带的默认名；缓存按语言分开
+  const titleKey = `${GALLERY_TITLE_KEY}_${lang()}`;
+  const [galleryTitle, setGalleryTitle] = useState(() => sessionStorage.getItem(titleKey) || t('gallery.defaultTitle'));
+  useEffect(() => {
+    api<{ title: string }>('/gallery/settings').then((s) => {
+      const title = s?.title || t('gallery.defaultTitle');
+      setGalleryTitle(title);
+      sessionStorage.setItem(titleKey, title);
+    }).catch(() => {});
+  }, []);
+
+  const switchTab = (t: HallTab) => {
+    setTab(t);
+    sessionStorage.setItem(TAB_KEY, t);
+  };
+
+  // 同城搭子 tab 下拉刷新：换 key 让 GuideProjectBody 重新挂载拉数据
+  const [guideKey, setGuideKey] = useState(0);
+
+  const loadProjects = () =>
+    api<ProjectItem[]>('/modules')
+      .then((list) => {
+        console.log(
+          `[Game] /modules ok: ${list.length} items, games=${list.filter((p) => p.type === 'game').length} ` +
+            list.map((p) => `${p.type}:${p.name}${p.type === 'game' ? `(${p.orientation ?? 'portrait'})` : ''}`).join(', '),
+        );
+        setProjects(list);
+      })
+      .catch((e) => console.error('[Game] /modules failed', e?.message ?? e))
+      .finally(() => setLoaded(true));
+
+  useEffect(() => {
+    console.log(`[Game] hall mounted, version=${HALL_VERSION} path=${location.pathname}${location.hash}`);
+    loadProjects();
+  }, []);
+
+  // 内嵌模式只带 token 未拉用户资料；同城搭子入口按性别不同、游戏链接可能要 {uid}，补一次
+  useEffect(() => {
+    if (user) return;
+    api<UserProfile>('/user/me').then(setUser).catch(() => {});
+  }, [user]);
+
+  // 除地陪（已内联）之外后台配置的其它横幅项目
+  const extraBanners = projects.filter((p) => p.type !== 'game' && p.entry !== 'guide');
+  const games = projects.filter((p) => p.type === 'game');
+
+  const openBanner = (p: ProjectItem) => {
+    if (p.type === 'h5') location.href = p.entry;
+  };
+
+  const openGame = (g: ProjectItem) => {
+    console.log(`[Game] click game id=${g.id} name=${g.name}`);
+    openGameUrl(fillEntry(g.entry, user?.id ?? ''), g.name, g.orientation === 'landscape' ? 'landscape' : 'portrait');
+  };
+
+  return (
+    <>
+      <div className="top-tabs sticky">
+        {tabs.map((t) => (
+          <span key={t.key} className={`top-tab${tab === t.key ? ' active' : ''}`} onClick={() => switchTab(t.key)}>
+            {t.key === 'gallery' ? galleryTitle : t.label}
+          </span>
+        ))}
+      </div>
+
+      <div style={{ padding: '4px 16px' }}>
+        {tab === 'guide' && (
+          <PullToRefresh onRefresh={() => { setGuideKey((k) => k + 1); return loadProjects(); }}>
+            <GuideProjectBody key={guideKey} />
+            {extraBanners.map((p, i) => (
+              <div
+                key={p.id}
+                onClick={() => openBanner(p)}
+                style={{
+                  position: 'relative', borderRadius: 16, overflow: 'hidden', cursor: 'pointer',
+                  marginTop: 14, height: 120,
+                  background: p.cover ? `url(${p.cover}) center/cover` : COVERS[i % COVERS.length],
+                }}
+              >
+                <div style={{ position: 'absolute', left: 18, bottom: 16, right: 100 }}>
+                  <div style={{ fontSize: 19, fontWeight: 700, color: '#fff', letterSpacing: 1 }}>{p.name}</div>
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', marginTop: 5 }}>{p.desc}</div>
+                </div>
+                <span style={{
+                  position: 'absolute', right: 16, bottom: 16,
+                  padding: '7px 20px', borderRadius: 16, fontSize: 13, fontWeight: 600,
+                  background: 'rgba(255,255,255,0.92)', color: '#111',
+                }}>
+                  {t('hall.enter')}
+                </span>
+              </div>
+            ))}
+          </PullToRefresh>
+        )}
+
+        {tab === 'games' && (
+          <PullToRefresh onRefresh={loadProjects}>
+            {games.length > 0 && (
+              <div className="game-grid">
+                {games.map((g) => (
+                  <div key={g.id} className="game-cell" onClick={() => openGame(g)}>
+                    <img src={g.icon} alt={g.name} />
+                    <div className="name ellipsis">{g.name}</div>
+                    {g.desc && <div className="desc">{g.desc}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {loaded && games.length === 0 && <div className="empty">{t('hall.gamesComing')}<br />{t('hall.stayTuned')}<br /><span className="small">{t('treehole.pullToRefresh')}</span></div>}
+          </PullToRefresh>
+        )}
+
+        {tab === 'gallery' && <GalleryFeed />}
+        {tab === 'treehole' && <TreeholeFeed />}
+      </div>
+    </>
+  );
+}

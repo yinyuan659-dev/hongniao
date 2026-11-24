@@ -1,0 +1,1796 @@
+import CoreLocation
+import Photos
+import SwiftUI
+import UniformTypeIdentifiers
+
+// 频道（kind=2 的群）：频道主发帖，订阅者看帖 + 表情回应 + 评论。帖子就是这个群会话里的消息。
+
+let channelReactions = ["❤️", "👍", "🔥", "😂", "😮", "😢", "🎉", "👎"]
+
+struct ChannelOwner: Codable, Hashable {
+    var id: String? = ""
+    var nickname: String? = ""
+    var avatar: String? = ""
+}
+
+struct ChannelInfo: Codable {
+    var id: String = ""
+    var name: String? = ""
+    var avatar: String? = ""
+    var description: String? = ""
+    var ownerId: String? = ""
+    var owner: ChannelOwner? = nil
+    var subscribers: Int? = 0
+    var conversationId: String? = nil
+    var isMember: Bool? = false
+    var role: String? = nil
+    /// 频道主 / 管理员
+    var canPost: Bool? = false
+    /// 订阅者也能发帖
+    var memberPost: Bool? = false
+    /// 我能不能发帖（老后端没有这个字段时按 canPost）
+    var canSend: Bool? = nil
+    var muted: Bool? = false
+    /// 消息保留天数，0 = 永久
+    var retentionDays: Int? = nil
+
+    var sendable: Bool { canSend ?? (canPost == true) }
+}
+
+struct ChannelReaction: Codable, Hashable {
+    var emoji: String = ""
+    var count: Int? = 0
+}
+
+struct ChannelPost: Codable {
+    var id: String = ""
+    var senderId: String? = ""
+    var type: String? = "text"
+    var content: String? = ""
+    var createdAt: String? = ""
+    var views: Int? = 0
+    var reactions: [ChannelReaction]? = []
+    var myReaction: String? = nil
+    var commentCount: Int? = 0
+    /// 本地发出的帖子：ack 前 pending，tempId 一直留着当列表 key
+    var tempId: String? = nil
+    var pending: Bool? = false
+    /// 机器人发的帖子可能带按钮
+    var markup: InlineMarkup? = nil
+    var senderNickname: String? = nil
+    var senderAvatar: String? = nil
+    var senderIsBot: Bool? = nil
+    /// 订阅者发的：普通聊天气泡，不带评论 / 浏览数 / 表情回应
+    var memberMsg: Bool? = nil
+    /// 本地刚选的图：上传任务的 key（预览图、进度、失败重试按它找）
+    var upKey: String? = nil
+
+    var key: String { upKey ?? tempId ?? id }
+}
+
+private struct ChannelListItem: Codable, Identifiable {
+    var id: String = ""
+    var name: String? = ""
+    var avatar: String? = ""
+    var description: String? = ""
+    var ownerNickname: String? = ""
+    var subscribers: Int? = 0
+    var isMember: Bool? = false
+}
+
+private struct ChannelOkResp: Codable { var ok: Bool? }
+
+/// WS 帧里的 id 可能是字符串也可能是数字
+private func frameStr(_ v: Any?) -> String? {
+    if let s = v as? String { return s }
+    if let n = v as? NSNumber { return n.stringValue }
+    return nil
+}
+
+private func parseJsonObject(_ s: String) -> [String: Any]? {
+    guard let d = s.data(using: .utf8) else { return nil }
+    return (try? JSONSerialization.jsonObject(with: d)) as? [String: Any]
+}
+
+// MARK: - 帖子卡片
+
+/// 频道里收款消息的「转账」：打开钱包（没有钱包入口时为 nil）
+private struct ChannelPayKey: EnvironmentKey {
+    static let defaultValue: ((ChannelPost) -> Void)? = nil
+}
+extension EnvironmentValues {
+    fileprivate var channelPay: ((ChannelPost) -> Void)? {
+        get { self[ChannelPayKey.self] }
+        set { self[ChannelPayKey.self] = newValue }
+    }
+}
+
+/// 一条帖子：频道头 + 内容 + 表情回应 + 浏览数 / 时间 + 评论入口
+private struct ChannelPostCard: View {
+    let ch: ChannelInfo
+    let p: ChannelPost
+    let canDelete: Bool
+    let onReact: (String) -> Void
+    let onComments: () -> Void
+    let onMedia: () -> Void
+    let onDelete: () -> Void
+    @EnvironmentObject var state: AppState
+    @Environment(\.channelPay) private var channelPay
+    @State private var picker = false
+    @State private var voicePlaying = false
+
+    private var pending: Bool { p.pending == true }
+    private var content: String { p.content ?? "" }
+    /// 频道主 / 机器人发的算频道发帖；订阅者（和其他管理员）发的显示作者
+    private var byAuthor: Bool {
+        p.senderId != ch.ownerId && p.senderIsBot != true && !(p.senderNickname ?? "").isEmpty
+    }
+
+    /// 订阅者自己发的（靠右、粉色气泡）
+    var mine: Bool = false
+    /// 本地刚选的图：预览、上传状态、失败重试
+    var localImage: UIImage? = nil
+    var upload: UploadState? = nil
+    var onRetry: () -> Void = {}
+
+    private var isMemberMsg: Bool { p.memberMsg == true }
+    /// 气泡最大宽度；文字类按内容收缩（Telegram 式），图片 / 视频 / 贴纸 / 带按钮的固定宽
+    private var maxW: CGFloat {
+        isMemberMsg ? min(UIScreen.main.bounds.width * 0.72, 400) : min(UIScreen.main.bounds.width * 0.85, 480)
+    }
+    private var innerW: CGFloat { maxW - 24 }
+    private var fixedWidth: Bool {
+        let t = p.type ?? "text"
+        if isMemberMsg { return t == "image" || t == "video" }
+        return t == "image" || t == "video" || t == "sticker" || !(p.markup?.inlineKeyboard ?? []).isEmpty
+    }
+    private var bubbleTime: String { pendingLabel ?? fmtTime(p.createdAt) }
+    /// 还没发出去：上传失败 / 上传中 / 发送中
+    private var pendingLabel: String? {
+        if upload?.failed == true { return t("chat.upload.failed") }
+        if upload != nil { return t("chat.upload.uploading") }
+        return pending ? t("channel.sending") : nil
+    }
+    private var dimmed: Bool { pending && p.type != "image" }
+
+    @ViewBuilder var body: some View {
+        if isMemberMsg {
+            memberBubble
+        } else if fixedWidth {
+            card.frame(width: maxW)
+        } else {
+            card.fixedSize(horizontal: true, vertical: false)
+        }
+    }
+
+    private var card: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Color.clear.frame(width: 200, height: 0)
+            HStack(spacing: 8) {
+                AvatarView(url: byAuthor ? (p.senderAvatar ?? "") : (ch.avatar ?? ""), size: 26)
+                Text(byAuthor ? (p.senderNickname ?? "") : (ch.name ?? "")).font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                    .frame(maxWidth: innerW - 80, alignment: .leading)
+                Spacer(minLength: 8)
+                if canDelete && !pending {
+                    Button(t("common.delete"), action: onDelete)
+                        .font(.system(size: 12)).foregroundStyle(Theme.textDim)
+                        .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 12).padding(.top, 10)
+
+            postBody
+
+            if !(p.markup?.inlineKeyboard ?? []).isEmpty {
+                InlineKeyboardView(markup: p.markup, messageId: p.id).padding(.horizontal, 12)
+            }
+
+            HStack(alignment: .bottom, spacing: 8) {
+                reactionRows
+                Spacer(minLength: 0)
+                if pending {
+                    Text(pendingLabel ?? "").font(.system(size: 11)).foregroundStyle(upload?.failed == true ? Color.red : Theme.textDim)
+                } else {
+                    HStack(spacing: 3) {
+                        Image(systemName: "eye").font(.system(size: 10))
+                        Text("\(fmtCount(p.views ?? 0)) · \(fmtTime(p.createdAt))")
+                    }
+                    .font(.system(size: 11)).foregroundStyle(Theme.textDim)
+                    .fixedSize()
+                }
+            }
+            .padding(.horizontal, 12).padding(.top, 10).padding(.bottom, 8)
+
+            if picker {
+                HStack(spacing: 0) {
+                    ForEach(channelReactions, id: \.self) { e in
+                        Button {
+                            picker = false
+                            onReact(e)
+                        } label: {
+                            Text(e).font(.system(size: 20))
+                                .frame(width: 30, height: 30)
+                                .background(Circle().fill(p.myReaction == e ? Theme.bubbleMine : Color.clear))
+                                .frame(minWidth: 30, maxWidth: .infinity)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(6)
+                .background(Capsule().fill(Theme.bg2))
+                .padding(.horizontal, 12).padding(.bottom, 8)
+            }
+
+            if !pending {
+                Rectangle().fill(Theme.line).frame(height: 1)
+                Button(action: onComments) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "bubble.left").font(.system(size: 13))
+                        Text((p.commentCount ?? 0) > 0 ? t("channel.commentsN", ["n": p.commentCount ?? 0]) : t("channel.comments")).font(.system(size: 13))
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.system(size: 12)).foregroundStyle(Theme.textDim)
+                    }
+                    .foregroundStyle(Theme.accent)
+                    .padding(.horizontal, 12).padding(.vertical, 10)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .background(Theme.bg)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .opacity(dimmed ? 0.6 : 1)
+    }
+
+    @ViewBuilder private var postBody: some View {
+        switch p.type ?? "text" {
+        case "image":
+            ChatImageView(url: imageUrlOf(content), local: localImage)
+                .frame(maxWidth: .infinity).frame(height: 260)
+                .clipped()
+                .overlay(UploadOverlay(state: upload, sending: pending, onRetry: onRetry))
+                .contentShape(Rectangle())
+                .onTapGesture(perform: onMedia)
+                .padding(.top, 8)
+        case "video":
+            ZStack {
+                Color.black
+                if !content.isEmpty && upload == nil {
+                    Image(systemName: "play.circle.fill").font(.system(size: 48)).foregroundStyle(.white.opacity(0.85))
+                }
+            }
+            .frame(maxWidth: .infinity).frame(height: 200)
+            .overlay(UploadOverlay(state: upload, sending: pending, onRetry: onRetry))
+            .contentShape(Rectangle())
+            .onTapGesture { if !pending { onMedia() } }
+            .padding(.top, 8)
+        case "sticker":
+            if let s = StickerPayload.parse(content) {
+                StickerImageView(p: s, size: s.isGif ? 220 : 140).padding(.leading, 12).padding(.top, 10)
+            } else {
+                Text(t("channel.stickerPlaceholder")).font(.system(size: 15)).foregroundStyle(Theme.text).padding(.horizontal, 12).padding(.top, 8)
+            }
+        case "audio":
+            audioRow
+        case "file":
+            FileBubbleView(f: parseChatFile(content), state: upload, shape: RoundedRectangle(cornerRadius: 16), bg: Theme.bg3, onRetry: onRetry)
+                .padding(.leading, 12).padding(.top, 10)
+        case "location":
+            locationRow
+        case "payreq":
+            PayreqCardView(content: content, mine: p.senderId == state.user?.id, onPay: channelPay.map { f in { f(p) } })
+                .padding(.horizontal, 12).padding(.top, 8)
+        default:
+            LinkText(text: content)
+                .font(.system(size: 15)).foregroundStyle(Theme.text).lineSpacing(4)
+                .textSelection(.enabled)
+                .inAppLinks()
+                .frame(maxWidth: innerW, alignment: .leading)
+                .padding(.horizontal, 12).padding(.top, 8)
+        }
+    }
+
+    /// 订阅者的消息：普通聊天气泡，别人的带头像和名字；长按删除
+    private var memberBubble: some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            if !mine {
+                AvatarView(url: p.senderAvatar ?? "", size: 32)
+            }
+            sizedBubble
+        }
+    }
+
+    @ViewBuilder private var sizedBubble: some View {
+        if fixedWidth {
+            bubbleContent.frame(width: maxW)
+        } else {
+            bubbleContent.fixedSize(horizontal: true, vertical: false)
+        }
+    }
+
+    private var bubbleContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if !mine {
+                Text(p.senderNickname ?? "")
+                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.accent).lineLimit(1)
+                    .frame(maxWidth: innerW, alignment: .leading)
+                    .padding(.horizontal, 12).padding(.top, 7)
+            }
+            postBody
+            HStack(spacing: 0) {
+                Spacer(minLength: 0)
+                Text(bubbleTime).font(.system(size: 11)).foregroundStyle(Theme.textDim)
+            }
+            .padding(.horizontal, 10).padding(.top, 2).padding(.bottom, 6)
+        }
+        .background(mine ? Theme.bubbleMine : Theme.bg)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .opacity(dimmed ? 0.6 : 1)
+        .contextMenu {
+            if canDelete && !pending {
+                Button(role: .destructive, action: onDelete) {
+                    Label(t("common.delete"), systemImage: "trash")
+                }
+            }
+        }
+    }
+
+    /// 表情回应 chip，每行最多 4 个，避免把气泡撑宽
+    private var reactionRows: some View {
+        let rs = p.reactions ?? []
+        let rows = stride(from: 0, to: rs.count, by: 4).map { Array(rs[$0..<min($0 + 4, rs.count)]) }
+        return VStack(alignment: .leading, spacing: 6) {
+            ForEach(rows.indices, id: \.self) { i in
+                HStack(spacing: 6) {
+                    ForEach(rows[i], id: \.emoji) { r in
+                        chip("\(r.emoji) \(fmtCount(r.count ?? 0))", on: p.myReaction == r.emoji) { onReact(r.emoji) }
+                    }
+                    if i == rows.count - 1 && !pending { chip("☺+", on: false) { picker.toggle() } }
+                }
+            }
+            if rows.isEmpty && !pending { chip("☺+", on: false) { picker.toggle() } }
+        }
+    }
+
+    private var audioRow: some View {
+        let obj = parseJsonObject(content)
+        let url = obj?["url"] as? String ?? content
+        let dur = obj?["duration"] as? Int ?? 1
+        return Button {
+            voicePlaying = true
+            AudioPlayerBox.shared.play(url) { voicePlaying = false }
+        } label: {
+            HStack(spacing: 8) {
+                VoiceBars(playing: voicePlaying, color: Theme.text)
+                Text("\(dur)\"").font(.system(size: 14)).foregroundStyle(Theme.text)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 9)
+            .background(Capsule().fill(Theme.bg3))
+        }
+        .buttonStyle(.plain)
+        .padding(.leading, 12).padding(.top, 10)
+    }
+
+    private var locationRow: some View {
+        let obj = parseJsonObject(content)
+        let name = obj?["name"] as? String ?? t("channel.location")
+        let lat = obj?["lat"] as? Double
+        let lng = obj?["lng"] as? Double
+        return Button {
+            if let lat, let lng, let u = URL(string: "https://uri.amap.com/marker?position=\(lng),\(lat)") {
+                UIApplication.shared.open(u)
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "mappin.and.ellipse").font(.system(size: 14)).foregroundStyle(Theme.accent)
+                Text(name).font(.system(size: 15)).foregroundStyle(Theme.text)
+            }
+        }
+        .buttonStyle(.plain)
+        .padding(.leading, 12).padding(.top, 10)
+    }
+
+    private func chip(_ label: String, on: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label).font(.system(size: 13))
+                .foregroundStyle(on ? Theme.accent : Theme.text)
+                .padding(.horizontal, 9).padding(.vertical, 4)
+                .background(Capsule().fill(on ? Theme.bubbleMine : Theme.bg3))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - 频道页
+
+/// 频道页：订阅前也能预览；频道主底部是发帖栏，订阅者是静音开关，没订阅是「订阅」
+struct ChannelView: View {
+    let groupId: String
+    @EnvironmentObject var state: AppState
+    @Environment(\.dismiss) private var dismiss
+    @State private var ch: ChannelInfo?
+    @State private var loadError = ""
+    @State private var posts: [ChannelPost] = []
+    @State private var hasMore = false
+    @State private var stickBottom = true
+    @State private var input = ""
+    @State private var showSticker = false
+    @State private var showAttach = false
+    @State private var showInfo = false
+    @State private var deleteTarget: ChannelPost?
+    @State private var showDelete = false
+    /// 正在播删除动画（灰飞烟灭）的帖子 id
+    @State private var dying: Set<String> = []
+    @State private var media: MediaTarget?
+    @State private var toastMsg: String?
+    @State private var route: Route?
+    @State private var removeListener: (() -> Void)?
+    @State private var walletOk = false
+    @FocusState private var inputFocused: Bool
+    // 发图：本地预览、上传进度 / 失败、待传的原图（按 upKey）
+    @State private var localImages: [String: UIImage] = [:]
+    @State private var uploads: [String: UploadState] = [:]
+    @State private var upSources: [String: UploadSource] = [:]
+    /// 「文件」里选的视频 / 文件（按 upKey）：副本在临时目录，传完删掉
+    @State private var upPicked: [String: PickedChatFile] = [:]
+    @State private var showFilePicker = false
+    // 语音
+    @State private var voiceMode = false
+    @State private var recording = false
+    private let recorderBox = VoiceRecorder()
+
+    var body: some View {
+        Group {
+            if let c = ch {
+                content(c)
+            } else {
+                EmptyHint(text: loadError.isEmpty ? t("common.loading") : loadError)
+            }
+        }
+        .overlay {
+            if recording {
+                RecordingOverlay(recorder: recorderBox)
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: recording)
+        .fullBg()
+        .toast($toastMsg)
+        .navigationBarTitleDisplayMode(.inline)
+        .compatNavBarBackground(Theme.bg)
+        .toolbar {
+            ToolbarItem(placement: .principal) { header }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if ch != nil {
+                    Button { showInfo = true } label: {
+                        Image(systemName: "ellipsis").font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.text)
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showInfo) {
+            if let c = ch {
+                ChannelInfoSheet(ch: c, onChanged: { ch = $0 }, onExit: {
+                    showInfo = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { dismiss() }
+                })
+            }
+        }
+        .sheet(isPresented: $showAttach) {
+            AttachSheet(
+                isSingle: false,
+                canVideoCall: false,
+                canVoice: true,
+                canFile: true,
+                onClose: { showAttach = false },
+                onSendAssets: sendAttachAssets,
+                onSendDatas: sendAttachDatas,
+                onAction: handleAttach
+            )
+            .attachSheetDetents()
+            .compatSheetBackground(Theme.bg)
+        }
+        .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+            if case .success(let urls) = result { sendFiles(urls) }
+        }
+        .fullScreenCover(item: $media) { t in
+            MediaViewerView(groups: t.groups, initialGroup: t.group, initialIndex: t.index) { media = nil }
+        }
+        .alert(t("channel.deletePostTitle"), isPresented: $showDelete) {
+            Button(t("common.delete"), role: .destructive) { if let p = deleteTarget { deletePost(p) } }
+            Button(t("common.cancel"), role: .cancel) {}
+        } message: {
+            Text(t("channel.deletePostMsg"))
+        }
+        .routePush($route)
+        .task { await load() }
+        .task { walletOk = await ChainWallet.visible(state.user) }
+        .environment(\.channelPay, walletOk ? payPost : nil)
+        .onReceive(NotificationCenter.default.publisher(for: ChainWallet.resultNotification)) { n in
+            if let s = n.userInfo?["json"] as? String { onWalletResult(s) }
+        }
+        .onDisappear { removeListener?() }
+    }
+
+    private func payPost(_ p: ChannelPost) {
+        if let path = ChainCards.payreqPath(p.content ?? "", msgId: p.id, name: p.senderNickname ?? t("channel.title")) { route = .chainWalletPath(path) }
+    }
+
+    /// 付了频道里的收款消息：转账卡片私聊发给收款人（服务端按 req 决定）
+    private func onWalletResult(_ json: String) {
+        let r = ChainCards.obj(json)
+        guard r["kind"] as? String == "transfer", r["req"] != nil else { return }
+        toastMsg = t("chat.transfer.verifying")
+        Task { @MainActor in
+            do {
+                _ = try await ChainCards.postTransfer(targetId: "", resultJson: json)
+                toastMsg = t("channel.transferDone")
+            } catch {
+                toastMsg = t("chat.transfer.cardFailed", ["msg": error.localizedDescription])
+            }
+        }
+    }
+
+    private var header: some View {
+        Button { if ch != nil { showInfo = true } } label: {
+            HStack(spacing: 8) {
+                AvatarView(url: ch?.avatar, size: 32)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(ch?.name ?? t("channel.title")).font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                    if let c = ch {
+                        Text(t("channel.subscribers", ["n": fmtCount(c.subscribers ?? 0)])).font(.system(size: 11)).foregroundStyle(Theme.textSub)
+                    }
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func content(_ c: ChannelInfo) -> some View {
+        VStack(spacing: 0) {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 10) {
+                        if hasMore && !posts.isEmpty {
+                            Button { loadMore(proxy) } label: {
+                                Text(t("channel.olderPosts")).font(.system(size: 12)).foregroundStyle(Theme.textSub).padding(10)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        if posts.isEmpty {
+                            Text(c.sendable ? t("channel.emptyCanPost") : t("channel.emptyNoPosts"))
+                                .font(.system(size: 14)).foregroundStyle(Theme.textSub)
+                                .padding(.top, 80)
+                        }
+                        ForEach(posts, id: \.key) { p in
+                            DustOut(dying: dying.contains(p.id), onGone: { postGone(p.id) }) {
+                                ChannelPostCard(
+                                    ch: c, p: p, canDelete: c.canPost == true || p.senderId == state.user?.id,
+                                    onReact: { react(p, $0) },
+                                    onComments: { route = .channelComments(p.id, c.canPost == true) },
+                                    onMedia: { openMedia(p) },
+                                    onDelete: { deleteTarget = p; showDelete = true },
+                                    mine: isMine(p),
+                                    localImage: p.upKey.flatMap { localImages[$0] },
+                                    upload: p.upKey.flatMap { uploads[$0] },
+                                    onRetry: { if let k = p.upKey { retryUpload(k) } }
+                                )
+                            }
+                            .frame(maxWidth: .infinity, alignment: postAlignment(p))
+                            .id(p.key)
+                        }
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                }
+                .background(Theme.bg2)
+                .onTapGesture { showSticker = false; inputFocused = false }
+                .onChange(of: posts.count) { _ in
+                    guard stickBottom, let last = posts.last else { return }
+                    DispatchQueue.main.async { proxy.scrollTo(last.key, anchor: .bottom) }
+                }
+            }
+            bottomBar(c)
+        }
+    }
+
+    @ViewBuilder private func bottomBar(_ c: ChannelInfo) -> some View {
+        if c.sendable {
+            VStack(spacing: 0) {
+                HStack(alignment: .bottom, spacing: 8) {
+                    Button {
+                        voiceMode.toggle(); showSticker = false; inputFocused = false
+                    } label: {
+                        Image(systemName: voiceMode ? "keyboard" : "waveform")
+                            .font(.system(size: 17)).foregroundStyle(Theme.textSub)
+                            .frame(width: 40, height: 40)
+                            .background(Circle().fill(Theme.bg3))
+                    }
+                    .buttonStyle(.plain)
+                    if voiceMode {
+                        holdToTalk
+                    } else {
+                        CompatVerticalTextField(text: $input, prompt: Text(c.canPost == true ? t("channel.postHint") : t("channel.msgHint")).foregroundColor(Theme.textDim), lineRange: 1...6)
+                            .focused($inputFocused)
+                            .foregroundStyle(Theme.text)
+                            .padding(.horizontal, 14).padding(.vertical, 9)
+                            .background(RoundedRectangle(cornerRadius: 20).fill(Theme.bg3))
+                    }
+                    Button {
+                        inputFocused = false; voiceMode = false; showSticker.toggle()
+                    } label: {
+                        Image(systemName: "face.smiling")
+                            .font(.system(size: 19)).foregroundStyle(showSticker ? Theme.accent : Theme.textSub)
+                            .frame(width: 40, height: 40)
+                            .background(Circle().fill(showSticker ? Theme.bubbleMine : Theme.bg3))
+                    }
+                    .buttonStyle(.plain)
+                    Button {
+                        inputFocused = false; showSticker = false; showAttach = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 18)).foregroundStyle(Theme.textSub)
+                            .frame(width: 40, height: 40)
+                            .background(Circle().fill(Theme.bg3))
+                    }
+                    .buttonStyle(.plain)
+                    if !voiceMode && !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Button {
+                            sendRaw("text", input.trimmingCharacters(in: .whitespacesAndNewlines))
+                            input = ""
+                        } label: {
+                            Text(t("common.send")).font(.system(size: 14)).foregroundStyle(.white)
+                                .padding(.horizontal, 16).frame(height: 40)
+                                .background(Capsule().fill(Theme.accent))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(8)
+                if showSticker {
+                    EmojiPanel(
+                        onPick: { p in sendRaw("sticker", p.encoded()) },
+                        onEmoji: { input += $0 },
+                        onDelete: { input = dropLastGrapheme(input) },
+                        onKeyboard: { showSticker = false; inputFocused = true }
+                    )
+                }
+            }
+            .background(Theme.bg2)
+            .onChange(of: inputFocused) { f in if f { showSticker = false } }
+        } else {
+            Button {
+                if c.isMember == true { toggleMute(c) } else { subscribe() }
+            } label: {
+                Group {
+                    if c.isMember != true {
+                        Text(t("channel.subscribe")).font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.accent)
+                    } else {
+                        Text(c.muted == true ? t("channel.unmute") : t("channel.mute")).font(.system(size: 15)).foregroundStyle(Theme.text)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 15)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(Theme.bg2)
+        }
+    }
+
+    private var holdToTalk: some View {
+        Text(recording ? t("chat.releaseToSend") : t("chat.holdToTalk"))
+            .font(.system(size: 14))
+            .foregroundStyle(recording ? .white : Theme.text)
+            .frame(maxWidth: .infinity).frame(height: 40)
+            .background(Capsule().fill(recording ? Theme.accent : Theme.bg3))
+            .onLongPressGesture(minimumDuration: 60, maximumDistance: 80, pressing: { pressing in
+                if pressing { recording = true; recorderBox.start() }
+                else if recording { recording = false; finishRecording() }
+            }, perform: {})
+    }
+
+    private func finishRecording() {
+        guard let (data, dur) = recorderBox.stop() else { return }
+        Task { @MainActor in
+            do {
+                let url = try await Api.upload("audio", data: data, filename: "a.m4a", mime: "audio/m4a")
+                sendRaw("audio", "{\"url\":\"\(url)\",\"duration\":\(dur)}")
+            } catch {
+                toastMsg = error.localizedDescription
+            }
+        }
+    }
+
+    // MARK: 数据
+
+    private func load() async {
+        removeListener?()
+        do {
+            let c: ChannelInfo = try await Api.request("/im/channel/\(groupId)")
+            ch = c
+            let list: [ChannelPost] = (try? await Api.request("/im/channel/\(groupId)/posts")) ?? []
+            stickBottom = true
+            posts = list + posts.filter { p in !list.contains { $0.id == p.id } }
+            hasMore = list.count >= 30
+            if c.isMember == true, let conv = c.conversationId, let last = list.last {
+                WsClient.shared.markRead(conversationId: conv, msgId: last.id)
+            }
+        } catch {
+            loadError = (error as? ApiError)?.msg ?? t("channel.notFound")
+        }
+        WsClient.shared.connect()
+        removeListener = WsClient.shared.addListener { frame in handleFrame(frame) }
+    }
+
+    private func handleFrame(_ frame: [String: Any]) {
+        guard let conv = ch?.conversationId else { return }
+        let op = frame["op"] as? String
+        let data = frame["data"] as? [String: Any]
+        switch op {
+        case "msg":
+            guard let data,
+                  let json = try? JSONSerialization.data(withJSONObject: data),
+                  let m = try? JSONDecoder().decode(MessagePayload.self, from: json),
+                  m.conversationId == conv else { return }
+            if !posts.contains(where: { $0.id == m.id }) {
+                stickBottom = true
+                posts.append(ChannelPost(id: m.id, senderId: m.senderId, type: m.type, content: m.content, createdAt: m.createdAt, views: 1, markup: m.markup,
+                                         senderNickname: m.senderNickname, senderAvatar: m.senderAvatar, senderIsBot: m.senderIsBot,
+                                         memberMsg: m.memberMsg))
+            }
+            WsClient.shared.markRead(conversationId: conv, msgId: m.id)
+        case "ack":
+            guard let tempId = frameStr(frame["tempId"]), let msgId = frameStr(frame["msgId"]),
+                  let idx = posts.firstIndex(where: { $0.tempId == tempId }) else { return }
+            posts[idx].id = msgId
+            posts[idx].pending = false
+            if let at = frameStr(frame["createdAt"]) { posts[idx].createdAt = at }
+        case "error":
+            guard let tempId = frameStr(frame["tempId"]),
+                  let idx = posts.firstIndex(where: { $0.pending == true && $0.tempId == tempId }) else { return }
+            posts.remove(at: idx)
+            toastMsg = frame["msg"] as? String ?? t("channel.sendFailed")
+        case "channel_stats":
+            guard let data, frameStr(data["conversationId"]) == conv, let id = frameStr(data["msgId"]),
+                  let idx = posts.firstIndex(where: { $0.id == id }) else { return }
+            let raw = data["reactions"] as? [[String: Any]] ?? []
+            posts[idx].reactions = raw.compactMap { r -> ChannelReaction? in
+                guard let e = r["emoji"] as? String else { return nil }
+                return ChannelReaction(emoji: e, count: r["count"] as? Int ?? 0)
+            }
+            posts[idx].commentCount = data["commentCount"] as? Int ?? 0
+        case "channel_post_deleted", "msg_delete":
+            guard let data, frameStr(data["conversationId"]) == conv, let id = frameStr(data["msgId"]) else { return }
+            removePosts([id])
+        case "channel_purged":
+            guard let data, frameStr(data["conversationId"]) == conv, let max = Int64(frameStr(data["maxId"]) ?? "") else { return }
+            removePosts(Set(posts.filter { $0.pending != true && (Int64($0.id) ?? Int64.max) <= max }.map(\.id)))
+        case "msg_edit":
+            guard let data, frameStr(data["conversationId"]) == conv, let id = frameStr(data["msgId"]),
+                  let idx = posts.firstIndex(where: { $0.id == id }) else { return }
+            if let c = data["content"] as? String { posts[idx].content = c }
+            posts[idx].markup = InlineMarkup.from(data["markup"])
+        case "channel_info":
+            // 频道主开关了「订阅者可发消息」：重新拉资料，输入框跟着出现 / 收起
+            guard let data, frameStr(data["groupId"]) == groupId else { return }
+            Task { @MainActor in
+                if let c: ChannelInfo = try? await Api.request("/im/channel/\(groupId)") { ch = c }
+            }
+        default:
+            break
+        }
+    }
+
+    private func loadMore(_ proxy: ScrollViewProxy) {
+        guard let first = posts.first(where: { $0.pending != true }) else { return }
+        stickBottom = false
+        Task {
+            let older: [ChannelPost] = (try? await Api.request("/im/channel/\(groupId)/posts?beforeId=\(first.id)")) ?? []
+            hasMore = older.count >= 30
+            posts.insert(contentsOf: older, at: 0)
+            DispatchQueue.main.async { proxy.scrollTo(first.key, anchor: .top) }
+        }
+    }
+
+    private func isMine(_ p: ChannelPost) -> Bool {
+        p.senderId == state.user?.id
+    }
+
+    /// 订阅者自己发的消息靠右，其余（频道帖子、别人的消息）靠左
+    private func postAlignment(_ p: ChannelPost) -> Alignment {
+        if p.memberMsg == true && isMine(p) { return .trailing }
+        return .leading
+    }
+
+    private func sendRaw(_ type: String, _ content: String) {
+        guard let c = ch else { return }
+        stickBottom = true
+        let tempId = WsClient.shared.send(convType: 2, targetId: c.id, msgType: type, content: content)
+        posts.append(ChannelPost(
+            id: tempId, senderId: state.user?.id ?? "", type: type, content: content,
+            createdAt: ISO8601DateFormatter().string(from: Date()), views: 1, tempId: tempId, pending: true,
+            senderNickname: state.user?.nickname, senderAvatar: state.user?.avatar,
+            memberMsg: c.canPost != true
+        ))
+    }
+
+    // MARK: 发图：选好立刻显示（本地预览 + 进度圈），后台上传，按选择顺序发出
+
+    private func sendAttachAssets(_ assets: [PHAsset], caption: String) {
+        showAttach = false
+        let items: [(String, UploadSource, Int, Int)] = assets.map { a in
+            ("local_\(UUID().uuidString.prefix(12))", UploadSource.asset(a), a.pixelWidth, a.pixelHeight)
+        }
+        startImageSend(items, caption: caption)
+        for (i, a) in assets.enumerated() {
+            let key = items[i].0
+            Task { @MainActor in
+                if localImages[key] == nil, let img = await AttachMedia.preview(a) { localImages[key] = img }
+            }
+        }
+    }
+
+    private func sendAttachDatas(_ datas: [Data], caption: String) {
+        showAttach = false
+        var items: [(String, UploadSource, Int, Int)] = []
+        for d in datas {
+            let key = "local_\(UUID().uuidString.prefix(12))"
+            let img = UIImage(data: d)
+            if let img { localImages[key] = img }
+            items.append((key, UploadSource.data(d), Int(img?.size.width ?? 0), Int(img?.size.height ?? 0)))
+        }
+        startImageSend(items, caption: caption)
+    }
+
+    /// items：(upKey, 原图, 宽, 高)
+    private func startImageSend(_ items: [(String, UploadSource, Int, Int)], caption: String) {
+        guard let c = ch, !items.isEmpty else { return }
+        stickBottom = true
+        let g: String? = items.count > 1 ? newAlbumId() : nil
+        let now = ISO8601DateFormatter().string(from: Date())
+        for it in items {
+            upSources[it.0] = it.1
+            uploads[it.0] = UploadState()
+            posts.append(ChannelPost(
+                id: it.0, senderId: state.user?.id ?? "", type: "image", content: imageContent("", g: g, w: it.2, h: it.3),
+                createdAt: now, views: 1, pending: true,
+                senderNickname: state.user?.nickname, senderAvatar: state.user?.avatar,
+                memberMsg: c.canPost != true, upKey: it.0
+            ))
+        }
+        let keys = items.map { $0.0 }
+        let text = caption.trimmingCharacters(in: .whitespacesAndNewlines)
+        Task { @MainActor in
+            await uploadInOrder(keys, upload: { k in await uploadOne(k) }, send: { k, url in
+                if let tid = sendUploaded(k, url) { _ = await awaitAck(tid) }
+            })
+            if !text.isEmpty { sendRaw("text", text) }
+        }
+    }
+
+    @MainActor
+    private func uploadOne(_ key: String) async -> String? {
+        guard let src = upSources[key] else { return nil }
+        uploads[key] = UploadState()
+        var data: Data?
+        switch src {
+        case .data(let d): data = d
+        case .asset(let a): data = await AttachMedia.jpegData(a)
+        }
+        guard let data else {
+            uploads[key] = UploadState(progress: 0, failed: true)
+            return nil
+        }
+        if localImages[key] == nil, let img = UIImage(data: data) { localImages[key] = img }
+        do {
+            let url = try await Api.upload("image", data: data, filename: "img.jpg", mime: "image/jpeg", progress: { p in
+                if let s = uploads[key], !s.failed { uploads[key] = UploadState(progress: p, failed: false) }
+            })
+            uploads[key] = nil
+            return url
+        } catch {
+            uploads[key] = UploadState(progress: 0, failed: true)
+            return nil
+        }
+    }
+
+    @MainActor @discardableResult
+    private func sendUploaded(_ key: String, _ url: String) -> String? {
+        guard let c = ch, let idx = posts.firstIndex(where: { $0.upKey == key }) else { return nil }
+        let meta = parseImage(posts[idx].content ?? "")
+        let content = imageContent(url, g: meta.g, w: meta.w, h: meta.h)
+        let tempId = WsClient.shared.send(convType: 2, targetId: c.id, msgType: "image", content: content)
+        posts[idx].id = tempId
+        posts[idx].tempId = tempId
+        posts[idx].content = content
+        upSources[key] = nil
+        return tempId
+    }
+
+    private func retryUpload(_ key: String) {
+        Task { @MainActor in
+            let type = posts.first(where: { $0.upKey == key })?.type
+            if type == "file" || type == "video" {
+                if let c = await uploadPicked(key) { sendPicked(key, c) }
+                return
+            }
+            if let url = await uploadOne(key) { sendUploaded(key, url) }
+        }
+    }
+
+    // MARK: 「文件」里选的：图片走发图，音频按语音发，视频 / 文件立刻显示带进度的占位，按顺序一个个传
+
+    private func sendFiles(_ urls: [URL]) {
+        guard let c = ch, !urls.isEmpty else { return }
+        Task { @MainActor in
+            let picked = await Task.detached { urls.map(prepareChatFile) }.value
+            if let bad = picked.first(where: { $0.copy == nil }) {
+                toastMsg = bad.size == 0 || bad.size > Api.fileMaxSize
+                    ? t(bad.size == 0 ? "chat.file.empty" : "chat.file.tooLarge", ["name": bad.name])
+                    : t("common.uploadFailed")
+            }
+            let ok = picked.filter { $0.copy != nil }
+            guard !ok.isEmpty else { return }
+            stickBottom = true
+
+            let images = ok.filter { $0.kind == .image }
+            let datas = images.compactMap { f in f.copy.flatMap { UIImage(contentsOfFile: $0.path)?.attachJPEG() } }
+            images.forEach { if let cp = $0.copy { removeChatFileCopy(cp) } }
+            if !datas.isEmpty { sendAttachDatas(datas, caption: "") }
+
+            let now = ISO8601DateFormatter().string(from: Date())
+            var keys: [String] = []
+            for f in ok where f.kind == .video || f.kind == .file {
+                let key = "local_\(UUID().uuidString.prefix(12))"
+                keys.append(key)
+                upPicked[key] = f
+                uploads[key] = UploadState()
+                let video = f.kind == .video
+                posts.append(ChannelPost(
+                    id: key, senderId: state.user?.id ?? "", type: video ? "video" : "file",
+                    content: video ? "" : chatFileContent(name: f.name, size: f.size, mime: f.mime),
+                    createdAt: now, views: 1, pending: true,
+                    senderNickname: state.user?.nickname, senderAvatar: state.user?.avatar,
+                    memberMsg: c.canPost != true, upKey: key
+                ))
+            }
+
+            for a in ok where a.kind == .audio {
+                guard let src = a.copy else { continue }
+                do {
+                    let url = try await Api.uploadFromFile("audio", fileURL: src, name: a.name, mime: a.mime)
+                    sendRaw("audio", "{\"url\":\"\(url)\",\"duration\":\(a.duration)}")
+                } catch {
+                    toastMsg = error.localizedDescription
+                }
+                removeChatFileCopy(src)
+            }
+            for key in keys {
+                if let content = await uploadPicked(key), let tid = sendPicked(key, content) { _ = await awaitAck(tid) }
+            }
+        }
+    }
+
+    /// 传完返回帖子 content：视频是地址，文件是 { url, name, size, mime }
+    @MainActor
+    private func uploadPicked(_ key: String) async -> String? {
+        guard let f = upPicked[key], let src = f.copy, let p = posts.first(where: { $0.upKey == key }) else { return nil }
+        uploads[key] = UploadState()
+        let onProgress: (Double) -> Void = { v in
+            if let s = uploads[key], !s.failed { uploads[key] = UploadState(progress: v, failed: false) }
+        }
+        do {
+            let content: String
+            if p.type == "video" {
+                content = try await Api.uploadFromFile("video", fileURL: src, name: f.name, mime: f.mime, progress: onProgress)
+            } else {
+                let r = try await Api.uploadChatFile(src, name: f.name, mime: f.mime, progress: onProgress)
+                content = chatFileContent(name: r.name, size: r.size, mime: r.mime, url: r.url)
+            }
+            uploads[key] = nil
+            return content
+        } catch {
+            uploads[key] = UploadState(progress: 0, failed: true)
+            toastMsg = error.localizedDescription
+            return nil
+        }
+    }
+
+    @MainActor @discardableResult
+    private func sendPicked(_ key: String, _ content: String) -> String? {
+        guard let c = ch, let idx = posts.firstIndex(where: { $0.upKey == key }) else { return nil }
+        let tempId = WsClient.shared.send(convType: 2, targetId: c.id, msgType: posts[idx].type ?? "file", content: content)
+        posts[idx].id = tempId
+        posts[idx].tempId = tempId
+        posts[idx].content = content
+        if let copy = upPicked.removeValue(forKey: key)?.copy { removeChatFileCopy(copy) }
+        return tempId
+    }
+
+    private func handleAttach(_ action: AttachAction) {
+        showAttach = false
+        if case .voice = action { voiceMode = true; showSticker = false; return }
+        if case .file = action {
+            // 等弹框收起再弹文件选择器，两层同时切换会丢一个
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { showFilePicker = true }
+            return
+        }
+        guard case .location = action else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            toastMsg = t("chat.locating")
+            CityLocator.shared.currentLocation { loc, addr in
+                DispatchQueue.main.async {
+                    // 没拿到位置就提示，不发 0,0
+                    guard let loc else { toastMsg = t("msg.locFailed"); return }
+                    let dict: [String: Any] = [
+                        "name": (addr?.isEmpty == false) ? addr! : t("chat.myLocation"),
+                        "lat": loc.coordinate.latitude,
+                        "lng": loc.coordinate.longitude,
+                    ]
+                    if let d = try? JSONSerialization.data(withJSONObject: dict), let s = String(data: d, encoding: .utf8) {
+                        sendRaw("location", s)
+                    }
+                }
+            }
+        }
+    }
+
+    private func react(_ p: ChannelPost, _ emoji: String) {
+        Task {
+            struct R: Codable { var reactions: [ChannelReaction]? = []; var myReaction: String? = nil }
+            do {
+                let r: R = try await Api.request("/im/channel/posts/\(p.id)/react", method: "POST", body: ["emoji": emoji])
+                if let idx = posts.firstIndex(where: { $0.id == p.id }) {
+                    posts[idx].reactions = r.reactions ?? []
+                    posts[idx].myReaction = r.myReaction
+                }
+            } catch {
+                toastMsg = error.localizedDescription
+            }
+        }
+    }
+
+    private func subscribe() {
+        Task {
+            do {
+                let n: ChannelInfo = try await Api.request("/im/channel/\(groupId)/subscribe", method: "POST")
+                ch = n
+                if let conv = n.conversationId, let last = posts.last(where: { $0.pending != true }) {
+                    WsClient.shared.markRead(conversationId: conv, msgId: last.id)
+                }
+            } catch {
+                toastMsg = error.localizedDescription
+            }
+        }
+    }
+
+    private func toggleMute(_ c: ChannelInfo) {
+        Task {
+            struct R: Codable { var muted: Bool? }
+            do {
+                let r: R = try await Api.request("/im/channel/\(groupId)/mute", method: "POST", body: ["muted": !(c.muted ?? false)])
+                ch?.muted = r.muted ?? false
+            } catch {
+                toastMsg = error.localizedDescription
+            }
+        }
+    }
+
+    private func deletePost(_ p: ChannelPost) {
+        Task {
+            do {
+                let _: ChannelOkResp = try await Api.request("/im/channel/posts/\(p.id)/delete", method: "POST")
+                removePosts([p.id])
+            } catch {
+                toastMsg = error.localizedDescription
+            }
+        }
+    }
+
+    /// 播完灰飞烟灭再从列表移掉；不在屏幕上的（LazyVStack 没渲染）2 秒后兜底移除
+    private func removePosts(_ ids: Set<String>) {
+        let todo = ids.subtracting(dying)
+        guard !todo.isEmpty else { return }
+        dying.formUnion(todo)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            posts.removeAll { todo.contains($0.id) }
+            dying.subtract(todo)
+        }
+    }
+
+    private func postGone(_ id: String) {
+        posts.removeAll { $0.id == id }
+        dying.remove(id)
+    }
+
+    private func openMedia(_ p: ChannelPost) {
+        guard p.pending != true else { return }
+        let list = posts.filter { $0.pending != true && ($0.type == "image" || $0.type == "video") }
+        let groups = list.map { x in
+            [MediaItemModel(type: x.type ?? "image", url: Api.fullUrl(x.type == "image" ? imageUrlOf(x.content ?? "") : (x.content ?? "")), cover: nil)]
+        }
+        media = MediaTarget(groups: groups, group: list.firstIndex(where: { $0.id == p.id }) ?? 0, index: 0)
+    }
+}
+
+// MARK: - 频道资料
+
+/// 「订阅者可发消息」开关：创建页和频道资料里共用
+private struct MemberPostToggle: View {
+    let isOn: Bool
+    let onChange: (Bool) -> Void
+
+    var body: some View {
+        Toggle(isOn: Binding(get: { isOn }, set: { onChange($0) })) {
+            Text(t("channel.memberPost")).font(.system(size: 15)).foregroundStyle(Theme.text)
+        }
+        .tint(Theme.accent)
+        .padding(.vertical, 8)
+    }
+}
+
+/// 频道资料：头像 / 名称 / 简介（频道主可改）、订阅数、分享、静音、退订 / 删除
+private struct ChannelInfoSheet: View {
+    let ch: ChannelInfo
+    var onChanged: (ChannelInfo) -> Void
+    var onExit: () -> Void
+    @State private var editing = false
+    @State private var name = ""
+    @State private var desc = ""
+    @State private var showShare = false
+    @State private var confirmLeave = false
+    @State private var showBots = false
+    @State private var confirmClear = false
+    @State private var toastMsg: String?
+
+    private var owner: Bool { ch.role == "owner" }
+    private var retentionTip: String { t("channel.retentionTip", ["n": ch.retentionDays ?? 0]) }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                if ch.canPost == true {
+                    CompatPhotoPicker(kind: .images, onPicked: { datas in
+                        guard let data = datas.first else { return }
+                        Task {
+                            if let url = try? await Api.upload("image", data: data, filename: "c.jpg", mime: "image/jpeg") {
+                                save(["avatar": url])
+                            } else {
+                                toastMsg = t("channel.uploadFailed")
+                            }
+                        }
+                    }) {
+                        AvatarView(url: ch.avatar, size: 72)
+                    }
+                } else {
+                    AvatarView(url: ch.avatar, size: 72)
+                }
+
+                if editing {
+                    TextField("", text: $name, prompt: Text(t("channel.name")).foregroundColor(Theme.textDim))
+                        .foregroundStyle(Theme.text)
+                        .padding(12)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.bg2))
+                        .padding(.top, 14)
+                        .onChange(of: name) { v in if v.count > 50 { name = String(v.prefix(50)) } }
+                    CompatVerticalTextField(text: $desc, prompt: Text(t("channel.desc")).foregroundColor(Theme.textDim), lineRange: 3...6)
+                        .foregroundStyle(Theme.text)
+                        .padding(12)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.bg2))
+                        .padding(.top, 8)
+                        .onChange(of: desc) { v in if v.count > 500 { desc = String(v.prefix(500)) } }
+                    HStack(spacing: 20) {
+                        Spacer()
+                        Button(t("common.cancel")) { editing = false }.font(.system(size: 14)).foregroundStyle(Theme.textSub)
+                        Button(t("common.save")) { save(["name": name, "description": desc]) }
+                            .font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.accent)
+                    }
+                    .padding(.top, 14)
+                } else {
+                    Text(ch.name ?? "").font(.system(size: 18, weight: .bold)).foregroundStyle(Theme.text).padding(.top, 10)
+                    Text(t("channel.subscribersOwner", ["n": fmtCount(ch.subscribers ?? 0), "name": ch.owner?.nickname ?? ""]))
+                        .font(.system(size: 12)).foregroundStyle(Theme.textSub).padding(.top, 4)
+                    if let d = ch.description, !d.isEmpty {
+                        Text(d).font(.system(size: 14)).foregroundStyle(Theme.text).lineSpacing(5)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, 12)
+                    }
+                    if (ch.retentionDays ?? 0) > 0 {
+                        Text(retentionTip).font(.system(size: 12)).foregroundStyle(Theme.textSub).padding(.top, 10)
+                    }
+                    Rectangle().fill(Theme.line).frame(height: 1).padding(.top, 16)
+                    if ch.canPost == true {
+                        menuRow(t("channel.editInfo")) { name = ch.name ?? ""; desc = ch.description ?? ""; editing = true }
+                        MemberPostToggle(isOn: ch.memberPost == true) { save(["memberPost": $0]) }
+                    }
+                    if ch.isMember == true {
+                        menuRow(t("channel.shareMenu")) { showShare = true }
+                    }
+                    if owner {
+                        menuRow(t("channel.botsMenu")) { showBots = true }
+                    }
+                    if ch.isMember == true && !owner {
+                        menuRow(ch.muted == true ? t("channel.unmute") : t("channel.mute")) { toggleMute() }
+                    }
+                    if owner {
+                        menuRow(t("channel.clearAll"), color: Theme.danger) { confirmClear = true }
+                    }
+                    if ch.isMember == true {
+                        menuRow(owner ? t("channel.delete") : t("channel.unsubscribe"), color: Theme.danger) { confirmLeave = true }
+                    }
+                }
+            }
+            .padding(.horizontal, 20).padding(.vertical, 24)
+        }
+        .background(Theme.bg)
+        .toast($toastMsg)
+        .sheet(isPresented: $showShare) {
+            GroupShareSheet(groupId: ch.id, channel: true)
+        }
+        .sheet(isPresented: $showBots) {
+            AddBotSheet(groupId: ch.id, channel: true)
+        }
+        .alert(owner ? t("channel.deleteTitle") : t("channel.unsubscribeTitle"), isPresented: $confirmLeave) {
+            Button(owner ? t("common.delete") : t("channel.unsubscribe"), role: .destructive) { leave() }
+            Button(t("common.cancel"), role: .cancel) {}
+        } message: {
+            Text(owner ? t("channel.deleteMsg") : t("channel.unsubscribeMsg"))
+        }
+        .alert(t("channel.clearAllTitle"), isPresented: $confirmClear) {
+            Button(t("chat.clear"), role: .destructive) { clearAll() }
+            Button(t("common.cancel"), role: .cancel) {}
+        } message: {
+            Text(t("channel.clearAllMsg"))
+        }
+    }
+
+    private func clearAll() {
+        Task {
+            do {
+                let r: ClearResp = try await Api.request("/im/channel/\(ch.id)/clear", method: "POST")
+                toastMsg = (r.deleted ?? 0) > 0 ? t("channel.clearedN", ["n": r.deleted ?? 0]) : t("channel.noMessages")
+            } catch {
+                toastMsg = error.localizedDescription
+            }
+        }
+    }
+
+    private func menuRow(_ label: String, color: Color = Theme.text, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label).font(.system(size: 15)).foregroundStyle(color)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 14)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func save(_ body: [String: Any]) {
+        Task {
+            do {
+                let n: ChannelInfo = try await Api.request("/im/channel/\(ch.id)", method: "PUT", body: body)
+                onChanged(n)
+                editing = false
+            } catch {
+                toastMsg = error.localizedDescription
+            }
+        }
+    }
+
+    private func toggleMute() {
+        Task {
+            struct R: Codable { var muted: Bool? }
+            if let r: R = try? await Api.request("/im/channel/\(ch.id)/mute", method: "POST", body: ["muted": !(ch.muted ?? false)]) {
+                var n = ch
+                n.muted = r.muted ?? false
+                onChanged(n)
+            }
+        }
+    }
+
+    private func leave() {
+        Task {
+            do {
+                let _: ChannelOkResp = try await Api.request("/im/channel/\(ch.id)/\(owner ? "delete" : "unsubscribe")", method: "POST")
+                onExit()
+            } catch {
+                toastMsg = error.localizedDescription
+            }
+        }
+    }
+}
+
+// MARK: - 评论
+
+/// 帖子评论：任何登录用户都能评，可带贴纸、可回复某条
+struct ChannelCommentsView: View {
+    let msgId: String
+    let canAdmin: Bool
+    @EnvironmentObject var state: AppState
+    @State private var list: [CommentItem]?
+    @State private var input = ""
+    @State private var replyTo: CommentItem?
+    /// 待发的贴纸：点贴纸先挂到输入栏，再点发送
+    @State private var sticker: StickerPayload?
+    @State private var showSticker = false
+    @State private var sending = false
+    @State private var deleteTarget: CommentItem?
+    @State private var showDelete = false
+    @State private var toastMsg: String?
+    @State private var route: Route?
+    @FocusState private var inputFocused: Bool
+
+    private var canSend: Bool {
+        !sending && (!input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || sticker != nil)
+    }
+
+    private var commentPrompt: String {
+        guard let r = replyTo else { return t("channel.commentPlaceholder") }
+        return t("channel.replyPlaceholder", ["name": r.user?.nickname ?? ""])
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Group {
+                if let items = list {
+                    if items.isEmpty {
+                        EmptyHint(text: t("channel.noComments"))
+                    } else {
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 0) {
+                                ForEach(items) { c in commentRow(c) }
+                                Color.clear.frame(height: 12)
+                            }
+                            .padding(.horizontal, 14)
+                        }
+                    }
+                } else {
+                    EmptyHint(text: t("common.loading"))
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { showSticker = false; inputFocused = false }
+
+            if replyTo != nil || sticker != nil {
+                HStack(spacing: 10) {
+                    if let s = sticker { PendingStickerChip(p: s) { sticker = nil } }
+                    if let r = replyTo {
+                        Text(t("channel.replyTo", ["name": r.user?.nickname ?? ""])).font(.system(size: 12)).foregroundStyle(Theme.accent)
+                        Spacer()
+                        Button(t("common.cancel")) { replyTo = nil }.font(.system(size: 12)).foregroundStyle(Theme.textSub)
+                    } else {
+                        Spacer()
+                    }
+                }
+                .padding(.horizontal, 16).padding(.vertical, 6)
+            }
+
+            VStack(spacing: 0) {
+                HStack(spacing: 10) {
+                    Button {
+                        inputFocused = false; showSticker.toggle()
+                    } label: {
+                        Image(systemName: "face.smiling")
+                            .font(.system(size: 18)).foregroundStyle(showSticker ? Theme.accent : Theme.textSub)
+                            .frame(width: 36, height: 36)
+                            .background(Circle().fill(showSticker ? Theme.bubbleMine : Theme.bg3))
+                    }
+                    .buttonStyle(.plain)
+                    CompatVerticalTextField(
+                        text: $input,
+                        prompt: Text(commentPrompt).foregroundColor(Theme.textSub),
+                        lineRange: 1...4
+                    )
+                    .focused($inputFocused)
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    .background(RoundedRectangle(cornerRadius: 20).fill(Theme.bg3))
+                    .foregroundStyle(Theme.text)
+                    .onChange(of: input) { v in if v.count > 500 { input = String(v.prefix(500)) } }
+                    Button(sending ? t("channel.sendingShort") : t("common.send")) { send() }
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(canSend ? Theme.accent : Theme.textDim)
+                        .disabled(!canSend)
+                }
+                .padding(12)
+                if showSticker {
+                    EmojiPanel(onPick: { sticker = $0 }, onEmoji: { input += $0 }, onDelete: { input = dropLastGrapheme(input) }, onKeyboard: { showSticker = false; inputFocused = true })
+                }
+            }
+            .background(Theme.bg2)
+            .onChange(of: inputFocused) { f in if f { showSticker = false } }
+        }
+        .fullBg()
+        .navigationTitle(list.map { t("channel.commentsN", ["n": $0.count]) } ?? t("channel.comments"))
+        .navigationBarTitleDisplayMode(.inline)
+        .compatNavBarBackground(Theme.bg)
+        .alert(t("channel.deleteCommentConfirm"), isPresented: $showDelete) {
+            Button(t("common.delete"), role: .destructive) { if let c = deleteTarget { remove(c) } }
+            Button(t("common.cancel"), role: .cancel) {}
+        }
+        .toast($toastMsg)
+        .routePush($route)
+        .task { await load() }
+    }
+
+    private func commentRow(_ c: CommentItem) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Button { if let id = c.user?.id, !id.isEmpty { route = .userHome(id) } } label: {
+                AvatarView(url: c.user?.avatar, size: 34)
+            }
+            .buttonStyle(.plain)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 8) {
+                    Text(c.user?.nickname ?? t("treehole.user")).font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                    Text(fmtTime(c.createdAt)).font(.system(size: 11)).foregroundStyle(Theme.textDim)
+                    Spacer(minLength: 0)
+                    Button(t("channel.reply")) { replyTo = c; inputFocused = true }
+                        .font(.system(size: 12)).foregroundStyle(Theme.accent)
+                        .buttonStyle(.plain)
+                    if c.user?.id == state.user?.id || canAdmin {
+                        Button(t("common.delete")) { deleteTarget = c; showDelete = true }
+                            .font(.system(size: 12)).foregroundStyle(Theme.textDim)
+                            .buttonStyle(.plain)
+                    }
+                }
+                let text = c.content ?? ""
+                let reply = c.replyToNickname ?? ""
+                if !text.isEmpty || !reply.isEmpty {
+                    (
+                        Text(reply.isEmpty ? "" : "@\(reply) ").foregroundColor(Theme.accent)
+                        + Text(linkified(text)).foregroundColor(Theme.text)
+                    )
+                    .font(.system(size: 14)).lineSpacing(3)
+                    .tint(botBlue)
+                    .inAppLinks()
+                    .padding(.top, 3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                if let s = c.sticker {
+                    StickerImageView(p: s, size: s.isGif ? 160 : 96).padding(.top, 6)
+                }
+                Divider().overlay(Theme.line).padding(.top, 12)
+            }
+        }
+        .padding(.top, 12)
+    }
+
+    private func load() async {
+        list = (try? await Api.request("/im/channel/posts/\(msgId)/comments")) ?? (list ?? [])
+    }
+
+    private func send() {
+        let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard canSend else { return }
+        sending = true
+        let picked = sticker
+        Task {
+            struct IdResp: Codable { var id: String? }
+            var body: [String: Any] = ["content": text]
+            if let r = replyTo { body["replyToId"] = r.id }
+            if let picked { body["stickerId"] = picked.id }
+            do {
+                let _: IdResp = try await Api.request("/im/channel/posts/\(msgId)/comments", method: "POST", body: body)
+                input = ""
+                replyTo = nil
+                sticker = nil
+                showSticker = false
+                await load()
+            } catch {
+                toastMsg = error.localizedDescription
+            }
+            sending = false
+        }
+    }
+
+    private func remove(_ c: CommentItem) {
+        Task {
+            do {
+                let _: ChannelOkResp = try await Api.request("/im/channel/comments/\(c.id)/delete", method: "POST")
+                list?.removeAll { $0.id == c.id }
+            } catch {
+                toastMsg = error.localizedDescription
+            }
+        }
+    }
+}
+
+// MARK: - 创建
+
+private struct ClearResp: Decodable {
+    var deleted: Int?
+}
+
+private struct ChannelQuota: Decodable {
+    var owned: Int
+    var limit: Int
+}
+
+/// 创建频道
+struct CreateChannelView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var desc = ""
+    @State private var avatar = ""
+    @State private var memberPost = false
+
+    private var createHint: String {
+        memberPost
+            ? t("channel.memberPostOnCaption")
+            : t("channel.memberPostOffCaption")
+    }
+    private var avatarTip: String { avatar.isEmpty ? t("channel.setAvatar") : t("channel.changeAvatar") }
+    @State private var quota: ChannelQuota?
+    private var left: Int? { quota.map { max(0, $0.limit - $0.owned) } }
+    private var quotaText: String {
+        guard let q = quota else { return "" }
+        if left == 0 { return t("channel.quotaFull", ["n": q.limit]) }
+        return t("channel.quotaLeft", ["left": left ?? 0, "n": q.limit])
+    }
+    private var submitTitle: String { busy ? t("channel.pleaseWait") : t("channel.createSubmit") }
+    private static let groupBg = Color(red: 0.949, green: 0.949, blue: 0.969)
+    @State private var busy = false
+    @State private var toastMsg: String?
+    @State private var route: Route?
+    @State private var created = false
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                avatarPicker
+                fieldsGroup
+                caption(t("channel.descCaption"))
+                memberPostGroup
+                caption(createHint)
+                if quota != nil {
+                    Text(quotaText)
+                        .font(.system(size: 12)).foregroundStyle(Theme.textSub)
+                        .frame(maxWidth: .infinity)
+                        .padding(.bottom, 10)
+                }
+                AccentButton(title: submitTitle, enabled: !busy && !name.trimmingCharacters(in: .whitespaces).isEmpty && left != 0) {
+                    create()
+                }
+                .padding(.top, 4)
+            }
+            .padding(16)
+        }
+        .task { quota = try? await Api.request("/im/channel/quota") }
+        .background(Self.groupBg.ignoresSafeArea())
+        .navigationTitle(t("channel.newTitle"))
+        .navigationBarTitleDisplayMode(.inline)
+        .compatNavBarBackground(Theme.bg)
+        .toast($toastMsg)
+        .routePush($route)
+        // 从新频道返回时直接回到上一页，不停在已提交的表单
+        .onChange(of: route) { r in if r == nil && created { dismiss() } }
+    }
+
+    private var avatarPicker: some View {
+        CompatPhotoPicker(kind: .images, onPicked: { datas in upload(datas.first) }) {
+            VStack(spacing: 8) {
+                avatarCircle
+                Text(avatarTip).font(.system(size: 14)).foregroundStyle(Theme.accent)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 8).padding(.bottom, 18)
+    }
+
+    private var avatarCircle: some View {
+        ZStack(alignment: .bottomTrailing) {
+            ZStack {
+                Circle().fill(Theme.accentGrad)
+                avatarInner
+                if busy {
+                    Circle().fill(Color.black.opacity(0.45))
+                    Text(t("channel.uploading")).font(.system(size: 12)).foregroundStyle(Color.white)
+                }
+            }
+            .frame(width: 88, height: 88)
+            .clipShape(Circle())
+            .shadow(color: Theme.accent.opacity(0.25), radius: 8, x: 0, y: 4)
+            Image(systemName: "camera.fill")
+                .font(.system(size: 12)).foregroundStyle(Theme.accent)
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(Color.white))
+                .shadow(color: Color.black.opacity(0.15), radius: 2, x: 0, y: 1)
+                .offset(x: 2, y: 2)
+        }
+    }
+
+    @ViewBuilder private var avatarInner: some View {
+        if !avatar.isEmpty {
+            AvatarView(url: avatar, size: 88)
+        } else if let first = name.trimmingCharacters(in: .whitespaces).first {
+            Text(String(first)).font(.system(size: 36, weight: .semibold)).foregroundStyle(Color.white)
+        } else {
+            Image(systemName: "camera").font(.system(size: 28)).foregroundStyle(Color.white)
+        }
+    }
+
+    private var fieldsGroup: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 8) {
+                TextField("", text: $name, prompt: Text(t("channel.namePlaceholder")).foregroundColor(Theme.textDim))
+                    .font(.system(size: 16)).foregroundStyle(Theme.text)
+                counter(name.count, 50)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 14)
+            Rectangle().fill(Theme.line).frame(height: 0.5).padding(.leading, 16)
+            HStack(alignment: .top, spacing: 8) {
+                CompatVerticalTextField(text: $desc, prompt: Text(t("channel.descOptional")).foregroundColor(Theme.textDim), lineRange: 3...6)
+                    .font(.system(size: 16)).foregroundStyle(Theme.text)
+                counter(desc.count, 500)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 14)
+        }
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white))
+        .onChange(of: name) { v in if v.count > 50 { name = String(v.prefix(50)) } }
+        .onChange(of: desc) { v in if v.count > 500 { desc = String(v.prefix(500)) } }
+    }
+
+    @ViewBuilder private func counter(_ n: Int, _ max: Int) -> some View {
+        if n > 0 {
+            Text("\(n)/\(max)").font(.system(size: 12)).foregroundStyle(Theme.textDim).padding(.top, 2)
+        }
+    }
+
+    private var memberPostGroup: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "bubble.left.fill")
+                .font(.system(size: 14)).foregroundStyle(Color.white)
+                .frame(width: 30, height: 30)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color(red: 0.204, green: 0.78, blue: 0.349)))
+            Toggle(isOn: $memberPost) {
+                Text(t("channel.memberPost")).font(.system(size: 16)).foregroundStyle(Theme.text)
+            }
+            .tint(Theme.accent)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 8)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.white))
+    }
+
+    private func caption(_ s: String) -> some View {
+        Text(s).font(.system(size: 13)).foregroundStyle(Theme.textSub).lineSpacing(3)
+            .padding(.horizontal, 16).padding(.top, 6).padding(.bottom, 18)
+    }
+
+    private func upload(_ data: Data?) {
+        guard let data = data else { return }
+        busy = true
+        Task {
+            if let url = try? await Api.upload("image", data: data, filename: "c.jpg", mime: "image/jpeg") {
+                avatar = url
+            } else {
+                toastMsg = t("channel.uploadFailed")
+            }
+            busy = false
+        }
+    }
+
+    private func create() {
+        guard !busy else { return }
+        busy = true
+        Task {
+            do {
+                let c: ChannelInfo = try await Api.request("/im/channel", method: "POST", body: [
+                    "name": name.trimmingCharacters(in: .whitespaces),
+                    "description": desc.trimmingCharacters(in: .whitespacesAndNewlines),
+                    "avatar": avatar,
+                    "memberPost": memberPost,
+                ])
+                created = true
+                route = .channel(c.id)
+            } catch {
+                toastMsg = error.localizedDescription
+            }
+            busy = false
+        }
+    }
+}
+
+// MARK: - 发现
+
+/// 发现频道：按订阅数排，可搜索，右上角创建
+struct ChannelsView: View {
+    @State private var q = ""
+    @State private var list: [ChannelListItem]?
+    @State private var toastMsg: String?
+    @State private var route: Route?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").font(.system(size: 14)).foregroundStyle(Theme.textSub)
+                TextField("", text: $q, prompt: Text(t("channel.searchPlaceholder")).foregroundColor(Theme.textSub))
+                    .font(.system(size: 14)).foregroundStyle(Theme.text)
+                    .autocorrectionDisabled()
+            }
+            .padding(.horizontal, 14).frame(height: 36)
+            .background(Capsule().fill(Theme.bg3))
+            .padding(.horizontal, 16).padding(.vertical, 6)
+
+            if let items = list {
+                if items.isEmpty {
+                    EmptyHint(text: q.trimmingCharacters(in: .whitespaces).isEmpty ? t("channel.emptyList") : t("channel.noResults"))
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(items) { c in row(c) }
+                        }
+                    }
+                }
+            } else {
+                EmptyHint(text: t("common.loading"))
+            }
+        }
+        .fullBg()
+        .navigationTitle(t("channel.discover"))
+        .navigationBarTitleDisplayMode(.inline)
+        .compatNavBarBackground(Theme.bg)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(t("channel.createShort")) { route = .createChannel }
+                    .font(.system(size: 14)).foregroundStyle(Theme.accent)
+            }
+        }
+        .toast($toastMsg)
+        .routePush($route)
+        .task(id: q) {
+            if !q.isEmpty { try? await Task.sleep(nanoseconds: 300_000_000) }
+            if Task.isCancelled { return }
+            await load()
+        }
+    }
+
+    private func row(_ c: ChannelListItem) -> some View {
+        Button { route = .channel(c.id) } label: {
+            HStack(spacing: 12) {
+                AvatarView(url: c.avatar, size: 54)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(c.name ?? "").font(.system(size: 16, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
+                        Text(t("channel.subscribersShort", ["n": fmtCount(c.subscribers ?? 0)])).font(.system(size: 11)).foregroundStyle(Theme.textDim).fixedSize()
+                    }
+                    let d = c.description ?? ""
+                    Text(d.isEmpty ? t("channel.ownerBy", ["name": c.ownerNickname ?? ""]) : d)
+                        .font(.system(size: 13)).foregroundStyle(Theme.textSub).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                Button {
+                    if c.isMember == true { route = .channel(c.id) } else { subscribe(c) }
+                } label: {
+                    Text(c.isMember == true ? t("channel.subscribed") : t("channel.subscribe"))
+                        .font(.system(size: 12))
+                        .foregroundStyle(c.isMember == true ? Theme.textSub : .white)
+                        .padding(.horizontal, 14).padding(.vertical, 6)
+                        .background(Capsule().fill(c.isMember == true ? Theme.bg3 : Theme.accent))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 9)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func load() async {
+        let kw = q.trimmingCharacters(in: .whitespaces)
+        let qs = kw.isEmpty ? "" : "?q=\(kw.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")"
+        list = (try? await Api.request("/im/channel/list\(qs)")) ?? []
+    }
+
+    private func subscribe(_ c: ChannelListItem) {
+        Task {
+            do {
+                let _: ChannelInfo = try await Api.request("/im/channel/\(c.id)/subscribe", method: "POST")
+                if let idx = list?.firstIndex(where: { $0.id == c.id }) {
+                    list?[idx].isMember = true
+                    list?[idx].subscribers = (c.subscribers ?? 0) + 1
+                }
+            } catch {
+                toastMsg = error.localizedDescription
+            }
+        }
+    }
+}

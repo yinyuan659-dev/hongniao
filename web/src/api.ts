@@ -1,0 +1,148 @@
+import { lang, localizeServer, t } from './i18n';
+
+// http 环境（非安全上下文）没有 crypto.randomUUID，做降级
+function randomId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID().replace(/-/g, '');
+  }
+  const bytes = new Uint8Array(16);
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// 设备 ID（Web 端用 localStorage UUID，一机一号 + 卸载恢复的 Web 等价实现）
+export function getDeviceId(): string {
+  let id = localStorage.getItem('pw_device_id');
+  if (!id) {
+    id = 'web_' + randomId();
+    localStorage.setItem('pw_device_id', id);
+  }
+  return id;
+}
+
+export function getToken(): string | null {
+  return localStorage.getItem('pw_token');
+}
+
+export function setToken(token: string | null) {
+  if (token) localStorage.setItem('pw_token', token);
+  else localStorage.removeItem('pw_token');
+}
+
+export async function api<T = any>(path: string, options: { method?: string; body?: any } = {}): Promise<T> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json', 'Accept-Language': lang() };
+  const token = getToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(`/api${path}`, {
+    method: options.method ?? 'GET',
+    headers,
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+  const json = await res.json();
+  if (json.code !== 0) {
+    if (json.code === 401) {
+      setToken(null);
+      location.hash = '#/enter';
+    }
+    throw new Error(json.msg || t('common.requestFailed'));
+  }
+  return localizeServer(json.data as T);
+}
+
+/** 分 → 积分 显示（100 分 = 1 积分），去掉多余的 0 */
+export function fmtPoints(fen: string | number | bigint | undefined | null): string {
+  const n = Number(fen ?? 0) / 100;
+  return n.toFixed(2).replace(/\.?0+$/, '') || '0';
+}
+
+/** 积分（可含小数）→ 分 */
+export function toFen(points: string | number): number {
+  return Math.round(Number(points || 0) * 100);
+}
+
+/** 登录后上传（image | video） */
+export async function uploadFile(kind: 'image' | 'video', file: File): Promise<string> {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`/api/upload/${kind}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${getToken()}`, 'Accept-Language': lang() },
+    body: form,
+  });
+  const json = await res.json();
+  if (json.code !== 0) throw new Error(json.msg || t('common.uploadFailed'));
+  return json.data.url as string;
+}
+
+/** POST multipart 到 /api/upload/...，返回 data；onProgress 0～1 */
+function postUpload<T>(path: string, blob: Blob, filename: string, onProgress?: (p: number) => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const form = new FormData();
+    form.append('file', blob, filename);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/upload/${path}`);
+    xhr.setRequestHeader('Authorization', `Bearer ${getToken()}`);
+    xhr.setRequestHeader('Accept-Language', lang());
+    if (onProgress) xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
+    xhr.onload = () => {
+      // Cloudflare / nginx 拦下超大包体时回的是 HTML 413
+      if (xhr.status === 413) return reject(new Error(t('chat.file.tooLarge', { name: filename })));
+      try {
+        const json = JSON.parse(xhr.responseText);
+        if (json.code !== 0) return reject(new Error(json.msg || t('common.uploadFailed')));
+        resolve(json.data as T);
+      } catch {
+        reject(new Error(t('common.uploadFailed')));
+      }
+    };
+    xhr.onerror = () => reject(new Error(t('common.uploadFailed')));
+    xhr.send(form);
+  });
+}
+
+/** 带进度的上传（onProgress 0～1） */
+export async function uploadBlob(kind: 'image' | 'video' | 'audio', blob: Blob, filename: string, onProgress?: (p: number) => void): Promise<string> {
+  return (await postUpload<{ url: string }>(kind, blob, filename, onProgress)).url;
+}
+
+/** 聊天文件上限，和后端 FILE_MAX_SIZE 一致：再大 Cloudflare 免费版直接回 413 */
+export const FILE_MAX_SIZE = 100_000_000;
+
+export interface ChatFile {
+  url: string;
+  name: string;
+  size: number;
+  mime: string;
+}
+
+/** 聊天里发任意文件：返回的对象原样作为 file 消息的 content */
+export function uploadChatFile(file: File, onProgress?: (p: number) => void): Promise<ChatFile> {
+  return postUpload<ChatFile>('file', file, file.name, onProgress);
+}
+
+export interface UserProfile {
+  id: string;
+  shortId?: string;
+  address: string;
+  nickname: string;
+  avatar: string;
+  gender: number;
+  age: number;
+  cityCode: string;
+  cityName: string;
+  signature: string;
+  isGuide: boolean;
+  videoPriceFen?: number;
+  realname?: boolean;
+  realNameMasked?: string;
+  balance?: string;
+  frozen?: string;
+  following?: number;
+  fans?: number;
+  /** 照片墙（最多 8 张） */
+  albums?: { id: string; type: number; url: string; coverUrl?: string; sort?: number }[];
+}

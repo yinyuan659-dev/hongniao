@@ -1,0 +1,438 @@
+import { BadRequestException, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Api } from 'telegram';
+import { PrismaService } from '../prisma/prisma.service';
+import { TelegramClientService } from '../telegram/telegram.service';
+import { UploadService } from '../upload/upload.service';
+import { normalizeChannel } from '../music/music.service';
+import { PublishService, bjDayStart } from './publish.service';
+import { freeJson } from '../common/free-ai';
+
+const DEFAULT_CHANNEL = 'GSSDJLR888';
+/** X 一条帖子最多 4 张图 */
+const X_MAX_IMAGES = 4;
+/** 一次拉取最多下载多少张（频道一天发几百张时别把存储吃满） */
+const MAX_FETCH = 150;
+/** 比这小的多半是缩略图 / 表情，不要 */
+const MIN_BYTES = 15 * 1024;
+/** 手动「立即发一条」的任务打这个标记，不占每日次数 */
+const MANUAL_TAG = 'manual';
+/** 美女图发哪些平台（YouTube / TikTok 由发布机合成竖屏短视频） */
+const PICS_PLATFORMS = ['x', 'youtube', 'tiktok'] as const;
+type PicsPlatform = (typeof PICS_PLATFORMS)[number];
+/** 拉取失败后隔多久再自动重试 */
+const RETRY_MS = 30 * 60_000;
+/** 可用池 = 没用过 + 检查过 + 合格 */
+const USABLE = { jobId: null, checked: true, skipReason: '' };
+/** 检查图片用的视觉模型（百炼 OpenAI 兼容接口） */
+const VL_MODEL = process.env.XPICS_VL_MODEL || 'qwen-vl-plus';
+const VL_PROMPT = [
+  '判断这张图片能不能当作「美女写真」直接转发。只输出 JSON：{"ok": true 或 false, "reason": "不合格的原因，10 个字以内，合格留空"}。',
+  '以下任一情况 ok=false：',
+  '1. 手机或电脑截图、App / 网页界面（有状态栏、点赞数、粉丝数、按钮、聊天界面、个人主页等）；',
+  '2. 多张图拼在一起的拼图 / 九宫格；',
+  '3. 画面上有明显的文字、水印、联系方式、二维码、网址、价格；',
+  '4. 主体不是真人女性（风景、物品、男性、动漫卡通）；',
+  '5. 人物看起来可能未成年；',
+  '6. 露点或色情。',
+  '其他正常的女性照片 ok=true。',
+].join('\n');
+
+interface XPicsSettings {
+  enabled: boolean;
+  channel: string;
+  /** 每天发几次 */
+  daily: number;
+  /** YouTube 每天发几条（发布机把图合成竖屏短视频），0 = 不发 */
+  ytDaily: number;
+  /** TikTok 每天发几条（同样合成竖屏短视频），0 = 不发 */
+  ttDaily: number;
+  /** 每次几张图（X 最多 4 张） */
+  min: number;
+  max: number;
+  /** 每天几点（北京时间）拉取最近 24 小时的图 */
+  fetchHour: number;
+  /** 最近一次成功拉取的日期（北京时间 YYYY-MM-DD） */
+  lastFetch: string;
+  /** 最近一次拉取结果（给后台看） */
+  lastResult: string;
+}
+
+/**
+ * X 美女图（推广，只发 X / YouTube / TikTok，国内平台不碰；YouTube / TikTok 每日条数 yt_daily / tt_daily，发布机合成竖屏短视频）：
+ * 每天 fetchHour 点用已登录的 Telegram 账号拉来源频道最近 24 小时的图片 → 存 MinIO（xpics/日期/）+ 记 x_pic 表当图片池
+ * → 按「每日次数」把当天的帖子在发布时段（内容分发的时段设置）里平均排开，每条从池子里取 min~max 张（同一相册的尽量放一起）
+ * → 写成 publish_job（platform=x, format=pics, 无文字），外网发布机领走后纯图发 X。
+ * 后台可「立即获取」「立即发一条」（手动的不占每日次数）。
+ */
+@Injectable()
+export class XPicsService implements OnModuleInit {
+  private readonly logger = new Logger('XPics');
+  private busy = false;
+  private lastFailAt = 0;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tg: TelegramClientService,
+    private readonly upload: UploadService,
+    private readonly publish: PublishService,
+  ) {}
+
+  onModuleInit() {
+    setInterval(() => void this.tick(), 60_000);
+  }
+
+  // ---------- 设置 ----------
+
+  async settings(): Promise<XPicsSettings> {
+    const rows = await this.prisma.sysSetting.findMany({ where: { key: { startsWith: 'xpics_' } } });
+    const get = (k: string) => rows.find((r) => r.key === `xpics_${k}`)?.value ?? '';
+    const min = clamp(get('min'), 1, X_MAX_IMAGES, 2);
+    return {
+      enabled: get('enabled') === '1',
+      channel: get('channel') || DEFAULT_CHANNEL,
+      daily: clamp(get('daily'), 0, 20, 5),
+      ytDaily: clamp(get('yt_daily'), 0, 5, 0),
+      ttDaily: clamp(get('tt_daily'), 0, 5, 0),
+      min,
+      max: clamp(get('max'), min, X_MAX_IMAGES, X_MAX_IMAGES),
+      fetchHour: clamp(get('fetch_hour'), 0, 23, 0),
+      lastFetch: get('last_fetch'),
+      lastResult: get('last_result'),
+    };
+  }
+
+  private async set(key: string, value: string) {
+    await this.prisma.sysSetting.upsert({ where: { key: `xpics_${key}` }, create: { key: `xpics_${key}`, value }, update: { value } });
+  }
+
+  async saveSettings(d: { enabled?: boolean; channel?: string; daily?: number; ytDaily?: number; ttDaily?: number; min?: number; max?: number; fetchHour?: number }) {
+    const cur = await this.settings();
+    if (d.channel !== undefined) {
+      const ch = normalizeChannel(d.channel);
+      if (!ch) throw new BadRequestException('请填写频道用户名（t.me/ 后面那段）');
+      if (ch.toLowerCase() !== cur.channel.toLowerCase()) {
+        const info = await this.tg.resolveChannel(ch);
+        await this.set('channel', info.username);
+        await this.set('last_fetch', '');
+      }
+    }
+    if (d.enabled !== undefined) await this.set('enabled', d.enabled ? '1' : '0');
+    if (d.daily !== undefined) await this.set('daily', String(clamp(d.daily, 0, 20, cur.daily)));
+    if (d.ytDaily !== undefined) await this.set('yt_daily', String(clamp(d.ytDaily, 0, 5, cur.ytDaily)));
+    if (d.ttDaily !== undefined) await this.set('tt_daily', String(clamp(d.ttDaily, 0, 5, cur.ttDaily)));
+    const min = d.min !== undefined ? clamp(d.min, 1, X_MAX_IMAGES, cur.min) : cur.min;
+    if (d.min !== undefined) await this.set('min', String(min));
+    if (d.max !== undefined || d.min !== undefined) await this.set('max', String(clamp(d.max ?? cur.max, min, X_MAX_IMAGES, X_MAX_IMAGES)));
+    if (d.fetchHour !== undefined) await this.set('fetch_hour', String(clamp(d.fetchHour, 0, 23, cur.fetchHour)));
+    return this.status();
+  }
+
+  /** 后台：设置 + 池子剩余 + 今天的排期 + 池子里最新几张预览 */
+  async status() {
+    const s = await this.settings();
+    const dayStart = bjDayStart(Date.now(), 0);
+    const [pool, unchecked, rejected, rejectedSamples, today, samples, recent] = await Promise.all([
+      this.prisma.xPic.count({ where: USABLE }),
+      this.prisma.xPic.count({ where: { jobId: null, checked: false } }),
+      this.prisma.xPic.count({ where: { checked: true, skipReason: { not: '' } } }),
+      this.prisma.xPic.findMany({ where: { checked: true, skipReason: { not: '' } }, orderBy: { id: 'desc' }, take: 8, select: { url: true, skipReason: true } }),
+      this.prisma.publishJob.findMany({
+        where: { platform: { in: [...PICS_PLATFORMS] }, format: 'pics', scheduledAt: { gte: new Date(dayStart), lt: new Date(dayStart + 86_400_000) } },
+        orderBy: { scheduledAt: 'asc' },
+        select: { id: true, platform: true, status: true, scheduledAt: true, tags: true, resultUrl: true, error: true },
+      }),
+      this.prisma.xPic.findMany({ where: USABLE, orderBy: { postedAt: 'desc' }, take: 12, select: { url: true } }),
+      // 没发过的排前面（新的在前），不够 24 张再拿发过的补
+      this.gallery(300).then((all) => [...all.filter((x) => !x.used), ...all.filter((x) => x.used)].slice(0, 24)),
+    ]);
+    return {
+      settings: s, pool, unchecked, rejected, busy: this.busy,
+      rejectedSamples: rejectedSamples.map((r) => ({ url: r.url, reason: r.skipReason })),
+      today: today.map((j) => ({ ...j, id: j.id.toString(), manual: j.tags === MANUAL_TAG })),
+      samples: samples.map((x) => x.url),
+      /** 手动发布选图用：合格的图，没发过的在前，各自新的在前 */
+      recent: recent.map((x) => x.url),
+      /** recent 里已经发过（自动排过或手动发过）的 */
+      recentUsed: recent.filter((x) => x.used).map((x) => x.url),
+    };
+  }
+
+  /** 手动发布的中文文案翻成英文（给海外平台发中英双语） */
+  async translate(text: string): Promise<string> {
+    const zh = String(text ?? '').trim().slice(0, 2000);
+    if (!zh) return '';
+    const system = [
+      'Translate this Chinese social media post into natural, casual English for X / YouTube Shorts viewers.',
+      'Keep the meaning and tone, keep line breaks, keep emojis, $TICKERS, #hashtags, @mentions and URLs exactly as they are.',
+      'Output JSON only: {"en": string}.',
+    ].join('\n');
+    try {
+      // BlockRun 免费模型（common/free-ai），全挂了且配了 AI_API_KEY 才退回 DeepSeek
+      return await freeJson([{ role: 'system', content: system }, { role: 'user', content: zh }], (j) => {
+        const en = String(j?.en ?? '').trim();
+        if (!en) throw new Error('译文是空的');
+        if (/[\u4e00-\u9fff]/.test(en) && en.replace(/[^\u4e00-\u9fff]/g, '').length * 3 > en.length) throw new Error('译文还是中文');
+        return en;
+      }, { temperature: 0.3, label: 'xpics.translate' });
+    } catch (e) {
+      throw new BadRequestException(`翻译失败：${e instanceof Error ? e.message : e}`);
+    }
+  }
+
+  /**
+   * 后台手动发布：自己写的文字 + 选的图（1~4 张），每个平台排一条马上发的任务（不占每日次数）。
+   * 文字有中文就配英文（没给 en 就自动翻），正文 = 中文 + 空行 + 英文；英文另存 media.en，YouTube 配音 / 标题用它。
+   */
+  async manualPost(d: { platforms?: string[]; text?: string; en?: string; images?: string[] }) {
+    const platforms = [...new Set(d.platforms ?? [])].filter((p): p is PicsPlatform => (PICS_PLATFORMS as readonly string[]).includes(p));
+    if (!platforms.length) throw new BadRequestException('至少选一个平台');
+    const zh = String(d.text ?? '').trim().slice(0, 2000);
+    let en = String(d.en ?? '').trim().slice(0, 2000);
+    if (zh && !en && /[\u4e00-\u9fff]/.test(zh)) en = await this.translate(zh);
+    const text = en && en !== zh ? `${zh}\n\n${en}` : zh;
+    const base = (process.env.PUBLIC_RES_BASE || 'https://api.yyheart.com').replace(/\/$/, '');
+    const images = (d.images ?? []).map((u) => String(u).trim()).filter(Boolean).map((u) => (u.startsWith('/') ? base + u : u));
+    if (!images.length || images.length > X_MAX_IMAGES) throw new BadRequestException(`配图要 1~${X_MAX_IMAGES} 张`);
+    if (images.some((u) => !/^https?:\/\//.test(u))) throw new BadRequestException('图片地址不对');
+    // 不对应树洞帖也不对应池子里某张图：postId 用负的毫秒时间戳，和自动任务（负的图片 id）不会撞
+    const postId = BigInt(-Date.now());
+    const ids: string[] = [];
+    for (const platform of platforms) {
+      const job = await this.prisma.publishJob.create({
+        data: { postId, platform, title: '', content: text, tags: MANUAL_TAG, format: 'pics', media: JSON.stringify(en ? { images, en } : { images }), scheduledAt: new Date() },
+      });
+      ids.push(job.id.toString());
+    }
+    // 用到的池子图记为已用：自动排期不再拿它重发，后台默认选图也跳过它
+    await this.prisma.xPic.updateMany({ where: { url: { in: images }, jobId: null }, data: { jobId: BigInt(ids[0]) } });
+    return { ids };
+  }
+
+  /** 合格的图（用没用过都算），新的在前 */
+  async gallery(limit: number) {
+    const rows = await this.prisma.xPic.findMany({
+      where: { checked: true, skipReason: '' },
+      orderBy: [{ postedAt: 'desc' }, { msgId: 'asc' }],
+      take: Math.min(Math.max(1, Math.floor(limit)), 1000),
+      select: { id: true, url: true, postedAt: true, jobId: true },
+    });
+    return rows.map((r) => ({ id: r.id, url: r.url, postedAt: r.postedAt, used: r.jobId !== null }));
+  }
+
+  // ---------- 手动 ----------
+
+  /** 立即拉取（后台跑，拉完顺便把今天没排满的排上） */
+  async fetchNow() {
+    if (this.busy) return { started: false, busy: true };
+    void this.run(async () => {
+      await this.fetch();
+      await this.review(MAX_FETCH);
+      if ((await this.settings()).enabled) await this.plan();
+    });
+    return { started: true, busy: true };
+  }
+
+  /** 立即发一条：从池子取图排一条马上发的任务（不占每日次数） */
+  async postNow() {
+    const job = await this.makeJob(new Date(), true);
+    if (!job) {
+      const unchecked = await this.prisma.xPic.count({ where: { jobId: null, checked: false } });
+      throw new BadRequestException(unchecked ? `还有 ${unchecked} 张图在检查，稍等一两分钟再点` : '图片池里的合格图不够一条了，先点「立即获取」');
+    }
+    return { id: job.id.toString(), images: job.count };
+  }
+
+  // ---------- 定时 ----------
+
+  private async tick() {
+    if (this.busy) return;
+    const s = await this.settings();
+    await this.run(async () => {
+      // 关着也把池子里没检查的图查完，手动「立即发一条」要用
+      await this.review(30);
+      if (!s.enabled) return;
+      const now = Date.now();
+      const due = s.lastFetch !== bjDate(now) && bjHour(now) >= s.fetchHour;
+      if (due && now - this.lastFailAt > RETRY_MS) {
+        await this.fetch();
+        await this.review(MAX_FETCH);
+      }
+      // 今天拉过了才排（没拉到就先用池子里剩下的，也照排）
+      if ((await this.settings()).lastFetch === bjDate(now) || !due) await this.plan();
+    });
+  }
+
+  private async run(fn: () => Promise<void>) {
+    this.busy = true;
+    try {
+      await fn();
+    } catch (e: any) {
+      this.logger.warn(`xpics: ${e?.message ?? e}`);
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  /** 拉来源频道最近 24 小时的图片进池子（已经拉过的消息跳过） */
+  private async fetch() {
+    const s = await this.settings();
+    let added = 0;
+    try {
+      const client = await this.tg.authorized();
+      const entity = await client.getEntity(s.channel);
+      const since = Math.floor(Date.now() / 1000) - 86_400;
+      const photos: Api.Message[] = [];
+      let offsetId = 0;
+      // 从最新往回翻，翻到 24 小时前为止
+      outer: for (let page = 0; page < 10; page++) {
+        const msgs = await client.getMessages(entity, { limit: 100, offsetId });
+        if (!msgs.length) break;
+        for (const m of msgs) {
+          if (m.date < since) break outer;
+          if (m.media instanceof Api.MessageMediaPhoto && m.media.photo instanceof Api.Photo) photos.push(m);
+        }
+        offsetId = msgs[msgs.length - 1].id;
+      }
+      const known = new Set(
+        (await this.prisma.xPic.findMany({ where: { channel: s.channel, msgId: { in: photos.map((m) => m.id) } }, select: { msgId: true } })).map((r) => r.msgId),
+      );
+      const base = (process.env.PUBLIC_RES_BASE || 'https://api.yyheart.com').replace(/\/$/, '');
+      for (const m of photos.filter((p) => !known.has(p.id)).slice(0, MAX_FETCH)) {
+        try {
+          const buf = await client.downloadMedia(m, {});
+          if (!Buffer.isBuffer(buf) || buf.length < MIN_BYTES) continue;
+          const { url } = await this.upload.putInternal('xpics', 'jpg', buf, 'image/jpeg');
+          await this.prisma.xPic.create({
+            data: { channel: s.channel, msgId: m.id, groupKey: m.groupedId ? `g${m.groupedId.toString()}` : `m${m.id}`, url: base + url, postedAt: new Date(m.date * 1000) },
+          });
+          added++;
+        } catch (e: any) {
+          this.logger.warn(`download @${s.channel}/${m.id}: ${e?.message ?? e}`);
+        }
+      }
+      await this.set('last_fetch', bjDate(Date.now()));
+      await this.set('last_result', `${new Date().toISOString()}|最近 24 小时 ${photos.length} 张图，新增 ${added} 张`);
+      this.logger.log(`fetched @${s.channel}: ${photos.length} photos, +${added}`);
+    } catch (e: any) {
+      this.lastFailAt = Date.now();
+      const msg = String(e?.message ?? e).slice(0, 200);
+      await this.set('last_result', `${new Date().toISOString()}|拉取失败：${msg}`);
+      this.logger.warn(`fetch @${s.channel}: ${msg}`);
+    }
+  }
+
+  /** 用视觉模型检查池子里还没检查的图（截图 / 拼图 / 带文字水印 / 非真人女性 / 疑似未成年 / 露点 → 不合格）；模型调不通就留着下轮再查 */
+  private async review(limit: number) {
+    if (!process.env.DASHSCOPE_API_KEY) return;
+    const rows = await this.prisma.xPic.findMany({ where: { jobId: null, checked: false }, orderBy: { id: 'asc' }, take: limit });
+    let bad = 0;
+    for (const r of rows) {
+      try {
+        const res = await fetch(r.url);
+        if (!res.ok) throw new Error(`下载 ${res.status}`);
+        const b64 = Buffer.from(await res.arrayBuffer()).toString('base64');
+        const reason = await classify(`data:image/jpeg;base64,${b64}`);
+        await this.prisma.xPic.update({ where: { id: r.id }, data: { checked: true, skipReason: reason.slice(0, 100) } });
+        if (reason) bad++;
+      } catch (e: any) {
+        this.logger.warn(`review x_pic #${r.id}: ${e?.message ?? e}`);
+        return;
+      }
+    }
+    if (rows.length) this.logger.log(`reviewed ${rows.length} pics, rejected ${bad}`);
+  }
+
+  /** 把今天没排满的次数在发布时段里平均排开（已过去的时间点不补） */
+  private async plan() {
+    const s = await this.settings();
+    if (s.daily > 0) await this.planFor('x', s.daily);
+    if (s.ytDaily > 0) await this.planFor('youtube', s.ytDaily);
+    if (s.ttDaily > 0) await this.planFor('tiktok', s.ttDaily);
+  }
+
+  private async planFor(platform: PicsPlatform, daily: number) {
+    const ps = await this.publish.settings();
+    const now = Date.now();
+    const dayStart = bjDayStart(now, 0);
+    const span = ((ps.hourEnd - ps.hourStart) * 3_600_000) / daily;
+    const slots = Array.from({ length: daily }, (_, i) => dayStart + ps.hourStart * 3_600_000 + span * (i + 0.5)).filter((t) => t > now);
+    if (!slots.length) return;
+    const jobs = await this.prisma.publishJob.findMany({
+      where: { platform, format: 'pics', tags: { not: MANUAL_TAG }, status: { in: [0, 1, 2] }, scheduledAt: { gte: new Date(slots[0] - 11 * 60_000), lt: new Date(dayStart + 86_400_000) } },
+      select: { scheduledAt: true },
+    });
+    // 已过去的时间点不补；还没过的点，前后 11 分钟内（抖动 ±10 分钟）已经有任务就算排过了
+    const free = slots.filter((t) => !jobs.some((j) => Math.abs(j.scheduledAt.getTime() - t) <= 11 * 60_000));
+    for (const t of free) {
+      // 前后抖 10 分钟，别每天都卡在同一分钟
+      const job = await this.makeJob(new Date(t + (Math.random() * 20 - 10) * 60_000), false, platform);
+      if (!job) break;
+      this.logger.log(`planned ${platform} pics job #${job.id} @ ${new Date(t).toISOString()} (${job.count} 张)`);
+    }
+  }
+
+  /** 从池子取 min~max 张（最新的相册先用，一组不够再拿下一组补）排一条任务；不够 min 张返回 null */
+  private async makeJob(when: Date, manual: boolean, platform: PicsPlatform = 'x') {
+    const s = await this.settings();
+    const want = s.min + Math.floor(Math.random() * (s.max - s.min + 1));
+    const pool = await this.prisma.xPic.findMany({ where: USABLE, orderBy: [{ postedAt: 'desc' }, { msgId: 'asc' }], take: 300 });
+    const groups = new Map<string, typeof pool>();
+    for (const p of pool) groups.set(p.groupKey, [...(groups.get(p.groupKey) ?? []), p]);
+    const picked: typeof pool = [];
+    for (const g of groups.values()) {
+      for (const p of g) if (picked.length < want) picked.push(p);
+      if (picked.length >= want) break;
+    }
+    if (picked.length < s.min) return null;
+    const job = await this.prisma.publishJob.create({
+      data: {
+        // 没有对应的树洞帖：postId 用负的图片 id，保证 (postId, platform) 唯一
+        postId: BigInt(-picked[0].id), platform, title: '', content: '', tags: manual ? MANUAL_TAG : '',
+        format: 'pics', media: JSON.stringify({ images: picked.map((p) => p.url) }), scheduledAt: when,
+      },
+    });
+    await this.prisma.xPic.updateMany({ where: { id: { in: picked.map((p) => p.id) } }, data: { jobId: job.id } });
+    return { id: job.id, count: picked.length };
+  }
+}
+
+/** 返回不合格原因，合格返回空字符串；接口失败抛错 */
+async function classify(dataUrl: string): Promise<string> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 60_000);
+  try {
+    const res = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.DASHSCOPE_API_KEY}` },
+      body: JSON.stringify({
+        model: VL_MODEL,
+        messages: [{ role: 'user', content: [{ type: 'image_url', image_url: { url: dataUrl } }, { type: 'text', text: VL_PROMPT }] }],
+        max_tokens: 100,
+      }),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) throw new Error(`视觉模型 ${res.status} ${(await res.text()).slice(0, 120)}`);
+    const data: any = await res.json();
+    const raw = String(data?.choices?.[0]?.message?.content ?? '');
+    const m = raw.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error(`视觉模型输出看不懂：${raw.slice(0, 80)}`);
+    const j = JSON.parse(m[0]);
+    return j.ok === true ? '' : String(j.reason || '不合格').trim() || '不合格';
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function clamp(v: unknown, lo: number, hi: number, fallback: number): number {
+  const n = Math.floor(Number(v));
+  return Number.isFinite(n) && String(v).trim() !== '' ? Math.min(hi, Math.max(lo, n)) : fallback;
+}
+
+/** 北京时间日期 YYYY-MM-DD */
+function bjDate(t: number): string {
+  return new Date(t + 8 * 3_600_000).toISOString().slice(0, 10);
+}
+
+function bjHour(t: number): number {
+  return new Date(t + 8 * 3_600_000).getUTCHours();
+}

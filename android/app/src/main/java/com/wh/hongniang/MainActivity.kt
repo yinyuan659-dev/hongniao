@@ -1,0 +1,444 @@
+package com.wh.hongniang
+
+import android.net.Uri
+import android.os.Bundle
+import android.graphics.Color as AndroidColor
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.ui.unit.dp
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.navigation.NavHostController
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import com.wh.hongniang.i18n.t
+import com.wh.hongniang.net.Api
+import com.wh.hongniang.net.UserProfile
+import com.wh.hongniang.net.WsClient
+import com.wh.hongniang.rtc.CallManager
+import com.wh.hongniang.ui.clearFocusOnTap
+import com.wh.hongniang.ui.screen.*
+import com.wh.hongniang.ui.theme.PeiwanATheme
+import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonPrimitive
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        Api.init(applicationContext)
+        com.wh.hongniang.i18n.I18n.init(applicationContext)
+        // 全局图片缓存：内存 25% + 磁盘 512MB，忽略服务端缓存头（资源为 UUID 文件名不会变）
+        coil.Coil.setImageLoader(
+            coil.ImageLoader.Builder(applicationContext)
+                .memoryCache { coil.memory.MemoryCache.Builder(applicationContext).maxSizePercent(0.25).build() }
+                .diskCache {
+                    coil.disk.DiskCache.Builder()
+                        .directory(applicationContext.cacheDir.resolve("image_cache"))
+                        .maxSizeBytes(512L * 1024 * 1024)
+                        .build()
+                }
+                .respectCacheHeaders(false)
+                .components {
+                    add(coil.decode.VideoFrameDecoder.Factory())
+                    // 动态 WebP / GIF（表情包）：API 28+ 用系统 ImageDecoder，之前的机型退回 GifDecoder（只播 GIF，动态 WebP 显示首帧）
+                    if (android.os.Build.VERSION.SDK_INT >= 28) add(coil.decode.ImageDecoderDecoder.Factory()) else add(coil.decode.GifDecoder.Factory())
+                }
+                .crossfade(true)
+                .build(),
+        )
+        // 浅色主题：透明状态栏/导航栏 + 深色图标文字
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.light(AndroidColor.TRANSPARENT, AndroidColor.TRANSPARENT),
+        )
+        setContent { PeiwanATheme { Surface(Modifier.fillMaxSize()) { AppRoot() } } }
+        // Android 13+ 通知权限（来电提醒需要）
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 100)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        com.wh.hongniang.net.Session.foreground = true
+    }
+
+    override fun onPause() {
+        super.onPause()
+        com.wh.hongniang.net.Session.foreground = false
+    }
+}
+
+/** 子页面路由：统一加不透明背景，覆盖在常驻主页之上（主页不销毁，返回即恢复） */
+private fun androidx.navigation.NavGraphBuilder.page(
+    route: String,
+    arguments: List<androidx.navigation.NamedNavArgument> = emptyList(),
+    content: @Composable (androidx.navigation.NavBackStackEntry) -> Unit,
+) {
+    composable(route, arguments) { entry ->
+        // 子页面盖在常驻的 MainScreen 上面：background 不参与命中测试，页面空白处（比如表情面板底部胶囊两侧）
+        // 的点击会穿到下层主页的底栏「+ 发布」上。挂一个什么都不做的 pointerInput 让整页算"命中"，到此为止。
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(com.wh.hongniang.ui.theme.Bg)
+                .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } },
+        ) { content(entry) }
+    }
+}
+
+@Composable
+fun AppRoot() {
+    val nav = rememberNavController()
+    var user by remember { mutableStateOf<UserProfile?>(null) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(user) { com.wh.hongniang.net.Session.walletFeature = user?.features?.wallet == true }
+    LaunchedEffect(user?.id) {
+        user?.let {
+            com.wh.hongniang.net.Session.uid = it.id
+            com.wh.hongniang.net.Session.gender = it.gender
+            WsClient.connect()
+            CallManager.attachContext(context)
+            CallManager.init(context, it.id)
+            com.wh.hongniang.rtc.VoiceRoomManager.init(context, it.id)
+            // 保活：前台服务 + 请求忽略电池优化（保证熄屏收消息/来电）
+            runCatching { KeepAliveService.start(context) }
+            runCatching {
+                val pm = context.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+                if (!pm.isIgnoringBatteryOptimizations(context.packageName)) {
+                    val intent = android.content.Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                        data = android.net.Uri.parse("package:${context.packageName}")
+                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(intent)
+                }
+            }
+            // 来电悬浮窗权限（显示在其他应用上层）
+            runCatching {
+                if (!android.provider.Settings.canDrawOverlays(context)) {
+                    android.widget.Toast.makeText(context, t("call.overlayPermission"), android.widget.Toast.LENGTH_LONG).show()
+                    val intent = android.content.Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
+                        data = android.net.Uri.parse("package:${context.packageName}")
+                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(intent)
+                }
+            }
+        }
+    }
+
+    // 路由跳转（进详情/抖音模式等）时停止列表内正在播放的视频
+    LaunchedEffect(Unit) {
+        nav.currentBackStackEntryFlow.collect {
+            com.wh.hongniang.ui.screen.FeedVideoCenter.current?.pause()
+        }
+    }
+
+    // 评分完成后跳转/留在女方个人主页
+    LaunchedEffect(Unit) {
+        com.wh.hongniang.rtc.CallManager.openUserHome.collect { uid ->
+            if (uid != null) {
+                com.wh.hongniang.rtc.CallManager.openUserHome.value = null
+                // 已在该主页则不重复入栈
+                if (nav.currentBackStackEntry?.destination?.route != "u/{id}" ||
+                    nav.currentBackStackEntry?.arguments?.getString("id") != uid
+                ) {
+                    nav.navigate("u/$uid")
+                }
+            }
+        }
+    }
+
+    // GPS 每分钟上报一次（用于距离展示）
+    LaunchedEffect(user?.id) {
+        if (user == null) return@LaunchedEffect
+        while (true) {
+            runCatching {
+                detectCity(context) // 内部刷新 LocationCache
+                val lat = LocationCache.lat
+                val lng = LocationCache.lng
+                if (lat != null && lng != null) {
+                    Api.request("/user/location", "POST", kotlinx.serialization.json.buildJsonObject {
+                        put("latitude", kotlinx.serialization.json.JsonPrimitive(lat))
+                        put("longitude", kotlinx.serialization.json.JsonPrimitive(lng))
+                    })
+                }
+            }
+            kotlinx.coroutines.delay(60_000)
+        }
+    }
+
+    // 通过用户 id 打开会话（不能和自己私聊）
+    fun openChatWithUser(userId: String, nickname: String) {
+        if (userId == user?.id || userId.isEmpty()) return
+        scope.launch {
+            runCatching {
+                val data = Api.request("/im/conversations/open/$userId", "POST") as? JsonObject
+                val convId = data?.get("conversationId")?.jsonPrimitive?.content ?: return@runCatching
+                nav.navigate("chatroom/$convId?convType=1&targetId=$userId&title=${Uri.encode(nickname)}")
+            }
+        }
+    }
+
+    // clearFocusOnTap：全 App 点击空白处收起键盘（Dialog/BottomSheet 是独立窗口，需各自再挂一次）
+    Box(Modifier.fillMaxSize().clearFocusOnTap()) {
+      Box(Modifier.fillMaxSize().statusBarsPadding()) {
+        // 主页常驻底层（像老 Activity：被子页面覆盖时不销毁、返回时不重建）
+        if (user != null) {
+            MainScreen(
+                initialUser = user,
+                onOpenChat = { convId, convType, targetId, title ->
+                    nav.navigate("chatroom/$convId?convType=$convType&targetId=$targetId&title=${Uri.encode(title)}")
+                },
+                onOpenChatWithUser = ::openChatWithUser,
+                onNav = { nav.navigate(it) },
+            )
+        }
+        NavHost(navController = nav, startDestination = "boot") {
+            page("boot") {
+                BootScreen(
+                    onRegistered = { user = it; nav.navigate("main") { popUpTo("boot") { inclusive = true } } },
+                    onNeedRegister = { nav.navigate("register") { popUpTo("boot") { inclusive = true } } },
+                )
+            }
+            page("register") {
+                RegisterScreen(onDone = { user = it; nav.navigate("main") { popUpTo("register") { inclusive = true } } })
+            }
+            composable("main") {
+                // 空占位：主页由底层常驻渲染
+                Box(Modifier.size(0.dp))
+            }
+            page(
+                "chatroom/{convId}?convType={convType}&targetId={targetId}&title={title}&focusMsgId={focusMsgId}",
+                arguments = listOf(
+                    navArgument("convId") { type = NavType.StringType },
+                    navArgument("convType") { type = NavType.IntType; defaultValue = 1 },
+                    navArgument("targetId") { type = NavType.StringType; defaultValue = "" },
+                    navArgument("title") { type = NavType.StringType; defaultValue = "" },
+                    navArgument("focusMsgId") { type = NavType.StringType; defaultValue = "" },
+                ),
+            ) { entry ->
+                val a = entry.arguments!!
+                val convType = a.getInt("convType")
+                val targetId = a.getString("targetId") ?: ""
+                val startCall = rememberStartCall(targetId, a.getString("title") ?: "")
+                val ctx = androidx.compose.ui.platform.LocalContext.current
+                val walletOk = remember(user) { chainWalletVisible(ctx, user) }
+                val walletResult by entry.savedStateHandle.getStateFlow<String?>("walletResult", null).collectAsState()
+                ChatRoomScreen(
+                    convId = a.getString("convId")!!,
+                    convType = convType,
+                    targetId = targetId,
+                    title = a.getString("title") ?: "",
+                    focusMsgId = a.getString("focusMsgId").orEmpty(),
+                    myUserId = user?.id ?: "",
+                    myAvatar = user?.avatar ?: "",
+                    myNickname = user?.nickname ?: "",
+                    onBack = { nav.popBackStack() },
+                    onCall = { type -> startCall(type) },
+                    onGroupInfo = { nav.navigate("group-info/$targetId") },
+                    onOpenWallet = if (walletOk) ({ path -> nav.navigate(chainWalletRoute(path)) }) else null,
+                    walletResult = walletResult,
+                    onWalletResultUsed = { entry.savedStateHandle["walletResult"] = null },
+                    onNav = { nav.navigate(it) },
+                )
+            }
+            page("group-info/{groupId}", listOf(navArgument("groupId") { type = NavType.StringType })) { entry ->
+                GroupInfoScreen(entry.arguments!!.getString("groupId")!!, user?.id ?: "", onBack = { nav.popBackStack() }, onExit = { nav.popBackStack("main", false) })
+            }
+            page("tiktok") {
+                TikTokScreen(onExit = { nav.popBackStack() })
+            }
+            page("aichat") {
+                AiChatScreen(myAvatar = user?.avatar ?: "", onBack = { nav.popBackStack() })
+            }
+            page("create-group") {
+                CreateGroupScreen(onBack = { nav.popBackStack() }, onCreated = { convId, groupId, name ->
+                    nav.popBackStack()
+                    nav.navigate("chatroom/$convId?convType=2&targetId=$groupId&title=${Uri.encode(t("chat.groupTitle", "name" to name))}")
+                })
+            }
+            page("join-group?code={code}", listOf(navArgument("code") { type = NavType.StringType; defaultValue = "" })) { entry ->
+                JoinGroupScreen(
+                    onBack = { nav.popBackStack() },
+                    onJoined = { convId, groupId, name ->
+                        nav.popBackStack()
+                        nav.navigate("chatroom/$convId?convType=2&targetId=$groupId&title=${Uri.encode(t("chat.groupTitle", "name" to name))}")
+                    },
+                    initialCode = entry.arguments?.getString("code")?.takeIf { it.isNotBlank() },
+                    onOpenChannel = { nav.popBackStack(); nav.navigate("channel/$it") },
+                )
+            }
+            // 频道：发现 / 创建 / 频道页（id = 群 id）/ 帖子评论
+            page("channels") {
+                ChannelsScreen(onBack = { nav.popBackStack() }, onOpen = { nav.navigate("channel/$it") }, onCreate = { nav.navigate("create-channel") })
+            }
+            page("create-channel") {
+                CreateChannelScreen(onBack = { nav.popBackStack() }, onCreated = { nav.popBackStack(); nav.navigate("channel/$it") })
+            }
+            page("channel/{id}", listOf(navArgument("id") { type = NavType.StringType })) { entry ->
+                val ctx = androidx.compose.ui.platform.LocalContext.current
+                val walletOk = remember(user) { chainWalletVisible(ctx, user) }
+                val walletResult by entry.savedStateHandle.getStateFlow<String?>("walletResult", null).collectAsState()
+                ChannelScreen(
+                    groupId = entry.arguments!!.getString("id")!!,
+                    myUserId = user?.id ?: "",
+                    onBack = { nav.popBackStack() },
+                    onExit = { nav.popBackStack("main", false) },
+                    onOpenComments = { msgId, canAdmin -> nav.navigate("channel-post/$msgId?canAdmin=$canAdmin") },
+                    onOpenWallet = if (walletOk) ({ path -> nav.navigate(chainWalletRoute(path)) }) else null,
+                    walletResult = walletResult,
+                    onWalletResultUsed = { entry.savedStateHandle["walletResult"] = null },
+                )
+            }
+            page(
+                "channel-post/{msgId}?canAdmin={canAdmin}",
+                listOf(
+                    navArgument("msgId") { type = NavType.StringType },
+                    navArgument("canAdmin") { type = NavType.BoolType; defaultValue = false },
+                ),
+            ) { entry ->
+                ChannelCommentsScreen(
+                    msgId = entry.arguments!!.getString("msgId")!!,
+                    canAdmin = entry.arguments!!.getBoolean("canAdmin"),
+                    myUserId = user?.id ?: "",
+                    onBack = { nav.popBackStack() },
+                    onOpenUser = { nav.navigate("u/$it") },
+                )
+            }
+            page("notices/{kind}", listOf(navArgument("kind") { type = NavType.StringType })) { entry ->
+                NoticesScreen(
+                    kind = entry.arguments!!.getString("kind")!!,
+                    onBack = { nav.popBackStack() },
+                    onOpenMoment = { nav.navigate("moment/$it") },
+                    onOpenTask = { nav.navigate("task/$it") },
+                )
+            }
+            page("moment/{id}", listOf(navArgument("id") { type = NavType.StringType })) { entry ->
+                MomentDetailScreen(entry.arguments!!.getString("id")!!, onBack = { nav.popBackStack() }, onOpenChat = ::openChatWithUser)
+            }
+            // 私密树洞（广场 tab）：详情评论 / 匿名发布
+            page("treehole/{id}", listOf(navArgument("id") { type = NavType.StringType })) { entry ->
+                TreeholeDetailScreen(entry.arguments!!.getString("id")!!, onBack = { nav.popBackStack() })
+            }
+            page("treehole-publish") {
+                TreeholePublishScreen(onBack = { nav.popBackStack() }, onDone = { nav.popBackStack() })
+            }
+            page("news") {
+                NewsListScreen(onOpenNews = { nav.navigate("news/$it") }, onBack = { nav.popBackStack() })
+            }
+            page("music") {
+                MusicScreen(onBack = { nav.popBackStack() })
+            }
+            page("news/{id}", listOf(navArgument("id") { type = NavType.StringType })) { entry ->
+                NewsDetailScreen(entry.arguments!!.getString("id")!!, onBack = { nav.popBackStack() })
+            }
+            page("project/guide") {
+                GuideProjectScreen(user?.gender ?: 1, onBack = { nav.popBackStack() }, onNav = { nav.navigate(it) }, onOpenChat = ::openChatWithUser)
+            }
+            // 小游戏 / 第三方 H5 全屏容器（大厅 H5 经 JS 桥 openWeb 唤起）；landscape=true 该页横屏
+            page(
+                "web?url={url}&title={title}&landscape={landscape}",
+                listOf(
+                    navArgument("url") { type = NavType.StringType; defaultValue = "" },
+                    navArgument("title") { type = NavType.StringType; defaultValue = "" },
+                    navArgument("landscape") { type = NavType.BoolType; defaultValue = false },
+                ),
+            ) { entry ->
+                val a = entry.arguments!!
+                GameWebScreen(
+                    url = a.getString("url") ?: "",
+                    title = a.getString("title") ?: "",
+                    landscape = a.getBoolean("landscape"),
+                    onBack = { nav.popBackStack() },
+                )
+            }
+            page("people/{mode}", listOf(navArgument("mode") { type = NavType.StringType })) { entry ->
+                PeopleScreen(entry.arguments!!.getString("mode")!!, onBack = { nav.popBackStack() }, onOpenChat = ::openChatWithUser)
+            }
+            page("publish") { PublishScreen(onBack = { nav.popBackStack() }, onDone = { nav.popBackStack() }) }
+            page("task/post") { TaskPostScreen(onBack = { nav.popBackStack() }, onDone = { nav.popBackStack() }) }
+            page("task/hall") { TaskHallScreen(onBack = { nav.popBackStack() }, onOpen = { nav.navigate("task/$it") }) }
+            page("task/mine") { TaskMineScreen(user?.gender ?: 1, onBack = { nav.popBackStack() }, onOpen = { nav.navigate("task/$it") }) }
+            page("task/{id}", listOf(navArgument("id") { type = NavType.StringType })) { entry ->
+                TaskDetailScreen(entry.arguments!!.getString("id")!!, user?.gender ?: 1, onBack = { nav.popBackStack() })
+            }
+            page("wallet") { WalletScreen(onBack = { nav.popBackStack() }, onNav = { nav.navigate(it) }) }
+            page("transfer?sid={sid}", listOf(navArgument("sid") { type = NavType.StringType; defaultValue = "" })) { entry ->
+                TransferScreen(user?.shortId, initialSid = entry.arguments?.getString("sid").orEmpty(), onBack = { nav.popBackStack() })
+            }
+            page("edit-profile") { EditProfileScreen(onBack = { nav.popBackStack() }) }
+            page("invite-card") { InviteCardScreen(me = user, onBack = { nav.popBackStack() }) }
+            page("guide-apply") { GuideApplyScreen(onBack = { nav.popBackStack() }) }
+            page("realname") { RealnameScreen(onBack = { nav.popBackStack() }) }
+            page("gifts-received") { GiftsReceivedScreen(onBack = { nav.popBackStack() }) }
+            page("bots") { BotsScreen(onBack = { nav.popBackStack() }, onOpen = { nav.navigate("bots/$it") }) }
+            // path：直接打开钱包里的某一页（需要 URL 编码）；钱包交回的结果放进上一页的 savedStateHandle["walletResult"]（JSON 字符串）
+            page("chain-wallet?path={path}", listOf(navArgument("path") { type = NavType.StringType; defaultValue = "" })) { entry ->
+                ChainWalletScreen(
+                    onBack = { nav.popBackStack() },
+                    startPath = entry.arguments?.getString("path")?.takeIf { it.isNotBlank() },
+                    onResult = { nav.previousBackStackEntry?.savedStateHandle?.set("walletResult", it.toString()) },
+                    onOpenChat = { convId, groupId, title -> nav.navigate("chatroom/$convId?convType=2&targetId=$groupId&title=${android.net.Uri.encode(title)}") },
+                )
+            }
+            page("bots/{id}", listOf(navArgument("id") { type = NavType.StringType })) { e ->
+                BotDetailScreen(
+                    botId = e.arguments?.getString("id") ?: "",
+                    onBack = { nav.popBackStack() },
+                    onOpenChat = { id, name -> openChatWithUser(id, name) },
+                )
+            }
+            page("my-moments") { MyMomentsScreen(onBack = { nav.popBackStack() }, onOpen = { nav.navigate("moment/$it") }) }
+            page("follow-moments") {
+                FollowMomentsScreen(
+                    onBack = { nav.popBackStack() },
+                    onOpenDetail = { nav.navigate("moment/$it") },
+                    onOpenUser = { nav.navigate("u/$it") },
+                )
+            }
+            page("follows/{type}", listOf(navArgument("type") { type = NavType.StringType })) { entry ->
+                FollowListScreen(
+                    type = entry.arguments!!.getString("type")!!,
+                    onBack = { nav.popBackStack() },
+                    onOpenUser = { nav.navigate("u/$it") },
+                )
+            }
+            page("u/{id}", listOf(navArgument("id") { type = NavType.StringType })) { entry ->
+                UserHomeScreen(
+                    userId = entry.arguments!!.getString("id")!!,
+                    onBack = { nav.popBackStack() },
+                    onOpenChat = ::openChatWithUser,
+                    onOpenMoment = { nav.navigate("moment/$it") },
+                )
+            }
+        }
+      }
+        CallOverlay()
+        // 启动检查更新（后台配置；强制时弹框不可关闭）
+        com.wh.hongniang.ui.UpdateChecker()
+    }
+}

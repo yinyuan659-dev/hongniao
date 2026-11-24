@@ -1,0 +1,32 @@
+# ---- 通用 ----
+.DS_Store
+*.iml
+.idea/
+node_modules/
+*.log
+
+# ---- 密钥与环境变量（勿入库）----
+.env
+.env.*
+*凭据*.md
+*.jks
+*.keystore
+*.p12
+*.mobileprovision
+
+# ---- 构建产物 ----
+dist/
+build/
+__pycache__/
+
+# ---- Android ----
+.gradle/
+.kotlin/
+local.properties
+captures/
+.externalNativeBuild
+.cxx
+
+# ---- iOS ----
+xcuserdata/
+DerivedData/

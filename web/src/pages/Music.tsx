@@ -1,0 +1,332 @@
+import { useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { api } from '../api';
+import { shareBase, shareText } from '../bridge';
+import { music, useMusic, type MusicTrack } from '../music';
+import { t } from '../i18n';
+
+function fmtDur(s: number): string {
+  if (!s || !isFinite(s)) return '0:00';
+  const v = Math.floor(s);
+  const h = Math.floor(v / 3600);
+  const m = Math.floor((v % 3600) / 60);
+  const sec = String(v % 60).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
+}
+
+function fmtSize(b: number): string {
+  return b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.round(b / 1024)} KB`;
+}
+
+function fmtAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const h = Math.floor(diff / 3600000);
+  if (h < 1) return t('time.justNow');
+  if (h < 24) return t('time.hoursAgo', { n: h });
+  const d = Math.floor(h / 24);
+  return d <= 1 ? t('time.yesterday') : t('time.daysAgo', { n: d });
+}
+
+// ---------- 图标（矢量，不用 emoji） ----------
+
+function PlayIcon({ playing, size = 22 }: { playing: boolean; size?: number }) {
+  return playing ? (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></svg>
+  ) : (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10-6.5a1 1 0 0 0 0-1.72l-10-6.5A1 1 0 0 0 8 5.5z" /></svg>
+  );
+}
+
+function SkipIcon({ dir, size = 26 }: { dir: 'prev' | 'next'; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" style={{ transform: dir === 'prev' ? 'scaleX(-1)' : undefined }}>
+      <path d="M4 5.5v13a1 1 0 0 0 1.5.86L12 15.2v3.3a1 1 0 0 0 1.5.86l8-5.5a1 1 0 0 0 0-1.72l-8-5.5A1 1 0 0 0 12 8.5v3.3L5.5 4.64A1 1 0 0 0 4 5.5z" />
+    </svg>
+  );
+}
+
+function ShuffleIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M16 3h5v5" /><path d="M4 20 21 3" /><path d="M21 16v5h-5" /><path d="m15 15 6 6" /><path d="m4 4 5 5" />
+    </svg>
+  );
+}
+
+function RepeatIcon({ one, size = 20 }: { one: boolean; size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m17 2 4 4-4 4" /><path d="M3 11v-1a4 4 0 0 1 4-4h14" /><path d="m7 22-4-4 4-4" /><path d="M21 13v1a4 4 0 0 1-4 4H3" />
+      {one && <text x="12" y="15" fontSize="8" fill="currentColor" stroke="none" textAnchor="middle" fontWeight="700">1</text>}
+    </svg>
+  );
+}
+
+function CloseIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+  );
+}
+
+function DownloadIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+    </svg>
+  );
+}
+
+function ShareIcon({ size = 20 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3v13" /><path d="m7 8 5-5 5 5" /><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7" />
+    </svg>
+  );
+}
+
+function Bars() {
+  return <span className="music-bars"><i /><i /><i /></span>;
+}
+
+/** 分享地址：后端短链（带 og 标签，微信 / QQ / Telegram 卡片才显示封面），点开跳到 /#/music/share/:id */
+export function shareLink(id: string): string {
+  return `${shareBase()}/s/music/${id}`;
+}
+
+function extOf(url: string): string {
+  return url.match(/\.([a-z0-9]{2,5})$/i)?.[1] ?? 'mp3';
+}
+
+/** 保存到手机：同源 /res/ 走 <a download>，浏览器直接下载 */
+export function saveTrack(t: { title: string; url: string }) {
+  const a = document.createElement('a');
+  a.href = t.url;
+  a.download = `${t.title}.${extOf(t.url)}`;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+/** 分享：系统分享面板，不支持时复制链接 */
+export async function shareTrack(tr: { id: string; title: string; performer: string }, toast: (s: string) => void) {
+  const text = `${tr.title}${tr.performer ? ` - ${tr.performer}` : ''}`;
+  if ((await shareText(text, shareLink(tr.id))) === 'copied') toast(t('share.linkCopied'));
+}
+
+/** 封面：有图用图，没有用渐变 + 音符 */
+function Cover({ track, size, round = true, active }: { track: MusicTrack; size: number; round?: boolean; active?: boolean }) {
+  return (
+    <div className={`music-cover${active ? ' spin' : ''}${round ? '' : ' square'}`} style={{ width: size, height: size }}>
+      {track.cover ? (
+        <img src={track.cover} alt="" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+      ) : (
+        <svg width={size * 0.46} height={size * 0.46} viewBox="0 0 24 24" fill="#fff" opacity={0.9}>
+          <path d="M9 3v10.55A4 4 0 1 0 11 17V7h5a3 3 0 0 0 3-3V3H9z" />
+        </svg>
+      )}
+    </div>
+  );
+}
+
+// ---------- 消息页顶部「正在播放」栏 ----------
+
+/** 播放中固定在消息页顶部：暂停 / 标题·艺术家 / 倍速 / 关闭；点中间打开播放弹层 */
+export function NowPlayingBar({ onOpen }: { onOpen: () => void }) {
+  const s = useMusic();
+  const cur = s.current;
+  if (!cur) return null;
+  return (
+    <div className="now-playing">
+      <span className="np-btn" onClick={() => music.toggle()}><PlayIcon playing={s.playing} size={20} /></span>
+      <div className="np-text" onClick={onOpen}>
+        <div className="np-title ellipsis">{cur.title}</div>
+        <div className="np-sub ellipsis">{cur.performer || s.data?.source?.title || t('music.unknownArtist')}{s.buffering ? ` · ${t('music.buffering')}` : ''}</div>
+      </div>
+      <span className="np-rate" onClick={() => music.cycleRate()}>{s.rate === 1 ? '1X' : `${s.rate}X`}</span>
+      <span className="np-btn" onClick={() => music.stop()}><CloseIcon /></span>
+    </div>
+  );
+}
+
+// ---------- 播放弹层（列表 + 大播放器） ----------
+
+/**
+ * 独立弹层：上半部曲目列表，下半部播放器（封面、标题、进度/时间、倍速、随机/上一首/播放/下一首/循环）。
+ * 数据来自后端从 Telegram 频道同步的最新曲目。
+ */
+export function MusicSheet({ onClose }: { onClose: () => void }) {
+  const s = useMusic();
+  const [loaded, setLoaded] = useState(!!s.data);
+  const [toast, setToast] = useState('');
+  const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(''), 2000); };
+
+  useEffect(() => {
+    music.load().finally(() => setLoaded(true));
+  }, []);
+
+  const list = s.data?.list ?? [];
+  const track = s.current;
+  const pct = s.duration ? Math.min(100, (s.progress / s.duration) * 100) : 0;
+
+  const seek = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    music.seek((e.clientX - rect.left) / rect.width);
+  };
+
+  return (
+    <div className="mask bottom music-mask" onClick={onClose}>
+      <div className="music-sheet" onClick={(e) => e.stopPropagation()}>
+        <div className="music-sheet-head">
+          <div className="music-handle" />
+          <div className="row" style={{ padding: '4px 16px 10px' }}>
+            <div className="grow" style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 16, fontWeight: 600 }} className="ellipsis">{s.data?.source?.title || t('music.title')}</div>
+              <div className="small" style={{ marginTop: 2 }}>{t('music.keepMax')}{list.length ? ` · ${t('music.totalN', { n: list.length })}` : ''}</div>
+            </div>
+            <span className="np-btn" onClick={onClose}><CloseIcon /></span>
+          </div>
+        </div>
+
+        <div className="music-list no-scrollbar">
+          {!loaded && <div className="empty">{t('common.loading')}</div>}
+          {loaded && list.length === 0 && <div className="empty">{t('music.empty')}<br />{t('common.checkBackLater')}</div>}
+          {list.map((it) => {
+            const active = it.id === track?.id;
+            return (
+              <div key={it.id} className="row music-row" onClick={() => music.play(it)}>
+                <Cover track={it} size={48} active={active && s.playing} />
+                <div className="grow">
+                  <div className="row" style={{ gap: 6 }}>
+                    <span className="grow ellipsis" style={{ fontSize: 15, color: active ? 'var(--accent)' : 'var(--text)', fontWeight: active ? 600 : 400 }}>{it.title}</span>
+                    {active && s.playing && <Bars />}
+                  </div>
+                  <div className="small" style={{ marginTop: 4, display: 'flex', gap: 8 }}>
+                    <span>{fmtDur(it.duration)}</span>
+                    {it.performer && <span className="ellipsis" style={{ maxWidth: 120 }}>· {it.performer}</span>}
+                    <span>· {fmtSize(it.size)}</span>
+                    <span>· {fmtAgo(it.postedAt)}</span>
+                  </div>
+                </div>
+                <span style={{ color: active ? 'var(--accent)' : 'var(--text-3)', display: 'flex' }}>
+                  <PlayIcon playing={active && s.playing} size={20} />
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* 大播放器 */}
+        <div className="music-big">
+          {track ? (
+            <>
+              <div className="row" style={{ gap: 12 }}>
+                <Cover track={track} size={52} round={false} />
+                <div className="grow" style={{ minWidth: 0 }}>
+                  <div className="ellipsis" style={{ fontSize: 16, fontWeight: 600 }}>{track.title}</div>
+                  <div className="muted ellipsis" style={{ marginTop: 3 }}>{track.performer || t('music.unknownArtist')}</div>
+                </div>
+                {/* 保存到手机 / 分享 */}
+                <span className="np-btn" title={t('music.saveToPhone')} onClick={() => { saveTrack(track); showToast(t('music.downloadStarted')); }}><DownloadIcon /></span>
+                <span className="np-btn" title={t('common.share')} onClick={() => shareTrack(track, showToast)}><ShareIcon /></span>
+              </div>
+              <div className="music-progress big" onClick={seek}>
+                <div className="music-progress-fill" style={{ width: `${pct}%` }} />
+                <div className="music-knob" style={{ left: `${pct}%` }} />
+              </div>
+              <div className="row" style={{ marginTop: 6 }}>
+                <span className="small" style={{ width: 56 }}>{fmtDur(s.progress)}</span>
+                <span className="grow" style={{ textAlign: 'center' }}>
+                  <span className="np-rate" onClick={() => music.cycleRate()}>{s.rate === 1 ? '1X' : `${s.rate}X`}</span>
+                </span>
+                <span className="small" style={{ width: 56, textAlign: 'right' }}>{fmtDur(s.duration)}</span>
+              </div>
+            </>
+          ) : (
+            <div className="muted" style={{ textAlign: 'center', padding: '6px 0 2px' }}>{t('music.tapToPlay')}</div>
+          )}
+          <div className="music-controls">
+            <span className={`music-ctl${s.shuffle ? ' on' : ''}`} onClick={() => music.toggleShuffle()}><ShuffleIcon /></span>
+            <span className="music-ctl" onClick={() => music.step(-1)}><SkipIcon dir="prev" /></span>
+            <span className="music-ctl main" onClick={() => music.toggle()}><PlayIcon playing={s.playing} size={30} /></span>
+            <span className="music-ctl" onClick={() => music.step(1)}><SkipIcon dir="next" /></span>
+            <span className={`music-ctl${s.repeat === 'one' ? ' on' : ''}`} onClick={() => music.toggleRepeat()}><RepeatIcon one={s.repeat === 'one'} /></span>
+          </div>
+        </div>
+        {toast && <div className="music-toast">{toast}</div>}
+      </div>
+    </div>
+  );
+}
+
+// ---------- 分享落地页（不用登录） ----------
+
+interface SharedTrack extends MusicTrack {
+  fullUrl: string;
+  fullCover: string;
+  source: { title: string } | null;
+}
+
+/** /music/share/:id：好友点开链接直接听 + 保存 + 下载 App */
+export function MusicSharePage() {
+  const { id } = useParams<{ id: string }>();
+  const [track, setTrack] = useState<SharedTrack | null>(null);
+  const [err, setErr] = useState('');
+  const [dl, setDl] = useState<{ android?: string; ios?: string } | null>(null);
+  const [toast, setToast] = useState('');
+  const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(''), 2000); };
+
+  useEffect(() => {
+    if (!id) return;
+    api<SharedTrack>(`/app/music/${id}`).then(setTrack).catch((e) => setErr(e.message || t('music.removed')));
+    api<any>('/app/download').then((d) => setDl({ android: d?.android?.url, ios: d?.ios?.channel === 'appstore' ? d.ios.url : undefined })).catch(() => {});
+  }, [id]);
+
+  const openApp = () => {
+    const ua = navigator.userAgent;
+    const url = /iPhone|iPad|iPod/i.test(ua) ? dl?.ios : dl?.android;
+    location.href = url || 'https://yyheart.com/';
+  };
+
+  return (
+    <div className="app music-share">
+      {err && <div className="empty">{err}</div>}
+      {!track && !err && <div className="empty">{t('common.loading')}</div>}
+      {track && (
+        <>
+          <div className="music-share-head">
+            <div className="music-cover square" style={{ width: 160, height: 160, margin: '0 auto' }}>
+              {/* 封面加载失败就去掉图，露出渐变 + 音符，不留裂图 */}
+              {track.fullCover ? <img src={track.fullCover} alt="" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} /> : (
+                <svg width={74} height={74} viewBox="0 0 24 24" fill="#fff" opacity={0.9}><path d="M9 3v10.55A4 4 0 1 0 11 17V7h5a3 3 0 0 0 3-3V3H9z" /></svg>
+              )}
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 700, marginTop: 18, textAlign: 'center' }}>{track.title}</div>
+            <div className="muted" style={{ marginTop: 6, textAlign: 'center' }}>
+              {track.performer || t('music.unknownArtist')} · {fmtDur(track.duration)} · {fmtSize(track.size)}
+            </div>
+            {track.source?.title && <div className="small" style={{ marginTop: 6, textAlign: 'center' }}>{t('music.from', { name: track.source.title })}</div>}
+          </div>
+          {/* 同源 /res 路径：<a download> 跨域会失效，且同源可复用 nginx 的 /res 反代 */}
+          <audio src={track.url} controls preload="metadata" style={{ width: '100%', marginTop: 22 }} />
+          <div className="row" style={{ gap: 12, marginTop: 22 }}>
+            <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => { saveTrack({ title: track.title, url: track.url }); showToast(t('music.downloadStarted')); }}>{t('music.saveToPhone')}</button>
+            <button className="btn" style={{ flex: 1 }} onClick={openApp}>{t('music.openApp', { app: t('app.name') })}</button>
+          </div>
+          <div className="hint">{t('music.shareHint', { app: t('app.name') })}</div>
+        </>
+      )}
+      {toast && <div className="music-toast">{toast}</div>}
+    </div>
+  );
+}
+
+/** 路由页形式（直接访问 /music 时用），关闭即返回 */
+export function MusicPage() {
+  const nav = useNavigate();
+  return (
+    <div className="app">
+      <MusicSheet onClose={() => nav(-1)} />
+    </div>
+  );
+}

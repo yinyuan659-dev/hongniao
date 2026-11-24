@@ -1,0 +1,446 @@
+package com.wh.hongniang.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
+import androidx.compose.ui.composed
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import com.wh.hongniang.i18n.t
+import com.wh.hongniang.net.Api
+import com.wh.hongniang.ui.theme.Accent
+import com.wh.hongniang.ui.theme.Accent2
+import com.wh.hongniang.ui.theme.Bg3
+import com.wh.hongniang.ui.theme.Line
+import com.wh.hongniang.ui.theme.TextDim
+import com.wh.hongniang.ui.theme.TextMain
+import com.wh.hongniang.ui.theme.TextSub
+
+val AccentBrush = Brush.horizontalGradient(listOf(Accent, Accent2))
+
+/** 内部网页全屏预览（共用：AI 生成的 HTML 或新闻原文 url） */
+@Composable
+fun WebPreviewDialog(html: String? = null, url: String? = null, title: String = t("web.preview"), onClose: () -> Unit) {
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onClose,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Column(Modifier.fillMaxSize().background(com.wh.hongniang.ui.theme.Bg)) {
+            Row(
+                Modifier.fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(14.dp, 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(title, color = TextMain, fontSize = 14.sp, maxLines = 1, modifier = Modifier.weight(1f))
+                if (url != null) {
+                    val ctx = androidx.compose.ui.platform.LocalContext.current
+                    Text(t("web.openInBrowser"), color = TextSub, fontSize = 14.sp, modifier = Modifier.padding(end = 14.dp).noRippleClick {
+                        runCatching { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
+                    })
+                    Text(t("web.copyLink"), color = TextSub, fontSize = 14.sp, modifier = Modifier.padding(end = 14.dp).noRippleClick {
+                        val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        cm.setPrimaryClip(android.content.ClipData.newPlainText("link", url))
+                        android.widget.Toast.makeText(ctx, t("common.copied"), android.widget.Toast.LENGTH_SHORT).show()
+                    })
+                }
+                Text(t("common.close"), color = Accent, fontSize = 14.sp, modifier = Modifier.noRippleClick(onClose))
+            }
+            var web by remember { mutableStateOf<android.webkit.WebView?>(null) }
+            androidx.activity.compose.BackHandler {
+                val w = web
+                if (w != null && w.canGoBack()) w.goBack() else onClose()
+            }
+            androidx.compose.ui.viewinterop.AndroidView(
+                factory = { c ->
+                    android.webkit.WebView(c).apply {
+                        // 大多数网页依赖 localStorage / sessionStorage，不开会报 Cannot read properties of null (reading 'getItem')
+                        settings.javaScriptEnabled = true
+                        settings.domStorageEnabled = true
+                        @Suppress("DEPRECATION")
+                        settings.databaseEnabled = true
+                        settings.useWideViewPort = true
+                        settings.loadWithOverviewMode = true
+                        settings.mediaPlaybackRequiresUserGesture = false
+                        webViewClient = object : android.webkit.WebViewClient() {
+                            override fun shouldOverrideUrlLoading(view: android.webkit.WebView, req: android.webkit.WebResourceRequest): Boolean {
+                                val u = req.url
+                                if (u.scheme == "http" || u.scheme == "https") return false
+                                // weixin:// alipays:// intent:// 等交给系统，打不开就忽略，避免 ERR_UNKNOWN_URL_SCHEME
+                                runCatching {
+                                    val intent = if (u.scheme == "intent") android.content.Intent.parseUri(u.toString(), android.content.Intent.URI_INTENT_SCHEME)
+                                    else android.content.Intent(android.content.Intent.ACTION_VIEW, u)
+                                    intent.addCategory(android.content.Intent.CATEGORY_BROWSABLE)
+                                    intent.component = null
+                                    view.context.startActivity(intent)
+                                }
+                                return true
+                            }
+                        }
+                        webChromeClient = android.webkit.WebChromeClient()
+                        if (html != null) loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
+                        else if (url != null) loadUrl(url)
+                        web = this
+                    }
+                },
+                onRelease = { it.stopLoading(); it.destroy() },
+                modifier = Modifier.weight(1f).fillMaxWidth().navigationBarsPadding(),
+            )
+        }
+    }
+}
+
+/** 无水波纹点击（去掉矩形高亮），用于文字 tab 等 */
+fun Modifier.noRippleClick(onClick: () -> Unit): Modifier = composed {
+    val src = remember { MutableInteractionSource() }
+    this.clickable(interactionSource = src, indication = null, onClick = onClick)
+}
+
+/**
+ * 点击空白处收起键盘。挂在页面根节点（AppRoot 已挂，覆盖全部路由页）或独立窗口的弹层根节点（Dialog / BottomSheet）。
+ * 输入框、按钮等会消费按下事件，父节点这里收不到 → 只有真正点到空白处才会清焦点收键盘。
+ */
+fun Modifier.clearFocusOnTap(): Modifier = composed {
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    this.pointerInput(Unit) {
+        detectTapGestures(onTap = {
+            focus.clearFocus()
+            keyboard?.hide()
+        })
+    }
+}
+
+@Composable
+fun PageTitle(text: String, action: (@Composable () -> Unit)? = null) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(16.dp, 14.dp, 16.dp, 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = TextMain, modifier = Modifier.weight(1f))
+        action?.invoke()
+    }
+}
+
+@Composable
+fun NavBar(title: String, onBack: () -> Unit, action: (@Composable () -> Unit)? = null) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(modifier = Modifier.size(40.dp).noRippleClick(onBack), contentAlignment = Alignment.Center) {
+            BackIcon(TextMain, 24.dp)
+        }
+        Text(title, color = TextMain, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, modifier = Modifier.weight(1f))
+        Box(modifier = Modifier.size(56.dp, 40.dp), contentAlignment = Alignment.Center) { action?.invoke() }
+    }
+}
+
+/** 返回箭头（线性） */
+@Composable
+fun BackIcon(tint: Color, size: androidx.compose.ui.unit.Dp = 24.dp) {
+    androidx.compose.foundation.Canvas(Modifier.size(size)) {
+        val w = this.size.width
+        drawLine(tint, androidx.compose.ui.geometry.Offset(w * 0.62f, w * 0.22f), androidx.compose.ui.geometry.Offset(w * 0.36f, w * 0.5f), strokeWidth = w * 0.09f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+        drawLine(tint, androidx.compose.ui.geometry.Offset(w * 0.36f, w * 0.5f), androidx.compose.ui.geometry.Offset(w * 0.62f, w * 0.78f), strokeWidth = w * 0.09f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+    }
+}
+
+/** 扫一扫图标（四角取景框 + 中线） */
+@Composable
+fun ScanIcon(tint: Color, size: androidx.compose.ui.unit.Dp = 20.dp) {
+    androidx.compose.foundation.Canvas(Modifier.size(size)) {
+        val w = this.size.width
+        val h = this.size.height
+        val c = w * 0.3f
+        val sw = w * 0.1f
+        val cap = androidx.compose.ui.graphics.StrokeCap.Round
+        fun p(x: Float, y: Float) = androidx.compose.ui.geometry.Offset(x, y)
+        drawLine(tint, p(0f, c), p(0f, 0f), sw, cap); drawLine(tint, p(0f, 0f), p(c, 0f), sw, cap)
+        drawLine(tint, p(w - c, 0f), p(w, 0f), sw, cap); drawLine(tint, p(w, 0f), p(w, c), sw, cap)
+        drawLine(tint, p(0f, h - c), p(0f, h), sw, cap); drawLine(tint, p(0f, h), p(c, h), sw, cap)
+        drawLine(tint, p(w - c, h), p(w, h), sw, cap); drawLine(tint, p(w, h), p(w, h - c), sw, cap)
+        drawLine(tint, p(w * 0.2f, h * 0.5f), p(w * 0.8f, h * 0.5f), sw, cap)
+    }
+}
+
+/** 眼睛图标（线性：杏仁形轮廓 + 实心瞳孔），用于阅读数，替代显示效果不稳定的 👁 emoji */
+@Composable
+fun EyeIcon(tint: Color, size: androidx.compose.ui.unit.Dp = 14.dp) {
+    androidx.compose.foundation.Canvas(Modifier.size(size, size * 0.7f)) {
+        val w = this.size.width
+        val h = this.size.height
+        val sw = w * 0.09f
+        val outline = androidx.compose.ui.graphics.Path().apply {
+            moveTo(w * 0.04f, h * 0.5f)
+            quadraticBezierTo(w * 0.5f, -h * 0.12f, w * 0.96f, h * 0.5f)
+            quadraticBezierTo(w * 0.5f, h * 1.12f, w * 0.04f, h * 0.5f)
+            close()
+        }
+        drawPath(outline, tint, style = androidx.compose.ui.graphics.drawscope.Stroke(width = sw, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+        drawCircle(tint, radius = w * 0.15f, center = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.5f))
+    }
+}
+
+/** 混合媒体项（图片 / 视频），大厅 H5 经桥传来 */
+@kotlinx.serialization.Serializable
+data class MediaItem(val type: String = "image", val url: String = "", val cover: String? = null)
+
+/**
+ * 全屏混合媒体查看器（像 Telegram / 抖音）：**上下滑切帖子**（VerticalPager），**左右滑切同一帖里的多张图**（HorizontalPager）；
+ * 图片用 Telephoto 缩放，视频用 ExoPlayer（原生控制条），滑到哪个播哪个；单击图片关闭。
+ * 大厅 H5 的「养眼图片」点图/点视频经 PeiwanNative.viewMediaGroups 走这里。
+ */
+@Composable
+fun MediaViewer(groups: List<List<MediaItem>>, startGroup: Int = 0, startIndex: Int = 0, onClose: () -> Unit) {
+    val gs = groups.filter { it.isNotEmpty() }
+    if (gs.isEmpty()) return
+    val vPager = rememberPagerState(initialPage = startGroup.coerceIn(0, gs.size - 1)) { gs.size }
+    androidx.compose.foundation.layout.Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+        androidx.compose.foundation.pager.VerticalPager(state = vPager, modifier = Modifier.fillMaxSize(), beyondViewportPageCount = 0) { g ->
+            val items = gs[g]
+            val hPager = rememberPagerState(initialPage = if (g == startGroup) startIndex.coerceIn(0, items.size - 1) else 0) { items.size }
+            androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
+                HorizontalPager(state = hPager, modifier = Modifier.fillMaxSize(), beyondViewportPageCount = 0) { page ->
+                    val it = items[page]
+                    if (it.type == "video") {
+                        MediaVideoPage(url = Api.fullUrl(it.url), active = vPager.currentPage == g && hPager.currentPage == page)
+                    } else {
+                        me.saket.telephoto.zoomable.coil.ZoomableAsyncImage(
+                            model = Api.fullUrl(it.url), contentDescription = null,
+                            modifier = Modifier.fillMaxSize(), onClick = { onClose() },
+                        )
+                    }
+                }
+                // 角标：第几条 / 共几条 · 第几张 / 共几张
+                val label = buildString {
+                    if (gs.size > 1) append(t("media.postIndex", "i" to g + 1, "n" to gs.size))
+                    if (items.size > 1) { if (isNotEmpty()) append(" · "); append("${hPager.currentPage + 1}/${items.size}") }
+                }
+                if (label.isNotEmpty()) Text(label, color = Color.White, fontSize = 13.sp, modifier = Modifier.align(Alignment.TopCenter).padding(top = 40.dp))
+            }
+        }
+        Box(
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 36.dp, end = 16.dp).size(36.dp)
+                .clip(CircleShape).background(Color.White.copy(alpha = 0.18f)).noRippleClick(onClose),
+            contentAlignment = Alignment.Center,
+        ) { Text("×", color = Color.White, fontSize = 22.sp) }
+    }
+}
+
+/** 查看器里的视频页：当前页自动播，滑走暂停，离开释放 */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+@Composable
+private fun MediaVideoPage(url: String, active: Boolean) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val player = remember(url) {
+        androidx.media3.exoplayer.ExoPlayer.Builder(ctx).build().apply {
+            setMediaItem(androidx.media3.common.MediaItem.fromUri(url))
+            repeatMode = androidx.media3.common.Player.REPEAT_MODE_ONE
+            prepare()
+        }
+    }
+    LaunchedEffect(active) {
+        if (active) { com.wh.hongniang.ui.screen.MusicCenter.pause(); player.play() } else player.pause()
+    }
+    androidx.compose.runtime.DisposableEffect(url) { onDispose { player.release() } }
+    androidx.compose.ui.viewinterop.AndroidView(
+        modifier = Modifier.fillMaxSize(),
+        factory = {
+            androidx.media3.ui.PlayerView(it).apply {
+                this.player = player
+                useController = true
+                setShowNextButton(false); setShowPreviousButton(false)
+                setBackgroundColor(android.graphics.Color.BLACK)
+            }
+        },
+    )
+}
+
+/**
+ * 全屏图片查看器（Telephoto）：双指/双击缩放 + 平移，横滑切换，单击关闭。
+ * 传了 onScanQr 时底部多一个「识别二维码」：认出来就关掉查看器，把内容交给统一的扫码处理。
+ */
+@Composable
+fun ImageViewer(urls: List<String>, startIndex: Int = 0, onScanQr: ((String) -> Unit)? = null, onClose: () -> Unit) {
+    if (urls.isEmpty()) return
+    val pager = rememberPagerState(initialPage = startIndex.coerceIn(0, urls.size - 1)) { urls.size }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var scanning by remember { mutableStateOf(false) }
+
+    androidx.compose.foundation.layout.Box(
+        modifier = Modifier.fillMaxSize().background(Color.Black),
+        contentAlignment = Alignment.Center,
+    ) {
+        HorizontalPager(state = pager, modifier = Modifier.fillMaxSize()) { page ->
+            me.saket.telephoto.zoomable.coil.ZoomableAsyncImage(
+                model = Api.fullUrl(urls[page]),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                onClick = { onClose() },
+            )
+        }
+        if (urls.size > 1) {
+            Text("${pager.currentPage + 1}/${urls.size}", color = Color.White, modifier = Modifier.align(Alignment.TopCenter).padding(top = 40.dp))
+        }
+        Box(
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 36.dp, end = 16.dp).size(36.dp)
+                .clip(CircleShape).background(Color.White.copy(alpha = 0.18f)).noRippleClick(onClose),
+            contentAlignment = Alignment.Center,
+        ) { Text("×", color = Color.White, fontSize = 22.sp) }
+        if (onScanQr != null) {
+            Row(
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 48.dp)
+                    .clip(RoundedCornerShape(20.dp)).background(Color.White.copy(alpha = 0.18f))
+                    .noRippleClick {
+                        if (scanning) return@noRippleClick
+                        scanning = true
+                        scope.launch {
+                            val text = runCatching { com.wh.hongniang.ui.screen.decodeQrFromUrl(ctx, Api.fullUrl(urls[pager.currentPage])) }.getOrNull()
+                            scanning = false
+                            if (text == null) android.widget.Toast.makeText(ctx, t("qr.notFoundInImage"), android.widget.Toast.LENGTH_SHORT).show()
+                            else {
+                                onClose()
+                                onScanQr(text)
+                            }
+                        }
+                    }
+                    .padding(horizontal = 16.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ScanIcon(Color.White, 16.dp)
+                Text("  " + if (scanning) t("qr.recognizing") else t("qr.recognize"), color = Color.White, fontSize = 14.sp)
+            }
+        }
+    }
+}
+
+@Composable
+fun EmptyHint(text: String) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text(text, color = TextSub, textAlign = TextAlign.Center, fontSize = 14.sp, lineHeight = 26.sp)
+    }
+}
+
+@Composable
+fun Avatar(url: String?, size: Int = 44) {
+    Box(
+        modifier = Modifier.size(size.dp).clip(CircleShape).background(Bg3),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (!url.isNullOrEmpty()) {
+            AsyncImage(model = Api.fullUrl(url), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+        }
+    }
+}
+
+/** 玫红胶囊主按钮 */
+@Composable
+fun AccentButton(text: String, enabled: Boolean = true, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(46.dp)
+            .clip(RoundedCornerShape(23.dp))
+            .background(if (enabled) AccentBrush else Brush.horizontalGradient(listOf(Bg3, Bg3)))
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, color = androidx.compose.ui.graphics.Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+fun PillTab(text: String, active: Boolean, badge: Int = 0, onClick: () -> Unit) {
+    Box(contentAlignment = Alignment.TopEnd) {
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(14.dp))
+                .background(if (active) AccentBrush else Brush.horizontalGradient(listOf(Bg3, Bg3)))
+                .clickable(onClick = onClick)
+                .padding(horizontal = 12.dp, vertical = 5.dp),
+        ) {
+            Text(text, color = if (active) androidx.compose.ui.graphics.Color.White else TextSub, fontSize = 13.sp, fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal)
+        }
+        RoundBadge(badge)
+    }
+}
+
+/** 正圆未读徽标（两位数以上自动变胶囊），微信式 */
+@Composable
+fun RoundBadge(count: Int, modifier: Modifier = Modifier, color: Color = Accent) {
+    if (count <= 0) return
+    Box(
+        modifier = modifier
+            .height(16.dp)
+            .defaultMinSize(minWidth = 16.dp)
+            .clip(RoundedCornerShape(percent = 50))
+            .background(color)
+            .padding(horizontal = 4.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            if (count > 99) "99+" else "$count",
+            color = androidx.compose.ui.graphics.Color.White,
+            fontSize = 9.sp,
+            // 去掉字体内边距，保证数字在 16dp 圆内垂直居中不撑高
+            style = androidx.compose.ui.text.TextStyle(
+                platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false),
+            ),
+        )
+    }
+}
+
+fun timeAgo(iso: String): String {
+    if (iso.isEmpty()) return ""
+    return try {
+        val ts = java.time.Instant.parse(iso).toEpochMilli()
+        val diff = System.currentTimeMillis() - ts
+        val min = diff / 60000
+        when {
+            min < 1 -> t("time.justNow")
+            min < 60 -> t("time.minutesAgo", "n" to min)
+            min < 1440 -> t("time.hoursAgo", "n" to min / 60)
+            else -> t("time.daysAgo", "n" to min / 1440)
+        }
+    } catch (_: Exception) { "" }
+}

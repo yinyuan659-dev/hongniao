@@ -1,0 +1,381 @@
+import Combine
+import SwiftUI
+
+func toFen(_ points: String) -> Int { Int(((Double(points) ?? 0) * 100).rounded()) }
+
+func timeAgo(_ iso: String?) -> String {
+    guard let iso, !iso.isEmpty else { return "" }
+    let f1 = ISO8601DateFormatter()
+    f1.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    let f2 = ISO8601DateFormatter()
+    let date = f1.date(from: iso) ?? f2.date(from: iso)
+    guard let d = date else { return "" }
+    let min = Int(Date().timeIntervalSince(d) / 60)
+    if min < 1 { return t("time.justNow") }
+    if min < 60 { return t("time.minutesAgoCompact", ["n": min]) }
+    if min < 1440 { return t("time.hoursAgoCompact", ["n": min / 60]) }
+    if min < 43200 { return t("time.daysAgoCompact", ["n": min / 1440]) }
+    return String(iso.prefix(10))
+}
+
+func parseIsoDate(_ iso: String?) -> Date? {
+    guard let iso, !iso.isEmpty else { return nil }
+    let f1 = ISO8601DateFormatter()
+    f1.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return f1.date(from: iso) ?? ISO8601DateFormatter().date(from: iso)
+}
+
+func fmtTime(_ iso: String?) -> String {
+    guard let d = parseIsoDate(iso) else { return "" }
+    let df = DateFormatter()
+    df.dateFormat = Calendar.current.isDateInToday(d) ? "HH:mm" : "MM-dd HH:mm"
+    return df.string(from: d)
+}
+
+/// 图片内存缓存
+enum RemoteImageCache {
+    static let cache: NSCache<NSString, UIImage> = {
+        let c = NSCache<NSString, UIImage>()
+        c.countLimit = 300
+        return c
+    }()
+}
+
+/**
+ * 远程图片：内存缓存 + 失败/取消自动重试。
+ * 替代 AsyncImage（它在列表滚动中请求被取消后不会重新加载，导致头像概率性空白）。
+ */
+struct RemoteImage: View {
+    let url: String
+    @State private var image: UIImage?
+    @State private var attempt = 0
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
+                Theme.bg3
+            }
+        }
+        // 视图出屏任务取消、回屏自动重新执行，天然解决“取消后不再加载”
+        .task(id: "\(url)#\(attempt)") {
+            await load()
+        }
+    }
+
+    private func load() async {
+        let full = Api.fullUrl(url)
+        guard !full.isEmpty, let u = URL(string: full) else { return }
+        if let cached = RemoteImageCache.cache.object(forKey: full as NSString) {
+            if image == nil { image = cached }
+            return
+        }
+        do {
+            let (data, _) = try await URLSession.shared.data(from: u)
+            if let img = UIImage(data: data) {
+                RemoteImageCache.cache.setObject(img, forKey: full as NSString)
+                image = img
+            }
+        } catch {
+            // 失败（含被取消恢复后）延迟重试，最多 3 次
+            if attempt < 3, !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 800_000_000)
+                if !Task.isCancelled { attempt += 1 }
+            }
+        }
+    }
+}
+
+/// 圆形头像
+struct AvatarView: View {
+    let url: String?
+    var size: CGFloat = 44
+    var body: some View {
+        Group {
+            if let url, !url.isEmpty {
+                RemoteImage(url: url)
+            } else {
+                Circle().fill(Theme.bg3)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+    }
+}
+
+/// 玫红胶囊主按钮
+struct AccentButton: View {
+    let title: String
+    var enabled: Bool = true
+    let action: () -> Void
+    var body: some View {
+        Button(action: { if enabled { action() } }) {
+            Text(title)
+                .font(.system(size: 16, weight: .semibold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(enabled ? AnyShapeStyle(Theme.accentGrad) : AnyShapeStyle(Theme.bg3))
+                .foregroundStyle(.white)
+                .clipShape(Capsule())
+        }
+        .disabled(!enabled)
+    }
+}
+
+struct PageTitle: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(.system(size: 22, weight: .bold))
+            .foregroundStyle(Theme.text)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+    }
+}
+
+struct EmptyHint: View {
+    let text: String
+    var body: some View {
+        VStack {
+            Spacer()
+            Text(text).font(.subheadline).foregroundStyle(Theme.textSub)
+                .multilineTextAlignment(.center).lineSpacing(8)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// 文字 Tab（无背景，选中高亮加粗）
+struct TextTab: View {
+    let text: String
+    let selected: Bool
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Text(text)
+                .font(.system(size: 16, weight: selected ? .bold : .regular))
+                .foregroundStyle(selected ? Theme.text : Theme.textSub)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Toast 提示
+struct ToastModifier: ViewModifier {
+    @Binding var message: String?
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .top) {
+            if let msg = message {
+                Text(msg)
+                    .font(.system(size: 14))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 18).padding(.vertical, 10)
+                    .background(Capsule().fill(Color.black.opacity(0.8)))
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .onAppear {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                            withAnimation { message = nil }
+                        }
+                    }
+            }
+        }
+    }
+}
+
+extension View {
+    func toast(_ message: Binding<String?>) -> some View { modifier(ToastModifier(message: message)) }
+}
+
+/// 导航路由（各 Tab 根部注册 navigationDestination）
+enum Route: Hashable {
+    case moment(String)
+    case project
+    case people(String)
+    case taskPost, taskHall, taskMine
+    case task(String)
+    case wallet, transfer, editProfile, guideApply, giftsReceived, myMoments, followMoments
+    /// 积分转赠并填好对方 ID（扫一扫扫到收款码）
+    case transferTo(String)
+    case createGroup
+    /// 加入群聊（扫码/输邀请码），关联值为预填的邀请码
+    case joinGroup(String?)
+    case realname
+    /// 我的邀请名片（专属网页链接 + 二维码）
+    case inviteCard
+    case userHome(String)
+    /// 关注/粉丝列表：type = following | fans
+    case followList(String)
+    /// AI 助手（免费问答）
+    case aiChat
+    /// 花边新闻列表
+    case newsList
+    /// 花边新闻详情
+    case newsDetail(String)
+    /// 音乐频道（Telegram 频道同步，最近 3 天）
+    case music
+    /// 私密树洞详情（评论）
+    case treehole(String)
+    /// 私密树洞匿名发布
+    case treeholePublish
+    /// 评论 / 接单通知列表：kind = comment | task
+    case notices(String)
+    /// 频道：发现 / 创建 / 频道页（群 id）/ 帖子评论（帖子 id，是否频道主）
+    case channels
+    case createChannel
+    case channel(String)
+    case channelComments(String, Bool)
+    /// 我的机器人 / 机器人详情（机器人 id）
+    case bots
+    case bot(String)
+    /// 链上钱包（自托管网页钱包 + DApp 浏览器）
+    case chainWallet
+    /// 直接打开钱包里的某一页（/wallet 开头的站内路径，例如聊天里的转账）；结果见 ChainWallet.resultNotification
+    case chainWalletPath(String)
+    /// 打开一个会话（例如钱包代币页「讨论群」进群聊）：会话 id、类型、对方 / 群 id、标题
+    case chatRoom(String, Int, String, String)
+    /// 群信息（群 id）
+    case groupInfo(String)
+}
+
+@ViewBuilder
+func routeView(_ route: Route) -> some View {
+    switch route {
+    case .moment(let id): MomentDetailView(momentId: id)
+    case .project: GuideProjectView()
+    case .people(let mode): PeopleView(mode: mode)
+    case .taskPost: TaskPostView()
+    case .taskHall: TaskHallView()
+    case .taskMine: TaskMineView()
+    case .task(let id): TaskDetailView(taskId: id)
+    case .wallet: WalletView()
+    case .transfer: TransferView()
+    case .transferTo(let sid): TransferView(initialSid: sid)
+    case .editProfile: EditProfileView()
+    case .guideApply: GuideApplyView()
+    case .giftsReceived: GiftsReceivedView()
+    case .myMoments: MyMomentsView()
+    case .followMoments: FollowMomentsView()
+    case .createGroup: CreateGroupView()
+    case .joinGroup(let code): JoinGroupView(initialCode: code)
+    case .realname: RealnameView()
+    case .inviteCard: InviteCardView()
+    case .userHome(let id): UserHomeView(userId: id)
+    case .followList(let type): FollowListView(type: type)
+    case .aiChat: AiChatView()
+    case .newsList: NewsListView()
+    case .newsDetail(let id): NewsDetailView(newsId: id)
+    case .music: MusicView()
+    case .treehole(let id): TreeholeDetailView(postId: id)
+    case .treeholePublish: TreeholePublishView()
+    case .notices(let kind): NoticesView(kind: kind)
+    case .channels: ChannelsView()
+    case .createChannel: CreateChannelView()
+    case .channel(let id): ChannelView(groupId: id)
+    case .channelComments(let msgId, let canAdmin): ChannelCommentsView(msgId: msgId, canAdmin: canAdmin)
+    case .bots: BotsView()
+    case .bot(let id): BotDetailView(botId: id)
+    case .chainWallet: ChainWalletView()
+    case .chainWalletPath(let path): ChainWalletView(startPath: path)
+    case .chatRoom(let convId, let convType, let targetId, let title): ChatRoomView(convId: convId, convType: convType, targetId: targetId, title: title)
+    case .groupInfo(let id): GroupInfoView(groupId: id)
+    }
+}
+
+/// 自定义底部 tab 栏的可见性：有子页面被 push 时隐藏（计数支持多级 push）
+@MainActor
+final class TabBarVisibility: ObservableObject {
+    static let shared = TabBarVisibility()
+    @Published var depth = 0
+}
+
+private struct HideTabBarModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .onAppear { withAnimation(.easeInOut(duration: 0.15)) { TabBarVisibility.shared.depth += 1 } }
+            .onDisappear { withAnimation(.easeInOut(duration: 0.15)) { TabBarVisibility.shared.depth -= 1 } }
+    }
+}
+
+extension View {
+    /// 每个导航栈根部调用，注册统一路由（子页面自动隐藏底部 tab 栏）。
+    /// iOS15 无值路由，跳转由 RouteLink 直接携带目的页，这里无需注册。
+    @ViewBuilder
+    func withRoutes() -> some View {
+        if #available(iOS 16.0, *) {
+            navigationDestination(for: Route.self) { routeView($0).modifier(HideTabBarModifier()) }
+        } else {
+            self
+        }
+    }
+}
+
+/// 代码触发的 push：route 置非 nil 即跳转，返回后自动置回 nil
+private struct RoutePushModifier: ViewModifier {
+    @Binding var route: Route?
+    /// 返回动画期间 route 已是 nil，目的页继续用上一次的，避免白屏一闪
+    @State private var last: Route?
+
+    func body(content: Content) -> some View {
+        let active = Binding(get: { route != nil }, set: { if !$0 { route = nil } })
+        if #available(iOS 16.0, *) {
+            content
+                .navigationDestination(isPresented: active) { destination }
+                .onChange(of: route) { if let r = $0 { last = r } }
+        } else {
+            content
+                .background(NavigationLink(isActive: active) { destination } label: { EmptyView() }.hidden())
+                .onChange(of: route) { if let r = $0 { last = r } }
+        }
+    }
+
+    @ViewBuilder private var destination: some View {
+        if let r = route ?? last { routeView(r).modifier(HideTabBarModifier()) }
+    }
+}
+
+extension View {
+    func routePush(_ route: Binding<Route?>) -> some View { modifier(RoutePushModifier(route: route)) }
+}
+
+/// 路由跳转链接：iOS16 走值路由（navigationDestination），iOS15 直接挂目的页
+struct RouteLink<Label: View>: View {
+    let route: Route
+    @ViewBuilder let label: () -> Label
+
+    init(_ route: Route, @ViewBuilder label: @escaping () -> Label) {
+        self.route = route
+        self.label = label
+    }
+
+    var body: some View {
+        if #available(iOS 16.0, *) {
+            NavigationLink(value: route, label: label)
+        } else {
+            NavigationLink {
+                LazyView(routeView(route).modifier(HideTabBarModifier()))
+            } label: {
+                label()
+            }
+        }
+    }
+}
+
+/// 聊天全屏展示的目标（fullScreenCover）
+struct ChatTarget: Identifiable {
+    let id = UUID()
+    let convId: String
+    let convType: Int
+    let targetId: String
+    let title: String
+    /// 搜索结果进来时定位到的消息
+    var focusMsgId: String? = nil
+}
+
+/// 打开与某用户的单聊会话
+func openChatWith(userId: String, nickname: String) async -> ChatTarget? {
+    guard let r: OpenConvResp = try? await Api.request("/im/conversations/open/\(userId)", method: "POST") else { return nil }
+    return ChatTarget(convId: r.conversationId, convType: 1, targetId: userId, title: nickname)
+}

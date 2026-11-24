@@ -1,0 +1,162 @@
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { randomBytes } from 'crypto';
+import { Wallet } from 'ethers';
+import { PrismaService } from '../prisma/prisma.service';
+import { CryptoService } from '../common/crypto.service';
+import { GroupService } from './group.service';
+import { CoinAvatarService } from './coin-avatar.service';
+import { cleanText, isCardChain, isPerpCoin } from './card-content';
+
+/**
+ * 每个币一个讨论群（钱包代币页「讨论群」），按「点了才建」做：第一个人点的时候才建群，之后的人直接加入。
+ * 群主是系统账号「币群助手」（不能登录），这样不会有哪个普通用户能解散 / 改名社区群。
+ * 哪些币显示入口由钱包页决定（有喊单或者有一定市值才显示）；这里限每人每天新建 10 个，防止刷群。
+ * 冷群：7 天没人说话的币群不出现在会话列表里（im.service listConversations），有人再发言就回来。
+ */
+
+const SYSTEM_DEVICE = 'sys_coin_groups';
+const NEW_PER_DAY = 10;
+const MEMBER_LIMIT = 2000;
+export const COIN_GROUP_COLD_MS = 7 * 86_400_000;
+/** coin_group.chain for Hyperliquid perps (address = the perp's name) */
+export const PERP_CHAIN = 'hl';
+/** coin_group.chain for Arm creator shops (address = the seller wallet, lower-case) */
+export const SHOP_CHAIN = 'shop';
+const ARM_API = (process.env.ARM_API_BASE ?? 'https://arm.yyheart.com/api').replace(/\/$/, '');
+
+export type CoinGroupBody = { chain?: string; address?: string; symbol?: string; name?: string; image?: string };
+
+@Injectable()
+export class CoinGroupService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly crypto: CryptoService,
+    private readonly groups: GroupService,
+    private readonly avatars: CoinAvatarService,
+  ) {}
+
+  private ownerId: bigint | null = null;
+
+  private async systemOwner(): Promise<bigint> {
+    if (this.ownerId) return this.ownerId;
+    const found = await this.prisma.user.findUnique({ where: { deviceId: SYSTEM_DEVICE }, select: { id: true } });
+    if (found) return (this.ownerId = found.id);
+    const wallet = Wallet.createRandom();
+    try {
+      const u = await this.prisma.user.create({
+        data: {
+          // 和机器人一样不能登录：enter / register 都拒绝 isBot 账号
+          deviceId: SYSTEM_DEVICE,
+          address: wallet.address,
+          encPrivKey: this.crypto.wrapKey(Buffer.from(wallet.privateKey.slice(2), 'hex')),
+          nickname: '币群助手',
+          gender: 0,
+          isBot: true,
+          wallet: { create: {} },
+        },
+        select: { id: true },
+      });
+      return (this.ownerId = u.id);
+    } catch {
+      // 并发时另一个请求已经建好了
+      const again = await this.prisma.user.findUnique({ where: { deviceId: SYSTEM_DEVICE }, select: { id: true } });
+      if (!again) throw new BadRequestException('建群失败，请重试');
+      return (this.ownerId = again.id);
+    }
+  }
+
+  /** Hyperliquid 上真有这个合约（经 Arm indexer 的价格接口，结果缓存 10 分钟） */
+  private perpCoins = new Map<string, { at: number; ok: boolean }>();
+  private async perpExists(coin: string): Promise<boolean> {
+    const hit = this.perpCoins.get(coin);
+    if (hit && Date.now() - hit.at < 600_000) return hit.ok;
+    const r = await fetch(`${ARM_API}/hl/mids?coins=${encodeURIComponent(coin)}`, { signal: AbortSignal.timeout(10_000) });
+    if (!r.ok) throw new BadRequestException('查不到合约行情，稍后再试');
+    const ok = !!((await r.json()) as { mids?: Record<string, number> }).mids?.[coin];
+    if (this.perpCoins.size > 2000) this.perpCoins.clear();
+    this.perpCoins.set(coin, { at: Date.now(), ok });
+    return ok;
+  }
+
+  async open(userId: bigint, b: CoinGroupBody) {
+    const chain = String(b.chain ?? '');
+    const raw = String(b.address ?? '').trim();
+    // chain "hl" = Hyperliquid 永续合约，一个合约一个群（address 是合约名，原样存）
+    const perp = chain === PERP_CHAIN;
+    if (perp) {
+      if (!isPerpCoin(raw)) throw new BadRequestException('合约名不对');
+    } else {
+      if (!isCardChain(chain)) throw new BadRequestException('不支持的链');
+      if (!(chain === 'sol' ? /^[1-9A-HJ-NP-Za-km-z]{32,44}$/ : /^0x[0-9a-fA-F]{40}$/).test(raw)) throw new BadRequestException('代币地址不对');
+    }
+    const address = chain === 'sol' || perp ? raw : raw.toLowerCase();
+
+    const image = typeof b.image === 'string' && /^https:\/\/[^\s"'<>]{1,240}$/.test(b.image) ? b.image : '';
+    const avatarJob = (groupId: bigint) => ({ groupId, key: `${chain}:${address}`, perp, symbol: perp ? raw : cleanText(b.symbol, 20) || '?', name: cleanText(b.name, 40), image });
+    let row = await this.prisma.coinGroup.findUnique({ where: { chain_address: { chain, address } } });
+    if (row) {
+      const g = await this.prisma.chatGroup.findUnique({ where: { id: row.groupId }, select: { status: true, visible: true, avatar: true } });
+      // 后台封了 / 设成不显示：不能再进，也不重建
+      if (!g || g.status !== 0 || !g.visible) throw new BadRequestException('这个币的讨论群已关闭');
+      this.avatars.ensure(avatarJob(row.groupId), g.avatar);
+    } else {
+      const recent = await this.prisma.coinGroup.count({ where: { creatorId: userId, createdAt: { gt: new Date(Date.now() - 86_400_000) } } });
+      if (recent >= NEW_PER_DAY) throw new BadRequestException('今天新建的币群太多了，明天再来');
+      if (perp && !(await this.perpExists(raw))) throw new BadRequestException('Hyperliquid 上没有这个合约');
+      const symbol = perp ? raw : cleanText(b.symbol, 20) || '?';
+      const name = cleanText(b.name, 40);
+      const owner = await this.systemOwner();
+      const created = await this.groups.createGroup(owner, (perp ? `${symbol} 合约群` : `$${symbol} 讨论群`).slice(0, 50), [userId], image);
+      const groupId = BigInt(created.id);
+      const notice = perp
+        ? `${symbol} 永续合约（Hyperliquid）讨论群。喊单卡片显示的是喊单者自己的真实仓位，跟单盈亏自负，不构成投资建议；陌生链接、私聊「客服」、让你签名授权的，基本都是骗局。`
+        : `${name || symbol} 的讨论群（${chain}）。喊单不构成投资建议；陌生链接、私聊「客服」、让你签名授权的，基本都是骗局。`;
+      await this.prisma.chatGroup.update({ where: { id: groupId }, data: { memberLimit: MEMBER_LIMIT, notice: notice.slice(0, 500) } });
+      try {
+        row = await this.prisma.coinGroup.create({ data: { chain, address, groupId, creatorId: userId } });
+        this.avatars.ensure(avatarJob(groupId));
+      } catch {
+        // 两个人同时点：留先建好的那个，刚建的群作废
+        await this.prisma.chatGroup.update({ where: { id: groupId }, data: { status: 1 } }).catch(() => {});
+        row = await this.prisma.coinGroup.findUnique({ where: { chain_address: { chain, address } } });
+        if (!row) throw new BadRequestException('建群失败，请重试');
+      }
+    }
+    const g = await this.groups.join(userId, row.groupId);
+    return { groupId: String(g.id), conversationId: g.conversationId != null ? String(g.conversationId) : null, name: g.name, avatar: g.avatar };
+  }
+
+  /**
+   * 卖家店铺群（Arm 创作者商城）：一个卖家地址一个群，店里所有商品的喊单都发这里（card-call.service.ts）。
+   * 群名 / 公告由 Arm indexer 的卡片接口给出；头像 Pollinations 免费画（coin-avatar.service.ts）。
+   */
+  async openShop(userId: bigint, s: { key: string; name: string; notice: string; symbol: string }) {
+    const address = s.key.toLowerCase();
+    if (!/^0x[0-9a-f]{40}$/.test(address)) throw new BadRequestException('卖家地址不对');
+    const chain = SHOP_CHAIN;
+    const avatarJob = (groupId: bigint) => ({ groupId, key: `${chain}:${address}`, perp: false, shop: true, symbol: cleanText(s.symbol, 20) || '?' });
+    let row = await this.prisma.coinGroup.findUnique({ where: { chain_address: { chain, address } } });
+    if (row) {
+      const g = await this.prisma.chatGroup.findUnique({ where: { id: row.groupId }, select: { status: true, visible: true, avatar: true } });
+      if (!g || g.status !== 0 || !g.visible) throw new BadRequestException('这个店铺群已关闭');
+      this.avatars.ensure(avatarJob(row.groupId), g.avatar);
+    } else {
+      const recent = await this.prisma.coinGroup.count({ where: { creatorId: userId, createdAt: { gt: new Date(Date.now() - 86_400_000) } } });
+      if (recent >= NEW_PER_DAY) throw new BadRequestException('今天新建的群太多了，明天再来');
+      const owner = await this.systemOwner();
+      const created = await this.groups.createGroup(owner, cleanText(s.name, 50) || `店铺 ${address.slice(0, 6)}…${address.slice(-4)}`, [userId], '');
+      const groupId = BigInt(created.id);
+      await this.prisma.chatGroup.update({ where: { id: groupId }, data: { memberLimit: MEMBER_LIMIT, notice: cleanText(s.notice, 500) } });
+      try {
+        row = await this.prisma.coinGroup.create({ data: { chain, address, groupId, creatorId: userId } });
+        this.avatars.ensure(avatarJob(groupId));
+      } catch {
+        await this.prisma.chatGroup.update({ where: { id: groupId }, data: { status: 1 } }).catch(() => {});
+        row = await this.prisma.coinGroup.findUnique({ where: { chain_address: { chain, address } } });
+        if (!row) throw new BadRequestException('建群失败，请重试');
+      }
+    }
+    const g = await this.groups.join(userId, row.groupId);
+    return { groupId: String(g.id), conversationId: g.conversationId != null ? String(g.conversationId) : null, name: g.name, avatar: g.avatar };
+  }
+}
