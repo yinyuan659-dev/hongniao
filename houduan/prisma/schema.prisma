@@ -13,11 +13,7 @@ model User {
   id           BigInt   @id @default(autoincrement())
   /// 一机一号：设备 ID 唯一绑定账号，卸载重装凭此恢复
   deviceId     String   @unique @map("device_id") @db.VarChar(80)
-  /// BNB 链(BSC)地址，即对外账号
-  address      String   @unique @db.VarChar(50)
-  /// BSC 私钥，服务端主密钥 AES-256-GCM 加密托管
-  encPrivKey   String   @map("enc_priv_key") @db.VarChar(300)
-  /// 6 位数字短号，对外展示与转赠使用
+  /// 6 位数字短号，对外展示使用
   shortId      String?  @unique @map("short_id") @db.VarChar(6)
   nickname     String   @db.VarChar(30)
   avatar       String   @default("") @db.VarChar(255)
@@ -36,24 +32,26 @@ model User {
   ratingAvg    Int      @default(0) @map("rating_avg")
   /// 被评分次数缓存
   ratingCount  Int      @default(0) @map("rating_count")
-  /// 实名认证姓名（免费方案：身份证校验位本地核验，仅女生可认证）
+  /// 【旧·已停用】原免费方案的实名姓名（只验校验位）。M1 实人认证上线后不再写入，存量清空。
   realName     String   @default("") @map("real_name") @db.VarChar(30)
-  /// 身份证号，全局唯一（一证一号）；非空即已认证
+  /// 【旧·已停用】原免费方案的身份证号明文。M1 改为只存哈希（idHash），此列不再写入、存量清空。列保留不删。
   idCard       String?  @unique @map("id_card") @db.VarChar(18)
+  /// 实人认证：身份证号的带密钥哈希（HMAC-SHA256，密钥从 MASTER_KEY 派生），一证一号；不存证号明文、不存人脸照片
+  idHash       String?  @unique @map("id_hash") @db.VarChar(64)
+  /// 实人认证状态：0 未认证 1 已通过（通过的一定已满 18 岁，未成年在认证时就被拒）
+  realStatus   Int      @default(0) @map("real_status") @db.TinyInt
+  /// 实人认证通过时间
+  realAt       DateTime? @map("real_at")
   /// 0=正常 1=封禁
   status       Int      @default(0) @db.TinyInt
   /// 邀请人 id：通过 TA 的专属邀请页（/t/?u=短号）下载注册时归因，注册时写入一次
   inviterId    BigInt?  @map("inviter_id")
-  /// 表情包：是否已把「新用户默认包」写进 user_sticker_set（第一次拉我的表情包时置 true；之后用户删光也不再补）
-  stickerInited Boolean @default(false) @map("sticker_inited")
-  /// 机器人账号（资料见 bot 表）：gender=0、没有短号，不能登录、不出现在遇见 / 搜索昵称里
-  isBot        Boolean  @default(false) @map("is_bot")
-  /// 最多能创建几个频道；null = 用后台全局默认（sys_setting.channel_limit_default，未设为 5）
-  channelLimit Int?     @map("channel_limit")
-  /// 链上钱包（自托管，钱包页面在 Arm 网站）入口：后台用户管理里单独打开；全局开关 sys_setting.chain_wallet_mode
-  walletEnabled Boolean @default(false) @map("wallet_enabled")
-  /// 后台「隐藏」：不出现在 App 的遇见 / 找地陪 / 找人 / 搜索用户 / 动态广场里；已有的聊天、群、关注不受影响
+  /// 后台「隐藏」：不出现在 App 的遇见 / 找人 / 搜索用户 / 动态广场里；已有的聊天、关注不受影响
   hidden       Boolean  @default(false)
+  /// 视频见面开关：默认关闭；自己和对方都打开后才能互相发起视频通话（不收费）
+  allowVideo   Boolean  @default(false) @map("allow_video")
+  /// 并号：这个号已经作废、并进了哪个账号（同一张身份证的老账号）。有值的同时 status=1，不能再登录、不再出现在任何列表里
+  mergedInto   BigInt?  @map("merged_into")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
@@ -63,6 +61,60 @@ model User {
   @@index([gender, isGuide, cityCode])
   @@index([inviterId])
   @@map("user")
+}
+
+/// 登录设备：一个账号可以挂多台设备（手机 + 网页）。账号认人（身份证），设备只是登录这个账号的钥匙。
+/// user.device_id 是注册时的那台设备，第一次用到时在这里补一行；之后一律以这张表为准。
+/// 一台设备同一时间只属于一个账号（deviceId 唯一）。新设备要挂到已有账号上，必须本人刷脸（找回 / 并号）。
+model UserDevice {
+  id         BigInt    @id @default(autoincrement())
+  userId     BigInt    @map("user_id")
+  deviceId   String    @unique @map("device_id") @db.VarChar(80)
+  /// android | ios | web（按设备号前缀 and_ / ios_ / web_ 判断）
+  kind       String    @db.VarChar(10)
+  /// 网页的浏览器名（Chrome / Safari…），App 为空
+  label      String    @default("") @db.VarChar(30)
+  /// 怎么挂到这个账号上的：register 注册 | recover 刷脸找回 | merge 并号带过来
+  via        String    @default("register") @db.VarChar(10)
+  /// 被移除的时间（移除后这台设备马上退出，想再用要重新刷脸找回）
+  revokedAt  DateTime? @map("revoked_at")
+  lastSeenAt DateTime  @default(now()) @map("last_seen_at")
+  /// 挂到当前这个账号上的时间
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("user_device")
+}
+
+/// 实人认证记录：一次认证一条（身份证 + 刷脸，阿里云金融级实人认证，或测试期的 mock）。
+/// 只存结果和供应商流水号，不存证号明文、不存人脸照片。通过才扣费（¥1，从 AI 余额按成本价扣，不加手续费）。
+model KycRecord {
+  id        BigInt   @id @default(autoincrement())
+  userId    BigInt   @map("user_id")
+  /// 供应商流水号（阿里云 CertifyId）或测试期本地生成的 id，用来查结果
+  certifyId String   @unique @map("certify_id") @db.VarChar(64)
+  /// mock（测试假核验）/ aliyun（真实人认证）
+  provider  String   @db.VarChar(16)
+  /// 身份证号哈希，认证通过时才写进 user.idHash（发起时先存在这，避免用别人证号「占位」）
+  idHash    String   @default("") @map("id_hash") @db.VarChar(64)
+  /// pending 发起了还没出结果 | passed 通过 | failed 没通过 | merge_ready 并号：刷脸通过了、等用户点确认 | merged 并号完成
+  status    String   @default("pending") @db.VarChar(12)
+  /// 这次刷脸是干什么的：kyc 真人认证 | recover 新设备刷脸找回（userId 是要找回的那个账号）| merge 并号（userId 是新号，targetUserId 是老账号）
+  purpose   String   @default("kyc") @db.VarChar(10)
+  /// 并号时的老账号
+  targetUserId BigInt? @map("target_user_id")
+  /// 找回时发起的那台设备（只有这台设备能来查结果）
+  deviceId  String   @default("") @map("device_id") @db.VarChar(80)
+  /// 没通过的原因（给用户看）
+  reason    String   @default("") @db.VarChar(60)
+  /// 这次扣了多少（微元，通过才扣）；扣费幂等键是 kyc:certifyId
+  costMicro BigInt   @default(0) @map("cost_micro")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@map("kyc_record")
 }
 
 /// 专属邀请页访问记录：页面加载/点下载时记一条（IP + 平台），
@@ -99,6 +151,197 @@ model Intimacy {
   @@map("intimacy")
 }
 
+/// 相亲画像：AI 红娘资料收集（男 / 女两套标准问题，见 src/hn/interview.template.ts）的结果。
+/// 确认后才算「完成资料收集」；没完成的人不能主动发起聊天和通话。
+model Profile {
+  userId      BigInt    @id @map("user_id")
+  /// 原始回答 { 题目 key: string[] }；单选 / 填空是一个元素，多选多个，「先不说」是空数组
+  answers     Json
+  /// 硬条件（匹配时做过滤用）：出生年份、身高、城市、学历、婚史、择偶要求等
+  hard        Json
+  /// 软信息：{ tags: string[], summary: string, ... }
+  soft        Json
+  /// 问题模板版本
+  version     Int       @default(1)
+  /// 用户确认画像的时间；null = 还没完成资料收集
+  confirmedAt DateTime? @map("confirmed_at")
+  /// AI 深聊后整理的画像（已确认、已生效）：{ summary, tags, rows: [{ key, label, value }] }
+  deep        Json?
+  /// AI 刚整理出来、用户还没点确认的画像；确认后挪到 deep
+  deepDraft   Json?     @map("deep_draft")
+  deepConfirmedAt DateTime? @map("deep_confirmed_at")
+  /// 需要对方注意的事：AI 在深聊里听到本人自己说的严重负面情况（暴力倾向、赌博、只图彩礼等），字符串数组。
+  /// 一说出来就记下，本人不能改、不能删，重新聊也不会消失，对方在画像里能看到；记错了只能由后台清掉。
+  flags       Json?
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@map("profile")
+}
+
+/// AI 深聊：一个用户同一时间只有一场进行中的；聊完整理成画像
+model DeepSession {
+  id        BigInt   @id @default(autoincrement())
+  userId    BigInt   @map("user_id")
+  /// chatting 聊天中 | draft 画像已整理、等用户确认 | done 已确认
+  status    String   @default("chatting") @db.VarChar(10)
+  /// 当前聊到第几个话题（0～5；6 = 六个话题都聊过了，自由补充）
+  topic     Int      @default(0)
+  /// 当前话题已经聊了几轮
+  turns     Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([userId, id])
+  @@map("deep_session")
+}
+
+model DeepMessage {
+  id        BigInt   @id @default(autoincrement())
+  sessionId BigInt   @map("session_id")
+  /// ai | user
+  role      String   @db.VarChar(6)
+  /// 内容用服务端主密钥加密（和聊天消息一样不存明文）
+  cipher    String   @db.Text
+  /// AI 这句话附带的现成回答
+  quick     Json?
+  topic     Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([sessionId, id])
+  @@map("deep_message")
+}
+
+// ---------- 每日推荐、喜欢 / 跳过、互相喜欢后才能聊天 ----------
+
+/// 我对某个人的态度（有向）：一对人一个方向一条。两边都是 like = 互相喜欢，才能聊天。
+model MatchAction {
+  id        BigInt    @id @default(autoincrement())
+  userId    BigInt    @map("user_id")
+  targetId  BigInt    @map("target_id")
+  /// like 喜欢 | pass 跳过 / 不合适（以后不再互相推荐，对方不知道）| end 聊过以后「不合适，不再联系」| none 取消了喜欢
+  kind      String    @db.VarChar(6)
+  /// rec 每日推荐里点的 | back 回应对方的喜欢 | browse 在遇见 / 画像里自己点的（只有这种占每天的名额）
+  source    String    @default("browse") @db.VarChar(8)
+  /// 这次喜欢占的是哪一天的名额（推荐日，见 common/chat-gate.ts 的 recDay）；不占名额的是 null。取消喜欢不退名额
+  quotaDay  String?   @map("quota_day") @db.VarChar(10)
+  likedAt   DateTime? @map("liked_at")
+  /// 互相喜欢的时间（两边的记录都写）
+  matchedAt DateTime? @map("matched_at")
+  /// 对方有没有在「喜欢我的」里看到过这条喜欢（没看过的算进消息页的提醒数字）
+  seen      Boolean   @default(false)
+  /// 我有没有看过这次互相喜欢的庆祝页（没看过的下次打开 App 时补弹）
+  matchSeen Boolean   @default(false) @map("match_seen")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([userId, targetId])
+  @@index([targetId, kind])
+  @@index([userId, quotaDay])
+  @@map("match_action")
+}
+
+/// 每日推荐：一个人一个推荐日一批（默认 3 位），生成以后当天不变；人不够时有几位存几位，之后有新的合适的人再补
+model MatchRec {
+  id        BigInt   @id @default(autoincrement())
+  userId    BigInt   @map("user_id")
+  /// 推荐日：北京时间上午 10 点换日，例如 2026-11-23
+  day       String   @db.VarChar(10)
+  targetId  BigInt   @map("target_id")
+  sort      Int      @default(0)
+  /// 规则打出来的分（越高越合适），只用来排序和排查
+  score     Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([userId, day, targetId])
+  @@index([userId, targetId])
+  @@map("match_rec")
+}
+
+/// AI 写的推荐理由和开场白（看的人 → 被看的人）。写过一次就存在这里，不重复花钱
+model MatchReason {
+  id          BigInt   @id @default(autoincrement())
+  userId      BigInt   @map("user_id")
+  targetId    BigInt   @map("target_id")
+  /// 推荐理由；空 = 还没写成（没有余额也没有 Key，或者 AI 当时不可用）
+  text        String   @default("") @db.VarChar(300)
+  /// 互相喜欢后 AI 帮我想的开场白（字符串数组）；null = 还没写
+  icebreakers Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([userId, targetId])
+  @@map("match_reason")
+}
+
+// ---------- AI 费用（和旧的积分钱包 wallet 表无关） ----------
+
+/// AI 余额（单位微元：1 元 = 1,000,000）+ 付费方式 + 用户自己的 Key
+model AiWallet {
+  userId       BigInt    @id @map("user_id")
+  balance      BigInt    @default(0)
+  /// platform = 平台余额（DeepSeek 实际费用 + 手续费）；own = 用户自己的 Key（平台不收费）
+  payMode      String    @default("platform") @map("pay_mode") @db.VarChar(10)
+  /// 用户自己的 DeepSeek Key，用服务端主密钥加密；空 = 没填
+  keyEnc       String    @default("") @map("key_enc") @db.VarChar(500)
+  /// Key 的最后 4 位，只用来显示
+  keyTail      String    @default("") @map("key_tail") @db.VarChar(8)
+  keyCheckedAt DateTime? @map("key_checked_at")
+  /// 自己的 Key 用不了时自动改用平台余额（默认关：先停下来问用户）
+  autoFallback Boolean   @default(false) @map("auto_fallback")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@map("ai_wallet")
+}
+
+/// AI 余额流水，只追加。userId + type + refKey 唯一，重复提交不会重复记账
+model AiLedger {
+  id           BigInt   @id @default(autoincrement())
+  userId       BigInt   @map("user_id")
+  /// topup 充值 / 平台发放 | usage AI 调用扣费
+  type         String   @db.VarChar(12)
+  /// 正数进账、负数扣款（微元）
+  amount       BigInt
+  balanceAfter BigInt   @map("balance_after")
+  /// usage = 那次调用的 requestId；topup = 订单号 / 发放批次号
+  refKey       String   @map("ref_key") @db.VarChar(64)
+  note         String   @default("") @db.VarChar(60)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@unique([userId, type, refKey])
+  @@index([userId, id])
+  @@map("ai_ledger")
+}
+
+/// 每次模型调用一条（用平台余额、用自己的 Key 都记；自己的 Key 不扣费）
+model AiUsage {
+  id         BigInt   @id @default(autoincrement())
+  userId     BigInt   @map("user_id")
+  /// deep 深聊 | portrait 整理画像 | keytest 测试 Key
+  feature    String   @db.VarChar(20)
+  /// 明细里合成一条显示的分组，例如 deep:12
+  groupKey   String   @map("group_key") @db.VarChar(40)
+  model      String   @db.VarChar(40)
+  hitTokens  Int      @map("hit_tokens")
+  missTokens Int      @map("miss_tokens")
+  outTokens  Int      @map("out_tokens")
+  /// 调用时是不是 DeepSeek 的空闲时段（半价）
+  offpeak    Boolean  @default(false)
+  /// 按 DeepSeek 官方价算出来的模型费（微元）
+  costMicro  BigInt   @map("cost_micro")
+  /// 平台手续费（微元）；用自己的 Key 时是 0
+  feeMicro   BigInt   @map("fee_micro")
+  /// platform | own
+  payMode    String   @map("pay_mode") @db.VarChar(10)
+  requestId  String   @unique @map("request_id") @db.VarChar(64)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([userId, id])
+  @@index([userId, groupKey])
+  @@map("ai_usage")
+}
+
 model UserAlbum {
   id        BigInt   @id @default(autoincrement())
   userId    BigInt   @map("user_id")
@@ -115,36 +358,18 @@ model UserAlbum {
   @@map("user_album")
 }
 
-model GuideApply {
-  id        BigInt   @id @default(autoincrement())
-  userId    BigInt   @map("user_id")
-  realName  String   @map("real_name") @db.VarChar(30)
-  idCardNo  String   @map("id_card_no") @db.VarChar(30)
-  intro     String   @db.VarChar(500)
-  /// 0=待审核 1=通过 2=拒绝
-  status    Int      @default(0) @db.TinyInt
-  rejectReason String @default("") @map("reject_reason") @db.VarChar(200)
-  createdAt DateTime @default(now()) @map("created_at")
-  reviewedAt DateTime? @map("reviewed_at")
-
-  @@index([userId])
-  @@index([status])
-  @@map("guide_apply")
-}
-
 // ---------- 平台核心：IM ----------
 
-/// 单聊与群聊统一会话
+/// 单聊会话
 model Conversation {
   id          BigInt   @id @default(autoincrement())
-  /// 1=单聊 2=群聊
+  /// 1=单聊
   type        Int      @default(1) @db.TinyInt
-  /// 单聊唯一键：{minUserId}_{maxUserId}；群聊为 g_{groupId}
+  /// 单聊唯一键：{minUserId}_{maxUserId}
   pairKey     String   @unique @map("pair_key") @db.VarChar(50)
   userAId     BigInt?  @map("user_a_id")
   userBId     BigInt?  @map("user_b_id")
-  groupId     BigInt?  @unique @map("group_id")
-  /// 会话 AES-256-GCM 密钥（单聊每会话一把、群聊每群一把），经服务端主密钥包裹后存储
+  /// 会话 AES-256-GCM 密钥（每会话一把），经服务端主密钥包裹后存储
   wrappedKey  String   @map("wrapped_key") @db.VarChar(200)
   lastMsgAt   DateTime @default(now()) @map("last_msg_at")
   createdAt   DateTime @default(now()) @map("created_at")
@@ -158,111 +383,25 @@ model Message {
   id             BigInt   @id @default(autoincrement())
   conversationId BigInt   @map("conversation_id")
   senderId       BigInt   @map("sender_id")
-  /// 单聊为对方 id；群聊消息为 null（送礼消息填写接收成员 id）
+  /// 对方 id
   receiverId     BigInt?  @map("receiver_id")
-  /// text|image|video|gift|call_invite|call_accept|call_reject|call_end|at|system
+  /// text|image|video|audio|file|location|call
   type           String   @db.VarChar(20)
   /// AES-256-GCM 密文（iv:tag:cipher, base64），不存明文
   cipherContent  String   @map("cipher_content") @db.Text
-  /// 单聊已读标记（群聊已读靠 group_member.last_read_msg_id）
+  /// 已读标记
   isRead         Boolean  @default(false) @map("is_read")
-  /// 单聊对方读到的时间（长按菜单显示「已读 时间」）
+  /// 对方读到的时间（长按菜单显示「已读 时间」）
   readAt         DateTime? @map("read_at")
   /// 回复的消息 id（同会话）
   replyToId      BigInt?  @map("reply_to_id")
-  /// 转发来源：原消息发送者昵称 / 频道名；null = 不是转发
+  /// 转发来源：原消息发送者昵称；null = 不是转发
   fwdFrom        String?  @map("fwd_from") @db.VarChar(60)
   createdAt      DateTime @default(now()) @map("created_at")
 
   @@index([conversationId, id])
   @@index([receiverId, isRead])
   @@map("message")
-}
-
-model ChatGroup {
-  id          BigInt   @id @default(autoincrement())
-  name        String   @db.VarChar(50)
-  avatar      String   @default("") @db.VarChar(255)
-  notice      String   @default("") @db.VarChar(500)
-  ownerId     BigInt   @map("owner_id")
-  memberLimit Int      @default(500) @map("member_limit")
-  /// 群邀请码（8 位，首次分享时生成，扫码/输码入群用）
-  inviteCode  String?  @unique @map("invite_code") @db.VarChar(12)
-  /// 入群密码：空 = 无密码直接进；非空 = 扫码/输码入群必须输对
-  joinPassword String  @default("") @map("join_password") @db.VarChar(20)
-  /// 1=群聊 2=频道（只有群主/管理员能发，订阅者只看 + 表情回应 + 评论，notice 当频道简介）
-  kind        Int      @default(1) @db.TinyInt
-  /// 频道：订阅者也能发帖（频道主创建时 / 之后在频道资料里开关）
-  memberPost  Boolean  @default(false) @map("member_post")
-  /// 0=正常 1=已解散 2=后台封禁
-  status      Int      @default(0) @db.TinyInt
-  /// 后台「对用户显示」开关：false = 不进任何人的会话列表、不推送、不能发消息 / 入群，消息保留，打开即恢复
-  visible     Boolean  @default(true)
-  createdAt   DateTime @default(now()) @map("created_at")
-
-  members GroupMember[]
-
-  @@index([ownerId])
-  @@map("chat_group")
-}
-
-model GroupMember {
-  id            BigInt   @id @default(autoincrement())
-  groupId       BigInt   @map("group_id")
-  userId        BigInt   @map("user_id")
-  /// owner|admin|member
-  role          String   @default("member") @db.VarChar(10)
-  lastReadMsgId BigInt   @default(0) @map("last_read_msg_id")
-  /// 静音（频道用）：未读数显示成灰色、不计入总未读
-  muted         Boolean  @default(false)
-  joinedAt      DateTime @default(now()) @map("joined_at")
-
-  group ChatGroup @relation(fields: [groupId], references: [id])
-
-  @@unique([groupId, userId])
-  @@index([userId])
-  @@map("group_member")
-}
-
-/// 机器人（Telegram Bot API 兼容）：id = 机器人自己的 user.id，token = `{id}:{secret}`，库里只存 sha256
-model Bot {
-  id            BigInt    @id
-  ownerId       BigInt    @map("owner_id")
-  /// 全局唯一，字母数字下划线，以 bot 结尾（大小写不敏感）
-  username      String    @unique @db.VarChar(40)
-  description   String    @default("") @db.VarChar(500)
-  tokenHash     String    @unique @map("token_hash") @db.VarChar(64)
-  /// setMyCommands：[{command, description}]
-  commands      String    @default("[]") @db.VarChar(4000)
-  /// 隐私模式：群里只收 /命令 和 @我（群管理员身份的机器人收全部）
-  privacy       Boolean   @default(true)
-  webhookUrl    String    @default("") @map("webhook_url") @db.VarChar(500)
-  webhookSecret String    @default("") @map("webhook_secret") @db.VarChar(256)
-  lastErrorAt   DateTime? @map("last_error_at")
-  lastError     String    @default("") @map("last_error") @db.VarChar(300)
-  createdAt     DateTime  @default(now()) @map("created_at")
-
-  @@index([ownerId])
-  @@map("bot")
-}
-
-/// 待取走的 Update（getUpdates / webhook），id 即 update_id；确认或投递成功后删除，最多留 24 小时
-model BotUpdate {
-  id        BigInt   @id @default(autoincrement())
-  botId     BigInt   @map("bot_id")
-  payload   String   @db.Text
-  createdAt DateTime @default(now()) @map("created_at")
-
-  @@index([botId, id])
-  @@map("bot_update")
-}
-
-/// 机器人消息下方的按钮（reply_markup.inline_keyboard），老客户端忽略
-model BotMessageMarkup {
-  messageId BigInt @id @map("message_id")
-  markup    String @db.Text
-
-  @@map("bot_message_markup")
 }
 
 /// 「只删自己这边」的消息：对本人隐藏，其他人照常看到
@@ -289,7 +428,7 @@ model MessagePin {
   @@map("message_pin")
 }
 
-/// 消息 / 频道帖子的表情回应（表名沿用 channel_reaction，私聊 / 群聊消息也用它）：每人每条一个，再点同一个 = 取消
+/// 消息的表情回应（表名沿用 channel_reaction）：每人每条一个，再点同一个 = 取消
 model ChannelReaction {
   id        BigInt   @id @default(autoincrement())
   messageId BigInt   @map("message_id")
@@ -300,25 +439,6 @@ model ChannelReaction {
   @@unique([messageId, userId])
   @@index([messageId])
   @@map("channel_reaction")
-}
-
-/// 频道帖子评论（明文，同动态评论）
-model ChannelComment {
-  id        BigInt   @id @default(autoincrement())
-  messageId BigInt   @map("message_id")
-  groupId   BigInt   @map("group_id")
-  userId    BigInt   @map("user_id")
-  content   String   @default("") @db.VarChar(500)
-  /// 贴纸 JSON {id,format,url,thumb,w,h,emoji}（空=没有）
-  sticker   String   @default("") @db.VarChar(600)
-  replyToId BigInt?  @map("reply_to_id")
-  /// 0=正常 1=删除
-  status    Int      @default(0) @db.TinyInt
-  createdAt DateTime @default(now()) @map("created_at")
-
-  @@index([messageId, id])
-  @@index([groupId])
-  @@map("channel_comment")
 }
 
 // ---------- 平台核心：音视频通话 ----------
@@ -345,7 +465,7 @@ model CallRecord {
   @@map("call_record")
 }
 
-/// SRS 流媒体节点（后台管理）：通话/语音房按 priority 顺序选第一个未满的节点，全满则取负载率最低者
+/// SRS 流媒体节点（后台管理）：通话按 priority 顺序选第一个未满的节点，全满则取负载率最低者
 model SrsNode {
   id             Int      @id @default(autoincrement())
   name           String   @default("") @db.VarChar(40)
@@ -355,7 +475,7 @@ model SrsNode {
   apiPort        Int      @default(1985) @map("api_port")
   /// 越小越优先
   priority       Int      @default(100)
-  /// 最大连接数（同时在该节点上通话/语音房的人数），超了自动落到下一个节点
+  /// 最大连接数（同时在该节点上通话的人数），超了自动落到下一个节点
   maxConnections Int      @default(40) @map("max_connections")
   enabled        Boolean  @default(true)
   /// 默认（源）节点：部署新节点时以它为模板复制源码与配置；全局仅一个
@@ -416,8 +536,6 @@ model CallConfig {
   fps       Int      @default(25)
   /// kbps
   bitrate   Int      @default(800)
-  /// 群聊语音房人数上限（管理端可调）
-  voiceRoomMax Int   @default(3) @map("voice_room_max")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("call_config")
@@ -493,7 +611,7 @@ model Wallet {
   userId    BigInt   @id @map("user_id")
   /// 可用积分
   balance   BigInt   @default(0)
-  /// 约单托管冻结积分
+  /// 冻结积分（视频通话预冻结）
   frozen    BigInt   @default(0)
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -505,7 +623,7 @@ model Wallet {
 model WalletTransaction {
   id        BigInt   @id @default(autoincrement())
   userId    BigInt   @map("user_id")
-  /// admin_grant|gift_send|gift_recv|task_freeze|task_settle|task_refund|withdraw|adjust
+  /// admin_grant|adjust|msg_fee|msg_income|call_freeze|call_unfreeze|call_fee|call_income
   type      String   @db.VarChar(20)
   /// 正为入账负为支出（对 balance 的变动）
   amount    BigInt
@@ -513,7 +631,7 @@ model WalletTransaction {
   frozenDelta BigInt @default(0) @map("frozen_delta")
   /// 变动后可用余额快照
   balanceAfter BigInt @map("balance_after")
-  /// 关联单号（礼物记录/约单/提现等），幂等键
+  /// 关联单号（消息/通话等），幂等键
   refKey    String   @default("") @map("ref_key") @db.VarChar(60)
   remark    String   @default("") @db.VarChar(200)
   createdAt DateTime @default(now()) @map("created_at")
@@ -521,50 +639,6 @@ model WalletTransaction {
   @@unique([type, refKey, userId])
   @@index([userId, createdAt])
   @@map("wallet_transaction")
-}
-
-model WithdrawApply {
-  id        BigInt   @id @default(autoincrement())
-  userId    BigInt   @map("user_id")
-  amount    BigInt
-  account   String   @db.VarChar(100)
-  /// 0=待审核 1=通过 2=拒绝
-  status    Int      @default(0) @db.TinyInt
-  remark    String   @default("") @db.VarChar(200)
-  createdAt DateTime @default(now()) @map("created_at")
-  reviewedAt DateTime? @map("reviewed_at")
-
-  @@index([userId])
-  @@index([status])
-  @@map("withdraw_apply")
-}
-
-// ---------- 平台核心：礼物 ----------
-
-model Gift {
-  id        Int      @id @default(autoincrement())
-  name      String   @db.VarChar(30)
-  icon      String   @db.VarChar(255)
-  price     BigInt
-  sort      Int      @default(0)
-  enabled   Boolean  @default(true)
-  createdAt DateTime @default(now()) @map("created_at")
-
-  @@map("gift")
-}
-
-model GiftRecord {
-  id         BigInt   @id @default(autoincrement())
-  giftId     Int      @map("gift_id")
-  giftName   String   @map("gift_name") @db.VarChar(30)
-  price      BigInt
-  senderId   BigInt   @map("sender_id")
-  receiverId BigInt   @map("receiver_id")
-  createdAt  DateTime @default(now()) @map("created_at")
-
-  @@index([senderId])
-  @@index([receiverId])
-  @@map("gift_record")
 }
 
 // ---------- 平台核心：广场 ----------
@@ -614,8 +688,6 @@ model MomentComment {
   content  String   @default("") @db.VarChar(500)
   /// 评论图片
   imageUrl String   @default("") @map("image_url") @db.VarChar(255)
-  /// 贴纸 JSON {id,format,url,thumb,w,h,emoji}（空=没有）
-  sticker  String   @default("") @db.VarChar(600)
   /// 回复的评论 id
   replyToId BigInt? @map("reply_to_id")
   /// 0=正常 1=删除
@@ -626,121 +698,9 @@ model MomentComment {
   @@map("moment_comment")
 }
 
-// ---------- 业务模块：私密树洞（匿名投稿 + 评论，大厅 tab） ----------
-
-model TreeholePost {
-  id           BigInt   @id @default(autoincrement())
-  /// 投稿人；后台手动录入为 null。对外永不下发（匿名）
-  authorId     BigInt?  @map("author_id")
-  /// 0=用户投稿 1=后台录入 2=Telegram 频道自动同步
-  source       Int      @default(0) @db.TinyInt
-  content      String   @db.Text
-  /// 图片 url JSON 数组（最多 9 张）
-  images       String   @default("[]") @db.VarChar(3000)
-  /// 外部来源唯一键（如 tg:频道名:消息id），用于同步去重
-  sourceKey    String?  @unique @map("source_key") @db.VarChar(120)
-  viewCount    Int      @default(0) @map("view_count")
-  commentCount Int      @default(0) @map("comment_count")
-  /// 0=正常 1=隐藏（后台下架 / 作者删除）
-  status       Int      @default(0) @db.TinyInt
-  createdAt    DateTime @default(now()) @map("created_at")
-
-  @@index([status, id])
-  @@index([authorId])
-  @@map("treehole_post")
-}
-
-/// 私密树洞外部来源：Telegram 公开频道（无需管理员，只要频道有 @用户名，抓 t.me/s/频道 网页预览）
-model TreeholeSource {
-  id            Int      @id @default(autoincrement())
-  /// 频道用户名（不带 @），如 xxx_treehole
-  channel       String   @unique @db.VarChar(64)
-  enabled       Boolean  @default(true)
-  /// 只同步阅读数 ≥ 此值的帖子（0=不限）
-  minViews      Int      @default(0) @map("min_views")
-  /// 去掉含 @用户名 / t.me 链接的行（频道签名/引流）
-  stripLinks    Boolean  @default(true) @map("strip_links")
-  /// 正文处理：raw = 原文；light = 浅处理（性器官词换成拼音首字母）
-  textMode      String   @default("raw") @map("text_mode") @db.VarChar(8)
-  /// 含这些词的帖子跳过（逗号分隔）
-  blockWords    String   @default("") @map("block_words") @db.VarChar(500)
-  /// 已同步到的最大消息 id
-  lastMsgId     Int      @default(0) @map("last_msg_id")
-  lastSyncAt    DateTime? @map("last_sync_at")
-  lastError     String   @default("") @map("last_error") @db.VarChar(300)
-  importedCount Int      @default(0) @map("imported_count")
-  createdAt     DateTime @default(now()) @map("created_at")
-
-  @@map("treehole_source")
-}
-
-model TreeholeComment {
-  id        BigInt   @id @default(autoincrement())
-  postId    BigInt   @map("post_id")
-  userId    BigInt   @map("user_id")
-  content   String   @db.VarChar(500)
-  /// 贴纸 JSON {id,format,url,thumb,w,h,emoji}（空=没有）
-  sticker   String   @default("") @db.VarChar(600)
-  /// 回复的评论 id
-  replyToId BigInt?  @map("reply_to_id")
-  /// 0=正常 1=删除
-  status    Int      @default(0) @db.TinyInt
-  createdAt DateTime @default(now()) @map("created_at")
-
-  @@index([postId, id])
-  @@map("treehole_comment")
-}
-
-// ---------- 业务模块：约单/接单（男发单、女接单） ----------
-
-model TaskOrder {
-  id         BigInt   @id @default(autoincrement())
-  /// 发单人（男）
-  ownerId    BigInt   @map("owner_id")
-  title      String   @db.VarChar(60)
-  detail     String   @default("") @db.VarChar(500)
-  meetAt     DateTime @map("meet_at")
-  cityCode   String   @map("city_code") @db.VarChar(12)
-  cityName   String   @map("city_name") @db.VarChar(30)
-  address    String   @db.VarChar(200)
-  /// 报酬积分，发布时冻结托管
-  reward     BigInt
-  /// 0=待接单 1=进行中 2=已完成 3=已取消 4=仲裁中
-  status     Int      @default(0) @db.TinyInt
-  /// 选定的接单人（女）
-  takerId    BigInt?  @map("taker_id")
-  confirmedAt DateTime? @map("confirmed_at")
-  finishedAt  DateTime? @map("finished_at")
-  createdAt  DateTime @default(now()) @map("created_at")
-  updatedAt  DateTime @updatedAt @map("updated_at")
-
-  applies TaskApply[]
-
-  @@index([status, cityCode, meetAt])
-  @@index([ownerId])
-  @@index([takerId])
-  @@map("task_order")
-}
-
-model TaskApply {
-  id        BigInt   @id @default(autoincrement())
-  orderId   BigInt   @map("order_id")
-  userId    BigInt   @map("user_id")
-  message   String   @default("") @db.VarChar(200)
-  /// 0=已报名 1=被选中 2=未选中 3=已撤回
-  status    Int      @default(0) @db.TinyInt
-  createdAt DateTime @default(now()) @map("created_at")
-
-  order TaskOrder @relation(fields: [orderId], references: [id])
-
-  @@unique([orderId, userId])
-  @@index([userId])
-  @@map("task_apply")
-}
-
 // ---------- 平台核心：模块入口配置（大厅页动态渲染） ----------
 
-/// 项目大厅入口（每个项目一张横幅卡；地陪是项目一，游戏等后台加卡即上线）
+/// 项目大厅入口（每个项目一张横幅卡，后台加卡即上线）
 model AppModule {
   id        Int      @id @default(autoincrement())
   name      String   @db.VarChar(30)
@@ -756,7 +716,7 @@ model AppModule {
   cover     String   @default("") @db.VarChar(255)
   /// native=客户端内置页 h5=内嵌网页横幅 game=小游戏（大厅宫格，App 内原生 WebView 全屏打开）
   type      String   @default("native") @db.VarChar(10)
-  /// native: 路由标识（如 guide）；h5/game: 完整 url
+  /// native: 路由标识；h5/game: 完整 url
   entry     String   @db.VarChar(255)
   /// 小游戏屏幕方向：portrait=竖屏 landscape=横屏（App 打开游戏页时旋转屏幕，仅该页生效）
   orientation String @default("portrait") @db.VarChar(10)
@@ -771,343 +731,13 @@ model AppModule {
 
 // ---------- 其他 ----------
 
-/// 系统开关/配置（key-value）。目前：review_mode_ios = 1/0（iOS 审核模式：启动显示账号密码登录页）；
-/// tg_api_id / tg_api_hash / tg_session（Telegram 用户账号登录态，音乐频道同步用）
+/// 系统开关/配置（key-value）。目前：review_mode_ios = 1/0（iOS 审核模式：启动显示账号密码登录页）
 model SysSetting {
   key       String   @id @db.VarChar(40)
   value     String   @default("") @db.VarChar(2000)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
 
   @@map("sys_setting")
-}
-
-// ---------- 音乐频道（消息页入口，Telegram 频道音频自动同步） ----------
-
-/// 音乐来源：Telegram 频道（需要后台登录一个 Telegram 用户账号，通过 MTProto 读取；
-/// 网页预览 t.me/s 不给音频文件，且该类频道多半关了预览）
-model MusicSource {
-  id            Int      @id @default(autoincrement())
-  /// 频道用户名（不带 @），如 wenan_DJ866
-  channel       String   @unique @db.VarChar(64)
-  /// 解析到的频道标题（保存时从 Telegram 取回，后台核对用）
-  title         String   @default("") @db.VarChar(120)
-  /// 订阅数（解析时取回）
-  subscribers   Int      @default(0)
-  enabled       Boolean  @default(true)
-  /// 该来源最多保留多少首（超出删最旧的），后台可单独设，1~500
-  maxTracks     Int      @default(100) @map("max_tracks")
-  /// 检查间隔（分钟），后台可按频道更新频率单独设，5~1440，默认 10
-  intervalMin   Int      @default(10) @map("interval_min")
-  /// 已同步到的最大消息 id
-  lastMsgId     Int      @default(0) @map("last_msg_id")
-  lastSyncAt    DateTime? @map("last_sync_at")
-  lastError     String   @default("") @map("last_error") @db.VarChar(300)
-  importedCount Int      @default(0) @map("imported_count")
-  createdAt     DateTime @default(now()) @map("created_at")
-
-  @@map("music_source")
-}
-
-// ---------- 「养眼图片」（大厅 tab，名称可在后台改；Telegram 频道图片/视频自动同步，按性别分流） ----------
-
-model GallerySource {
-  id            Int      @id @default(autoincrement())
-  /// 频道用户名（不带 @）
-  channel       String   @db.VarChar(64)
-  title         String   @default("") @db.VarChar(120)
-  subscribers   Int      @default(0)
-  /// 受众：1=男用户看 2=女用户看
-  audience      Int      @db.TinyInt
-  enabled       Boolean  @default(true)
-  /// 文案屏蔽词（逗号分隔）：含这些词的行整行删掉（频道自己的广告/引流套路），内置规则之外的补充
-  blockWords    String   @default("") @map("block_words") @db.VarChar(500)
-  lastMsgId     Int      @default(0) @map("last_msg_id")
-  lastSyncAt    DateTime? @map("last_sync_at")
-  lastError     String   @default("") @map("last_error") @db.VarChar(300)
-  importedCount Int      @default(0) @map("imported_count")
-  createdAt     DateTime @default(now()) @map("created_at")
-
-  @@unique([channel, audience])
-  @@map("gallery_source")
-}
-
-/// 一条帖子 = 频道里的一条消息或一个相册（多图/多视频），媒体已转存 MinIO；只保留最近 N 天（后台可调）
-model GalleryPost {
-  id        BigInt   @id @default(autoincrement())
-  sourceId  Int      @map("source_id")
-  audience  Int      @db.TinyInt
-  /// tg:频道:消息id 或 tg:频道:g<groupedId>（相册）
-  sourceKey String   @unique @map("source_key") @db.VarChar(120)
-  /// 文案（MySQL 的 TEXT 不能带默认值，用 VarChar）
-  text      String   @default("") @db.VarChar(2000)
-  /// JSON [{type:"image"|"video", url, cover?, w, h, duration?, size}]
-  media     String   @db.Text
-  viewCount Int      @default(0) @map("view_count")
-  postedAt  DateTime @map("posted_at")
-  createdAt DateTime @default(now()) @map("created_at")
-
-  @@index([audience, postedAt])
-  @@index([sourceId])
-  @@map("gallery_post")
-}
-
-// ---------- 内容分发（推广）：树洞同步进来的新帖 → AI 改写 → 发到小红书 / 抖音 / 快手 / 知乎；发布机跑在操作者本机轮询领任务 ----------
-
-model PublishJob {
-  id          BigInt    @id @default(autoincrement())
-  postId      BigInt    @map("post_id")
-  /// xiaohongshu | douyin | kuaishou | zhihu
-  platform    String    @db.VarChar(16)
-  /// AI 出的标题（小红书 ≤20 字）
-  title       String    @default("") @db.VarChar(120)
-  /// AI 出的正文（发平台的文案，卡片图上也是它）
-  content     String    @db.Text
-  /// 逗号分隔的话题标签
-  tags        String    @default("") @db.VarChar(300)
-  /// 0 待发 1 已被发布机领走 2 成功 3 失败（已放弃）4 跳过
-  status      Int       @default(0) @db.TinyInt
-  /// 不早于此时间领取（每日上限 / 发布时段 / 间隔顺延出来的排期）
-  scheduledAt DateTime  @map("scheduled_at")
-  claimedAt   DateTime? @map("claimed_at")
-  doneAt      DateTime? @map("done_at")
-  attempts    Int       @default(0)
-  error       String    @default("") @db.VarChar(500)
-  /// 发布成功后的帖子地址（发布机能拿到时回填）
-  resultUrl   String    @default("") @map("result_url") @db.VarChar(300)
-  /// note = 图文（卡片图）；video = 连续剧照视频（万相组图 + 配音字幕，发布机合成）
-  format      String    @default("note") @db.VarChar(8)
-  /// 这条的文案是哪种模式出的：raw 原文 / light 浅处理 / ai 改写；空 = 老任务没记
-  textMode    String    @default("") @map("text_mode") @db.VarChar(8)
-  /// video 用：JSON {paragraphs: 旁白分段, images: 每段一张图的完整 URL, scenes: 画面描述}；空 = 还没出图
-  media       String    @default("") @db.VarChar(6000)
-  createdAt   DateTime  @default(now()) @map("created_at")
-
-  @@unique([postId, platform])
-  @@index([status, scheduledAt])
-  @@index([platform, scheduledAt])
-  @@map("publish_job")
-}
-
-// ---------- X 美女图（推广）：每天从一个 TG 频道拉最近一天的图片进池子，按每日次数排成 X 纯图帖（publish_job.format = pics） ----------
-
-model XPic {
-  id        Int       @id @default(autoincrement())
-  /// 来源频道用户名（不带 @）
-  channel   String    @db.VarChar(64)
-  msgId     Int       @map("msg_id")
-  /// 同一相册（groupedId）的图片同一个值，排帖时尽量同一组放一起
-  groupKey  String    @default("") @map("group_key") @db.VarChar(40)
-  /// MinIO 完整地址
-  url       String    @db.VarChar(300)
-  /// TG 消息发布时间
-  postedAt  DateTime  @map("posted_at")
-  /// 被哪个 publish_job 用掉了；null = 还在池子里
-  jobId     BigInt?   @map("job_id")
-  /// 视觉模型检查过了没有（没检查的不进可用池）
-  checked    Boolean  @default(false)
-  /// 检查不合格的原因（截图 / 拼图 / 有文字水印…）；空 = 合格
-  skipReason String   @default("") @map("skip_reason") @db.VarChar(100)
-  createdAt DateTime  @default(now()) @map("created_at")
-
-  @@unique([channel, msgId])
-  @@index([jobId])
-  @@map("x_pic")
-}
-
-// ---------- 频道转发（推广）：把别的公开频道的新消息转发到我们自己的推广频道（默认 @smsd2030），与 App 内容无关 ----------
-
-model TgForwardSource {
-  id             Int       @id @default(autoincrement())
-  /// 来源频道用户名（不带 @）
-  channel        String    @unique @db.VarChar(64)
-  title          String    @default("") @db.VarChar(120)
-  subscribers    Int       @default(0)
-  enabled        Boolean   @default(true)
-  /// 隐藏「转发自 xx」头（当成自己频道的原创发出）
-  dropAuthor     Boolean   @default(true) @map("drop_author")
-  /// 只转带图片 / 视频的消息
-  mediaOnly      Boolean   @default(false) @map("media_only")
-  /// 每轮（10 分钟）最多转发条数（相册算 1 条），防止刷屏和被限流
-  maxPerRun      Int       @default(3) @map("max_per_run")
-  /// 屏蔽词（逗号分隔）：文案含这些词的消息不转
-  blockWords     String    @default("") @map("block_words") @db.VarChar(500)
-  /// 已处理到的最大消息 id（添加时定位到当前最新，只转之后新发的）
-  lastMsgId      Int       @default(0) @map("last_msg_id")
-  lastSyncAt     DateTime? @map("last_sync_at")
-  lastError      String    @default("") @map("last_error") @db.VarChar(300)
-  forwardedCount Int       @default(0) @map("forwarded_count")
-  createdAt      DateTime  @default(now()) @map("created_at")
-
-  @@map("tg_forward_source")
-}
-
-/// 匿名投稿（Telegram 投稿机器人私聊收到的文字，审核后由机器人发到推广频道）
-model TgSubmission {
-  id          Int       @id @default(autoincrement())
-  /// 去重键 chatId:messageId（同一条消息重复收到不重复入库）
-  srcKey      String    @unique @map("src_key") @db.VarChar(48)
-  /// 投稿人私聊 chat id，只用来回消息，后台不显示
-  chatId      String    @map("chat_id") @db.VarChar(32)
-  /// 投稿人匿名代号（chatId 的 hash），后台用来看是不是同一个人
-  authorTag   String    @map("author_tag") @db.VarChar(12)
-  rawText     String    @map("raw_text") @db.Text
-  /// 去掉联系方式 / 链接后要发出去的文字
-  text        String    @db.Text
-  /// pending=等人工 published=已发 rejected=没通过
-  status      String    @default("pending") @db.VarChar(12)
-  /// 扣下 / 拒绝的原因（规则或 AI 给的）
-  reason      String    @default("") @db.VarChar(300)
-  aiReply     String    @default("") @map("ai_reply") @db.VarChar(500)
-  /// 发到频道后的消息 id
-  msgId       Int       @default(0) @map("msg_id")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  publishedAt DateTime? @map("published_at")
-
-  @@index([status, id])
-  @@index([chatId, createdAt])
-  @@map("tg_submission")
-}
-
-/// 推广频道订阅数，每小时一条
-model TgChannelStat {
-  id          Int      @id @default(autoincrement())
-  channel     String   @db.VarChar(64)
-  /// 整点
-  at          DateTime
-  subscribers Int
-
-  @@unique([channel, at])
-  @@map("tg_channel_stat")
-}
-
-/// 推广频道每条帖子的浏览 / 转发（每小时刷新最近 100 条）
-model TgPostStat {
-  channel   String   @db.VarChar(64)
-  msgId     Int      @map("msg_id")
-  postedAt  DateTime @map("posted_at")
-  views     Int      @default(0)
-  forwards  Int      @default(0)
-  /// submission=匿名投稿 other=其他（转发来的等）
-  kind      String   @default("other") @db.VarChar(12)
-  preview   String   @default("") @db.VarChar(120)
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  @@id([channel, msgId])
-  @@index([channel, postedAt])
-  @@map("tg_post_stat")
-}
-
-/// 曲目：音频文件已转存到 MinIO，最多保留 100 首
-model MusicTrack {
-  id        BigInt   @id @default(autoincrement())
-  sourceId  Int      @map("source_id")
-  /// tg:频道:消息id，同步去重
-  sourceKey String   @unique @map("source_key") @db.VarChar(120)
-  title     String   @db.VarChar(200)
-  performer String   @default("") @db.VarChar(120)
-  /// 秒
-  duration  Int      @default(0)
-  /// 字节
-  size      Int      @default(0)
-  mime      String   @default("audio/mpeg") @db.VarChar(60)
-  /// /res/ 路径
-  url       String   @db.VarChar(300)
-  /// 封面 /res/ 路径（有内嵌封面才有）
-  cover     String   @default("") @db.VarChar(300)
-  /// 频道里的发布时间
-  postedAt  DateTime @map("posted_at")
-  playCount Int      @default(0) @map("play_count")
-  createdAt DateTime @default(now()) @map("created_at")
-
-  @@index([postedAt])
-  @@index([sourceId])
-  @@map("music_track")
-}
-
-// ---------- 表情包（Telegram 公开贴纸集，后台精选；聊天 / 评论可用） ----------
-
-/// 一个贴纸集 = t.me/addstickers/<shortName>；文件已转存 MinIO，格式统一为 webp / lottie(JSON) / awebp(动态 WebP)
-model StickerSet {
-  id            Int      @id @default(autoincrement())
-  shortName     String   @unique @map("short_name") @db.VarChar(64)
-  title         String   @default("") @db.VarChar(120)
-  /// static | animated(TGS) | video(WebM，已转成动态 WebP)
-  kind          String   @default("static") @db.VarChar(12)
-  /// Telegram 声明的张数
-  count         Int      @default(0)
-  /// 封面（第一张贴纸的缩略图）/res/ 路径
-  thumb         String   @default("") @db.VarChar(300)
-  enabled       Boolean  @default(true)
-  sort          Int      @default(0)
-  /// 新用户默认就有的包（老用户不受影响，后台可「推给所有人」）
-  isDefault     Boolean  @default(false) @map("is_default")
-  importedCount Int      @default(0) @map("imported_count")
-  lastSyncAt    DateTime? @map("last_sync_at")
-  lastError     String   @default("") @map("last_error") @db.VarChar(300)
-  createdAt     DateTime @default(now()) @map("created_at")
-
-  @@map("sticker_set")
-}
-
-/// 用户自己加进面板的贴纸集（表情商店），sort 小的在前
-model UserStickerSet {
-  id        BigInt   @id @default(autoincrement())
-  userId    BigInt   @map("user_id")
-  setId     Int      @map("set_id")
-  sort      Int      @default(0)
-  createdAt DateTime @default(now()) @map("created_at")
-
-  @@unique([userId, setId])
-  @@index([userId, sort])
-  @@map("user_sticker_set")
-}
-
-/// GIF（来自 Telegram @gif inline bot，无声 mp4）：按需中转到 MinIO 缓存，LRU 清理
-model Gif {
-  id         Int      @id @default(autoincrement())
-  /// Telegram document id 或 web 结果 url 的 hash，去重键
-  key        String   @unique @db.VarChar(64)
-  /// MinIO 上的 mp4 /res/ 路径
-  url        String   @default("") @db.VarChar(300)
-  /// 网格预览：160px 动态 WebP
-  thumb      String   @default("") @db.VarChar(300)
-  w          Int      @default(0)
-  h          Int      @default(0)
-  duration   Int      @default(0)
-  size       Int      @default(0)
-  /// 最近命中的搜索词（后台排查用）
-  query      String   @default("") @db.VarChar(120)
-  hits       Int      @default(0)
-  /// 后台屏蔽：不再出现在结果里，文件已删
-  blocked    Boolean  @default(false)
-  lastUsedAt DateTime @default(now()) @map("last_used_at")
-  createdAt  DateTime @default(now()) @map("created_at")
-
-  @@index([lastUsedAt])
-  @@map("gif")
-}
-
-model Sticker {
-  id        BigInt   @id @default(autoincrement())
-  setId     Int      @map("set_id")
-  /// Telegram document id（同一集内去重）
-  tgDocId   String   @map("tg_doc_id") @db.VarChar(32)
-  /// 对应的 emoji（Telegram 的 alt）
-  emoji     String   @default("") @db.VarChar(16)
-  /// webp（静态）| lottie（Lottie JSON）| awebp（动态 WebP）
-  format    String   @db.VarChar(12)
-  url       String   @db.VarChar(300)
-  /// 静态缩略图 /res/ 路径（面板网格用；静态贴纸可为空 = 用 url）
-  thumb     String   @default("") @db.VarChar(300)
-  w         Int      @default(512)
-  h         Int      @default(512)
-  size      Int      @default(0)
-  sort      Int      @default(0)
-  createdAt DateTime @default(now()) @map("created_at")
-
-  @@unique([setId, tgDocId])
-  @@index([setId, sort])
-  @@map("sticker")
 }
 
 model Region {
@@ -1162,39 +792,6 @@ model Notification {
   @@map("notification")
 }
 
-/// 花边新闻（消息页入口，一天一个故事：AI 生成，失败时采集一篇真实报道兜底）
-model NewsArticle {
-  id        BigInt   @id @default(autoincrement())
-  /// 受众：1=男方看（共苦励志/鼓励/富豪女生活） 2=女方看（农村女逆袭）
-  audience  Int      @db.TinyInt
-  title     String   @db.VarChar(120)
-  summary   String   @default("") @db.VarChar(300)
-  /// 分类标签：励志/情感/财富/逆袭…
-  tag       String   @default("") @db.VarChar(8)
-  content   String   @db.Text
-  /// 来源站点名（采集的才有）
-  source    String   @default("") @db.VarChar(60)
-  /// 原文链接（采集的才有）
-  sourceUrl String   @default("") @map("source_url") @db.VarChar(500)
-  createdAt DateTime @default(now()) @map("created_at")
-
-  @@index([audience, id])
-  @@map("news_article")
-}
-
-/// 每日一句励志（主页「遇见」右边，男女不同：1=男看女生口吻鼓励 2=女看情感励志）
-model DailyQuote {
-  id        BigInt   @id @default(autoincrement())
-  audience  Int      @db.TinyInt
-  /// 日期 YYYY-MM-DD（东八区）
-  day       String   @db.VarChar(10)
-  text      String   @db.VarChar(120)
-  createdAt DateTime @default(now()) @map("created_at")
-
-  @@unique([audience, day])
-  @@map("daily_quote")
-}
-
 /// AI 助手对话记录（免费问答，按用户隔离）
 model AiMessage {
   id        BigInt   @id @default(autoincrement())
@@ -1227,85 +824,4 @@ model Report {
   @@index([status])
   @@index([reporterId, targetType, targetId])
   @@map("report")
-}
-
-/// 链上钱包收款地址（用户在钱包里打开「允许好友给我转账」才有）；写入时要用钱包私钥签名证明地址是自己的
-model UserChainAddress {
-  userId    BigInt   @id @map("user_id")
-  evm       String?  @db.VarChar(42)
-  sol       String?  @db.VarChar(44)
-  trx       String?  @db.VarChar(34)
-  /// TON 地址按钱包公开时的写法存（一般是 UQ…，48 位），比对时都转成 0:hex
-  ton       String?  @db.VarChar(70)
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  @@map("user_chain_address")
-}
-
-/// 每个币的讨论群：有人在钱包代币页点「讨论群」时才建（群主是系统账号「币群助手」），7 天没人说话就不出现在会话列表里
-model CoinGroup {
-  chain     String   @db.VarChar(16)
-  /// EVM 小写；Solana 原样
-  address   String   @db.VarChar(64)
-  groupId   BigInt   @unique @map("group_id")
-  creatorId BigInt   @map("creator_id")
-  createdAt DateTime @default(now()) @map("created_at")
-
-  @@id([chain, address])
-  @@index([creatorId, createdAt])
-  @@map("coin_group")
-}
-
-/// 聊天里的转账卡片：链上核对过的交易，一笔交易只能发一张卡
-model ChainTransfer {
-  hash        String   @id @db.VarChar(100)
-  chain       String   @db.VarChar(16)
-  messageId   BigInt   @map("message_id")
-  senderId    BigInt   @map("sender_id")
-  receiverId  BigInt   @map("receiver_id")
-  createdAt   DateTime @default(now()) @map("created_at")
-
-  @@index([senderId])
-  @@map("chain_transfer")
-}
-
-// ---------- 外部文件接口（第三方用接入密钥上传，后台「文件接口」查看 / 下载） ----------
-
-/// 接入密钥：明文只在后台创建时显示一次，库里只存 sha256
-model ExtApiKey {
-  id         Int       @id @default(autoincrement())
-  /// 给谁用的（后台填的备注）
-  name       String    @db.VarChar(60)
-  /// 明文开头几位，后台用来认是哪一把
-  prefix     String    @db.VarChar(16)
-  keyHash    String    @unique @map("key_hash") @db.Char(64)
-  enabled    Boolean   @default(true)
-  lastUsedAt DateTime? @map("last_used_at")
-  createdAt  DateTime  @default(now()) @map("created_at")
-  files      ExtFile[]
-
-  @@map("ext_api_key")
-}
-
-/// 外部上传的文件：存 MinIO 私有桶（不经 /res/ 公开），只能后台生成临时链接下载
-model ExtFile {
-  id        BigInt    @id @default(autoincrement())
-  keyId     Int       @map("key_id")
-  key       ExtApiKey @relation(fields: [keyId], references: [id])
-  /// 原始文件名
-  name      String    @db.VarChar(255)
-  size      BigInt
-  mime      String    @db.VarChar(120)
-  sha256    String    @db.Char(64)
-  /// 调用方附带的备注
-  note      String    @default("") @db.VarChar(500)
-  /// MinIO 对象名（私有桶内）
-  object    String    @db.VarChar(200)
-  ip        String    @default("") @db.VarChar(64)
-  downloads Int       @default(0)
-  createdAt DateTime  @default(now()) @map("created_at")
-
-  @@index([keyId, id])
-  @@index([createdAt])
-  @@map("ext_file")
 }

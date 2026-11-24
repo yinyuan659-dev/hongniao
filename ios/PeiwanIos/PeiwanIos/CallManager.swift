@@ -212,7 +212,7 @@ final class CallManager: ObservableObject {
                 peerPublished = true
             }
         case "reject", "cancel", "end":
-            // 服务端强制挂断（积分不足/连接中断）会带 reason，展示给用户
+            // 服务端强制挂断（连接中断等）会带 reason，展示给用户
             if let reason = data["reason"] as? String, !reason.isEmpty {
                 Self.clog("call force-ended by server: \(reason)")
                 errorMsg = reason
@@ -229,19 +229,6 @@ final class CallManager: ObservableObject {
         peerName = name
         peerAvatar = avatar
         Task {
-            // 视频通话本地预检：余额不够 1 分钟直接提示，不发起呼叫（服务端仍有权威校验兜底）
-            if type == 2 {
-                struct WalletResp: Codable { var balance: String? }
-                struct PeerPrice: Codable { var videoPriceActualFen: Int? }
-                let wallet: WalletResp? = try? await Api.request("/wallet")
-                let peer: PeerPrice? = try? await Api.request("/user/\(calleeId)")
-                if let balStr = wallet?.balance, let balance = Int(balStr),
-                   let price = peer?.videoPriceActualFen, price > 0, balance < price {
-                    Self.clog("local precheck insufficient: balance=\(balance) price/min=\(price)")
-                    alertMsg = t("call.insufficientPoints", ["n": fmtPoints(String(price))])
-                    return
-                }
-            }
             // 头像缺失时补拉对方资料（微信式界面需要展示）
             if avatar.isEmpty {
                 struct Brief: Codable { var nickname: String? = ""; var avatar: String? = "" }
@@ -409,10 +396,6 @@ final class CallManager: ObservableObject {
                 Self.clog("waiting foreground...")
                 try? await Task.sleep(nanoseconds: 300_000_000)
             }
-            // 通话期间暂停无声保活，避免音频会话冲突（通话音频本身可后台保活）
-            SilentAudioKeeper.shared.stop()
-            // 背景音乐让位
-            MusicCenter.shared.pause()
             // 必须走 WebRTC 的 RTCAudioSession 配置（直接用 AVAudioSession 会绕过
             // WebRTC 会话管理，导致录音单元静默不启动 → 对方听不到声音）
             let rtcSession = RTCAudioSession.sharedInstance()
@@ -641,8 +624,6 @@ final class CallManager: ObservableObject {
         localAudioTrack = nil
         peerPublished = false
         phase = .idle
-        // 通话结束恢复无声保活
-        SilentAudioKeeper.shared.start()
         // 挂断后把剩余日志立即冲刷上报（保留 callId 以便补传）
         Self.clog("teardown done")
         Task { await Self.flushLogs() }

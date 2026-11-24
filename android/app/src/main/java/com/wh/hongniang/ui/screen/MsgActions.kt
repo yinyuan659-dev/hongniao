@@ -62,8 +62,8 @@ import kotlinx.serialization.json.put
 /** 与后端 MSG_REACTIONS 一致；前 7 个是菜单顶上那一排 */
 val MSG_REACTIONS = listOf("❤️", "👍", "👎", "🔥", "🥰", "👏", "😁", "😂", "😮", "😢", "🎉", "🙏")
 
-/** 能转发的类型（礼物、通话记录、转账卡片不行；喊单卡片可以），和后端 message.service FORWARDABLE 一致 */
-val FORWARDABLE = setOf("text", "image", "video", "audio", "file", "location", "sticker", "callout", "card")
+/** 能转发的类型（通话记录不行），和后端 message.service FORWARDABLE 一致 */
+val FORWARDABLE = setOf("text", "image", "video", "audio", "file", "location")
 
 fun msgSnippet(type: String, content: String): String = when (type) {
     "text" -> content.replace(Regex("\\s+"), " ").take(60)
@@ -71,14 +71,14 @@ fun msgSnippet(type: String, content: String): String = when (type) {
     "video" -> t("msg.snippet.video")
     "audio" -> t("msg.snippet.audio")
     "file" -> fileSnippet(content, t("msg.snippet.file"))
-    "sticker" -> t("msg.snippet.sticker")
     "location" -> t("msg.snippet.location")
-    "gift" -> t("msg.snippet.gift")
-    "transfer", "callout", "payreq", "perp", "card" -> chainCardPreview(type, content) ?: t("msg.snippet.message")
     else -> if (type.startsWith("call")) t("msg.snippet.call") else t("msg.snippet.message")
 }
 
 // ---------- 链接 ----------
+
+/** 链接、引用条、置顶条、已选圆点共用的蓝色 */
+val LinkBlue = Color(0xFF2F7CF6)
 
 private val URL_RE = Regex("(https?://|www\\.)[^\\s<>\"'“”‘’，。！？；：、（）【】《》]+", RegexOption.IGNORE_CASE)
 private val TRAILING = Regex("[.,;:!?)\\]}>]+$")
@@ -113,7 +113,7 @@ fun LinkText(text: String, color: Color, fontSize: TextUnit, lineHeight: TextUni
         buildAnnotatedString {
             parts.forEach { (seg, url) ->
                 if (url == null) append(seg)
-                else withLink(LinkAnnotation.Clickable(url, TextLinkStyles(SpanStyle(color = BotBlue, textDecoration = TextDecoration.Underline))) { openUrl = url }) { append(seg) }
+                else withLink(LinkAnnotation.Clickable(url, TextLinkStyles(SpanStyle(color = LinkBlue, textDecoration = TextDecoration.Underline))) { openUrl = url }) { append(seg) }
             }
         }
     }
@@ -128,7 +128,7 @@ class MenuActions(
     val onReply: () -> Unit,
     val onCopy: (() -> Unit)?,
     val onSave: (() -> Unit)?,
-    val onPin: (() -> Unit)?,
+    val onPin: () -> Unit,
     val onForward: (() -> Unit)?,
     val onReport: (() -> Unit)?,
     val onDelete: () -> Unit,
@@ -136,10 +136,7 @@ class MenuActions(
 )
 
 @Serializable
-data class ReaderUser(val id: String, val nickname: String = "", val avatar: String = "")
-
-@Serializable
-data class ReadInfo(val read: Boolean? = null, val readAt: String? = null, val count: Int? = null, val users: List<ReaderUser> = emptyList())
+data class ReadInfo(val read: Boolean? = null, val readAt: String? = null)
 
 private fun fmtReadAt(iso: String): String = runCatching {
     val tm = java.time.Instant.parse(iso).atZone(java.time.ZoneId.systemDefault())
@@ -148,10 +145,9 @@ private fun fmtReadAt(iso: String): String = runCatching {
 
 /** Telegram 式消息菜单：顶上一排表情，自己的消息显示已读时间，下面按类型给操作（传 null 的不显示） */
 @Composable
-fun MsgMenuDialog(msgId: String, mine: Boolean, convType: Int, myReaction: String?, pinned: Boolean, actions: MenuActions, onDismiss: () -> Unit) {
+fun MsgMenuDialog(msgId: String, mine: Boolean, myReaction: String?, pinned: Boolean, actions: MenuActions, onDismiss: () -> Unit) {
     var expand by remember { mutableStateOf(false) }
     var info by remember { mutableStateOf<ReadInfo?>(null) }
-    var showReaders by remember { mutableStateOf(false) }
     LaunchedEffect(msgId) {
         if (mine) info = runCatching { Api.getObj<ReadInfo>("/im/messages/$msgId/readers") }.getOrNull()
     }
@@ -165,7 +161,7 @@ fun MsgMenuDialog(msgId: String, mine: Boolean, convType: Int, myReaction: Strin
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         row.forEach { e ->
                             Box(
-                                Modifier.size(34.dp).clip(CircleShape).background(if (myReaction == e) BotBlue.copy(alpha = 0.15f) else Color.Transparent).noRippleClick { run { actions.onReact(e) } },
+                                Modifier.size(34.dp).clip(CircleShape).background(if (myReaction == e) LinkBlue.copy(alpha = 0.15f) else Color.Transparent).noRippleClick { run { actions.onReact(e) } },
                                 contentAlignment = Alignment.Center,
                             ) { Text(e, fontSize = 21.sp) }
                         }
@@ -179,21 +175,9 @@ fun MsgMenuDialog(msgId: String, mine: Boolean, convType: Int, myReaction: Strin
             }
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Bg)) {
                 info?.let { r ->
-                    val line = if (convType == 1) {
-                        val at = r.readAt?.let { fmtReadAt(it) }.orEmpty()
-                        if (r.read == true) "✓✓ " + (if (at.isNotEmpty()) t("msg.readAt", "time" to at) else t("msg.read")) else "✓ " + t("msg.unread")
-                    } else {
-                        val n = r.count ?: 0
-                        if (n > 0) "✓✓ ${t("msg.readByN", "n" to n)} ${if (showReaders) "⌃" else "›"}" else "✓✓ " + t("msg.readByNone")
-                    }
-                    Text(line, color = TextSub, fontSize = 13.sp, modifier = Modifier.fillMaxWidth().background(Bg2).noRippleClick { if ((r.count ?: 0) > 0) showReaders = !showReaders }.padding(16.dp, 9.dp))
-                    if (showReaders) Column(Modifier.fillMaxWidth().background(Bg2).heightIn(max = 160.dp).padding(horizontal = 16.dp)) {
-                        r.users.forEach { u ->
-                            Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Avatar(u.avatar, 22); Spacer(Modifier.width(8.dp)); Text(u.nickname, color = TextMain, fontSize = 13.sp, maxLines = 1)
-                            }
-                        }
-                    }
+                    val at = r.readAt?.let { fmtReadAt(it) }.orEmpty()
+                    val line = if (r.read == true) "✓✓ " + (if (at.isNotEmpty()) t("msg.readAt", "time" to at) else t("msg.read")) else "✓ " + t("msg.unread")
+                    Text(line, color = TextSub, fontSize = 13.sp, modifier = Modifier.fillMaxWidth().background(Bg2).padding(16.dp, 9.dp))
                 }
                 val items = listOf(
                     "msg.reply" to actions.onReply, "msg.copy" to actions.onCopy, "common.save" to actions.onSave,
@@ -222,8 +206,8 @@ fun ReactionChips(reactions: List<MsgReaction>, myId: String, onToggle: (String)
         reactions.forEach { r ->
             val mine = myId in r.userIds
             Text(
-                "${r.emoji} ${r.count}", fontSize = 13.sp, color = if (mine) BotBlue else TextMain,
-                modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(if (mine) BotBlue.copy(alpha = 0.16f) else Bg3).noRippleClick { onToggle(r.emoji) }.padding(horizontal = 8.dp, vertical = 2.dp),
+                "${r.emoji} ${r.count}", fontSize = 13.sp, color = if (mine) LinkBlue else TextMain,
+                modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(if (mine) LinkBlue.copy(alpha = 0.16f) else Bg3).noRippleClick { onToggle(r.emoji) }.padding(horizontal = 8.dp, vertical = 2.dp),
             )
         }
     }
@@ -232,17 +216,17 @@ fun ReactionChips(reactions: List<MsgReaction>, myId: String, onToggle: (String)
 @Composable
 fun ReplyQuote(r: ReplyPreview, onClick: () -> Unit) {
     Row(
-        Modifier.padding(bottom = 5.dp).widthIn(max = 220.dp).clip(RoundedCornerShape(4.dp)).background(BotBlue.copy(alpha = 0.08f)).noRippleClick { if (!r.deleted) onClick() },
+        Modifier.padding(bottom = 5.dp).widthIn(max = 220.dp).clip(RoundedCornerShape(4.dp)).background(LinkBlue.copy(alpha = 0.08f)).noRippleClick { if (!r.deleted) onClick() },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.width(3.dp).height(36.dp).background(BotBlue))
+        Box(Modifier.width(3.dp).height(36.dp).background(LinkBlue))
         if (r.type == "image" && r.content.isNotEmpty() && !r.deleted) {
             AsyncImage(Api.fullUrl(r.content), null, contentScale = ContentScale.Crop, modifier = Modifier.padding(start = 6.dp).size(28.dp).clip(RoundedCornerShape(3.dp)))
         }
         Column(Modifier.padding(horizontal = 8.dp, vertical = 3.dp)) {
             if (r.deleted) Text(t("msg.originalDeleted"), color = TextSub, fontSize = 12.sp)
             else {
-                Text(r.senderNickname, color = BotBlue, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                Text(r.senderNickname, color = LinkBlue, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
                 Text(if (r.type == "text") r.content else msgSnippet(r.type, ""), color = TextMain, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
@@ -253,10 +237,10 @@ fun ReplyQuote(r: ReplyPreview, onClick: () -> Unit) {
 @Composable
 fun ReplyBar(nickname: String, snippet: String, onCancel: () -> Unit) {
     Row(Modifier.fillMaxWidth().background(Bg2).padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("↩", color = BotBlue, fontSize = 18.sp)
+        Text("↩", color = LinkBlue, fontSize = 18.sp)
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text(t("msg.replyTo", "name" to nickname), color = BotBlue, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            Text(t("msg.replyTo", "name" to nickname), color = LinkBlue, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
             Text(snippet, color = TextSub, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         Text("×", color = TextDim, fontSize = 22.sp, modifier = Modifier.noRippleClick(onCancel).padding(horizontal = 6.dp))
@@ -268,20 +252,20 @@ data class PinItem(val id: String, val senderId: String = "", val senderNickname
 
 /** 顶部置顶条：点一下跳到这条，再点轮到下一条（新的在前） */
 @Composable
-fun PinBar(pins: List<PinItem>, index: Int, canUnpin: Boolean, onJump: () -> Unit, onUnpin: () -> Unit) {
+fun PinBar(pins: List<PinItem>, index: Int, onJump: () -> Unit, onUnpin: () -> Unit) {
     val p = pins.getOrNull(index % pins.size.coerceAtLeast(1)) ?: return
     Row(Modifier.fillMaxWidth().background(Bg2).noRippleClick(onJump).padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.height(32.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             pins.take(5).forEachIndexed { i, _ ->
-                Box(Modifier.width(2.dp).weight(1f).background(if (i == index % pins.size) BotBlue else BotBlue.copy(alpha = 0.3f)))
+                Box(Modifier.width(2.dp).weight(1f).background(if (i == index % pins.size) LinkBlue else LinkBlue.copy(alpha = 0.3f)))
             }
         }
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text("${t("msg.pinnedMessage")}${if (pins.size > 1) " #${index % pins.size + 1}" else ""}", color = BotBlue, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text("${t("msg.pinnedMessage")}${if (pins.size > 1) " #${index % pins.size + 1}" else ""}", color = LinkBlue, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             Text(if (p.type == "text") p.content else msgSnippet(p.type, ""), color = TextSub, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        if (canUnpin) Text("×", color = TextDim, fontSize = 22.sp, modifier = Modifier.noRippleClick(onUnpin).padding(horizontal = 6.dp))
+        Text("×", color = TextDim, fontSize = 22.sp, modifier = Modifier.noRippleClick(onUnpin).padding(horizontal = 6.dp))
     }
 }
 
@@ -289,7 +273,7 @@ fun PinBar(pins: List<PinItem>, index: Int, canUnpin: Boolean, onJump: () -> Uni
 
 /** 删除确认（Telegram 式）：能为双方删除时默认勾上「同时为对方删除」 */
 @Composable
-fun DeleteMsgDialog(count: Int, canForAll: Boolean, convType: Int, peerName: String, onConfirm: (Boolean) -> Unit, onDismiss: () -> Unit) {
+fun DeleteMsgDialog(count: Int, canForAll: Boolean, peerName: String, onConfirm: (Boolean) -> Unit, onDismiss: () -> Unit) {
     var forAll by remember { mutableStateOf(true) }
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
@@ -298,7 +282,7 @@ fun DeleteMsgDialog(count: Int, canForAll: Boolean, convType: Int, peerName: Str
         text = {
             if (canForAll) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.noRippleClick { forAll = !forAll }) {
                 Checkbox(forAll, { forAll = it }, colors = CheckboxDefaults.colors(checkedColor = Accent))
-                Text(if (convType == 1) t("msg.deleteForPeer", "name" to peerName) else t("msg.deleteForAll"), color = TextMain, fontSize = 14.sp)
+                Text(t("msg.deleteForPeer", "name" to peerName), color = TextMain, fontSize = 14.sp)
             } else Text(t("msg.deleteForMeHint"), color = TextSub)
         },
         confirmButton = { Text(t("common.delete"), color = Danger, fontWeight = FontWeight.SemiBold, modifier = Modifier.noRippleClick { onConfirm(canForAll && forAll) }.padding(8.dp)) },
@@ -351,9 +335,9 @@ fun ForwardDialog(fromConvId: String, ids: List<String>, onDone: (String, List<S
     var picked by remember { mutableStateOf<List<String>>(emptyList()) }
     var busy by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        convs = runCatching { Api.getList<ConversationItem>("/im/conversations") }.getOrDefault(emptyList()).filter { it.peer != null || it.group != null }
+        convs = runCatching { Api.getList<ConversationItem>("/im/conversations") }.getOrDefault(emptyList()).filter { it.peer != null }
     }
-    fun name(c: ConversationItem) = c.peer?.nickname ?: c.group?.name ?: ""
+    fun name(c: ConversationItem) = c.peer?.nickname ?: ""
     val shown = convs.filter { q.isBlank() || name(it).contains(q.trim(), ignoreCase = true) }
 
     fun send() {
@@ -367,8 +351,8 @@ fun ForwardDialog(fromConvId: String, ids: List<String>, onDone: (String, List<S
                     put("targets", buildJsonArray {
                         picked.mapNotNull { id -> convs.find { it.id == id } }.forEach { c ->
                             addJsonObject {
-                                put("convType", if (c.type == 1) 1 else 2)
-                                put("targetId", if (c.type == 1) c.peer!!.id else c.group!!.id)
+                                put("convType", 1)
+                                put("targetId", c.peer!!.id)
                             }
                         }
                     })
@@ -398,11 +382,9 @@ fun ForwardDialog(fromConvId: String, ids: List<String>, onDone: (String, List<S
                         Modifier.fillMaxWidth().noRippleClick { picked = if (on) picked - c.id else if (picked.size >= 10) picked else picked + c.id }.padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Avatar(c.peer?.avatar ?: c.group?.avatar, 38)
+                        Avatar(c.peer?.avatar, 38)
                         Spacer(Modifier.width(10.dp))
                         Text(name(c), color = TextMain, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                        if (c.group != null) Text(" · " + if (c.group.kind == 2) t("msg.tagChannel") else t("msg.tagGroup"), color = TextSub, fontSize = 12.sp)
-                        if (c.peer?.isBot == true) BotTag()
                         Spacer(Modifier.weight(1f))
                         SelectCircle(on)
                     }
@@ -420,7 +402,7 @@ fun ForwardDialog(fromConvId: String, ids: List<String>, onDone: (String, List<S
 @Composable
 fun SelectCircle(on: Boolean) {
     Box(
-        Modifier.size(22.dp).clip(CircleShape).then(if (on) Modifier.background(BotBlue) else Modifier.border(2.dp, TextDim, CircleShape)),
+        Modifier.size(22.dp).clip(CircleShape).then(if (on) Modifier.background(LinkBlue) else Modifier.border(2.dp, TextDim, CircleShape)),
         contentAlignment = Alignment.Center,
     ) { if (on) Text("✓", color = Color.White, fontSize = 13.sp) }
 }

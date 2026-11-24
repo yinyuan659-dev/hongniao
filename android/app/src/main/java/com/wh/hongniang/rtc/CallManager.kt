@@ -208,7 +208,7 @@ object CallManager {
                 }
             }
             "reject", "cancel", "end" -> {
-                // 服务端强制挂断（积分不足/连接中断）会带 reason，Toast 提示用户
+                // 服务端强制挂断（连接中断等）会带 reason，Toast 提示用户
                 val reason = data["reason"]?.jsonPrimitive?.contentOrNull
                 if (!reason.isNullOrEmpty()) {
                     clog("call force-ended by server: $reason")
@@ -234,36 +234,6 @@ object CallManager {
                     val d = Api.request("/user/$calleeId") as? kotlinx.serialization.json.JsonObject
                     peerAvatar.value = d?.get("avatar")?.jsonPrimitive?.content ?: ""
                     if (name.isEmpty()) peerName.value = d?.get("nickname")?.jsonPrimitive?.content ?: ""
-                }
-            }
-            // 视频通话本地预检：余额不够 1 分钟直接提示，不发起呼叫（服务端 invite 仍有权威校验兜底）
-            if (type == 2) {
-                val insufficientMsg = runCatching {
-                    val wallet = Api.request("/wallet") as? kotlinx.serialization.json.JsonObject
-                    val balance = wallet?.get("balance")?.jsonPrimitive?.contentOrNull?.toLongOrNull()
-                    val peer = Api.request("/user/$calleeId") as? kotlinx.serialization.json.JsonObject
-                    val priceFen = peer?.get("videoPriceActualFen")?.jsonPrimitive?.contentOrNull?.toLongOrNull()
-                    if (balance != null && priceFen != null && priceFen > 0 && balance < priceFen) {
-                        t("call.insufficientPoints", "n" to "%.2f".format(priceFen / 100.0).trimEnd('0').trimEnd('.'))
-                    } else {
-                        null
-                    }
-                }.getOrNull()
-                if (insufficientMsg != null) {
-                    clog("local precheck insufficient balance for video call")
-                    android.os.Handler(android.os.Looper.getMainLooper()).post {
-                        // 独立提示弹框（不用 toast）；context 异常时降级 Toast 兜底
-                        runCatching {
-                            android.app.AlertDialog.Builder(context)
-                                .setTitle(t("common.tip"))
-                                .setMessage(insufficientMsg)
-                                .setPositiveButton(t("common.gotIt"), null)
-                                .show()
-                        }.onFailure {
-                            android.widget.Toast.makeText(context, insufficientMsg, android.widget.Toast.LENGTH_LONG).show()
-                        }
-                    }
-                    return@launch
                 }
             }
             try {
@@ -382,8 +352,6 @@ object CallManager {
         val f = factory ?: return
         try {
             clog("startMedia begin type=$type callId=$callId peerId=$peerId")
-            // 通话期间停掉背景音乐
-            com.wh.hongniang.ui.screen.MusicCenter.pause()
             // 微信习惯：语音默认听筒，视频默认免提
             (appContextRef?.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager)?.apply {
                 mode = android.media.AudioManager.MODE_IN_COMMUNICATION

@@ -390,7 +390,7 @@ private fun VideoView(track: VideoTrack?, label: String, modifier: Modifier = Mo
     )
 }
 
-/** 通用呼叫发起器（广场卡片/抖音模式等处使用）：请求权限后发起 */
+/** 通用呼叫发起器（遇见卡片等处使用）：请求权限后发起 */
 @Composable
 fun rememberStartCallAny(): (calleeId: String, name: String, avatar: String, type: Int) -> Unit {
     val context = LocalContext.current

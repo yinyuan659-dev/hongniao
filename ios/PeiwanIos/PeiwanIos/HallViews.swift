@@ -182,7 +182,6 @@ private struct HallWebView: UIViewRepresentable {
         web.navigationDelegate = context.coordinator.navLogger
         GameLog.log("hall: webview created, bridge peiwan registered")
         web.load(URLRequest(url: url))
-        context.coordinator.bindMusicState(to: web)
         return web
     }
 
@@ -193,52 +192,10 @@ private struct HallWebView: UIViewRepresentable {
         let onOpenWeb: (WebTarget) -> Void
         let onViewMedia: (MediaTarget) -> Void
         let navLogger = WebNavLogger(scope: "hall")
-        private var musicCancellable: AnyCancellable?
-        private var lastMusicState = ""
         init(onOpenChat: @escaping (ChatTarget) -> Void, onOpenWeb: @escaping (WebTarget) -> Void, onViewMedia: @escaping (MediaTarget) -> Void) {
             self.onOpenChat = onOpenChat
             self.onOpenWeb = onOpenWeb
             self.onViewMedia = onViewMedia
-        }
-
-        /// 原生播放状态回推给 H5（切歌 / 暂停时）：window.PeiwanMusicState({id, playing})
-        func bindMusicState(to web: WKWebView) {
-            let center = MusicCenter.shared
-            musicCancellable = center.objectWillChange
-                .debounce(for: .milliseconds(150), scheduler: DispatchQueue.main)
-                .sink { [weak web, weak self] _ in
-                    guard let self, let web else { return }
-                    let id = center.current.map { "\"\($0.id)\"" } ?? "null"
-                    let js = "window.PeiwanMusicState&&window.PeiwanMusicState({id:\(id),playing:\(center.isPlaying)})"
-                    if js == self.lastMusicState { return }
-                    self.lastMusicState = js
-                    web.evaluateJavaScript(js, completionHandler: nil)
-                }
-        }
-
-        /// H5 里播音乐交给原生播放器（与原生音乐页共用 MusicCenter）
-        private func handleMusic(_ body: [String: Any]) {
-            let action = body["action"] as? String ?? ""
-            func decode<T: Decodable>(_ any: Any?) -> T? {
-                guard let any, let data = try? JSONSerialization.data(withJSONObject: any) else { return nil }
-                return try? JSONDecoder().decode(T.self, from: data)
-            }
-            let center = MusicCenter.shared
-            DispatchQueue.main.async {
-                switch action {
-                case "play":
-                    guard let t: MusicTrackModel = decode(body["track"]) else { return }
-                    if let q: [MusicTrackModel] = decode(body["queue"]), !q.isEmpty { center.setQueue(q) }
-                    if !center.queue.contains(where: { $0.id == t.id }) { center.setQueue(center.queue + [t]) }
-                    if center.current?.id == t.id { center.resume() } else { center.play(t) }
-                case "pause": center.pause()
-                case "resume": center.resume()
-                case "stop": center.stop()
-                case "seek": if let r = body["ratio"] as? Double { center.seek(ratio: r) }
-                case "rate": if let v = body["value"] as? Double { center.setRate(Float(v)) }
-                default: GameLog.log("hall: music unknown action \(action)")
-                }
-            }
         }
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -274,8 +231,6 @@ private struct HallWebView: UIViewRepresentable {
                     GameLog.log("hall: openWeb -> present GameWebSheet url=\(url.absoluteString) landscape=\(landscape)")
                     onOpenWeb(WebTarget(url: url, title: title, landscape: landscape))
                 }
-            case "music":
-                handleMusic(body)
             case "viewMedia":
                 // 新协议 groups（所有帖子）；老协议只有 items（单条）
                 var groups: [[MediaItemModel]] = []
@@ -515,7 +470,7 @@ private struct GameWebView: UIViewRepresentable {
         // alert / confirm / prompt 转原生弹窗（WKWebView 默认不显示）
         func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
             present(UIAlertController(title: nil, message: message, preferredStyle: .alert), actions: [
-                UIAlertAction(title: t("bot.ok"), style: .default) { _ in completionHandler() },
+                UIAlertAction(title: t("common.ok"), style: .default) { _ in completionHandler() },
             ], onFail: completionHandler)
         }
 
@@ -548,162 +503,5 @@ private struct GameWebView: UIViewRepresentable {
             while let presented = top?.presentedViewController { top = presented }
             return top
         }
-    }
-}
-
-/// 同城搭子项目主页
-struct GuideProjectView: View {
-    @EnvironmentObject var state: AppState
-    @State private var guides: [Person] = []
-    @State private var chatTarget: ChatTarget?
-
-    private var isFemale: Bool { state.user?.gender == 2 }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 10) {
-                        entryCard(t("hall.findBuddy"), t("hall.findBuddySub"), Route.people("guide"))
-                        entryCard(t("hall.findPeople"), t("hall.findPeopleSub"), Route.people("all"))
-                    }
-                    HStack(spacing: 10) {
-                        if isFemale {
-                            entryCard(t("hall.taskHall"), t("hall.taskHallSub"), Route.taskHall)
-                        } else {
-                            entryCard(t("hall.postTask"), t("hall.postTaskSub"), Route.taskPost)
-                        }
-                        entryCard(isFemale ? t("me.myTasksGuide") : t("me.myTasks"), t("hall.myTasksSub"), Route.taskMine)
-                    }
-
-                    Text(t("hall.recommended"))
-                        .font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.text)
-                        .padding(.vertical, 16)
-
-                    if guides.isEmpty {
-                        Text(t("hall.noBuddies")).font(.system(size: 14)).foregroundStyle(Theme.textSub)
-                            .frame(maxWidth: .infinity).padding(40)
-                    } else {
-                        ForEach(guides) { p in
-                            PersonRow(p: p) { greet(p) }
-                        }
-                    }
-                }
-                .padding(.horizontal, 16)
-            }
-        }
-        .fullBg()
-        .navigationTitle(t("hall.localBuddy"))
-        .navigationBarTitleDisplayMode(.inline)
-        .compatNavBarBackground(Theme.bg)
-        .fullScreenCover(item: $chatTarget) { t in
-            ChatRoomSheet(target: t)
-        }
-        .task {
-            let all: [Person] = (try? await Api.request("/guide/list")) ?? []
-            guides = Array(all.prefix(6))
-        }
-    }
-
-    private func greet(_ p: Person) {
-        Task {
-            if let t = await openChatWith(userId: p.id, nickname: p.nickname ?? "") { chatTarget = t }
-        }
-    }
-
-    private func entryCard(_ title: String, _ sub: String, _ route: Route) -> some View {
-        RouteLink(route) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text(title).font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.text)
-                Text(sub).font(.system(size: 12)).foregroundStyle(Theme.textSub)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16)
-            .background(RoundedRectangle(cornerRadius: 14).fill(Theme.bg2))
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-/// 人员行（推荐搭子/找人通用）
-struct PersonRow: View {
-    let p: Person
-    var showCity: Bool = false
-    let onGreet: () -> Void
-
-    var body: some View {
-        HStack(spacing: 12) {
-            AvatarView(url: p.avatar, size: 52)
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 4) {
-                    Text("\(p.nickname ?? "") · \(p.age ?? 0)").font(.system(size: 15)).foregroundStyle(Theme.text)
-                    if p.isGuide == true { Text(t("me.verified")).font(.system(size: 11)).foregroundStyle(Theme.accent) }
-                }
-                Text((p.signature?.isEmpty == false) ? p.signature! : t("hall.mystery"))
-                    .font(.system(size: 12)).foregroundStyle(Theme.textSub).lineLimit(1)
-                if showCity, let city = p.cityName, !city.isEmpty {
-                    Text(city).font(.system(size: 11)).foregroundStyle(Theme.textDim)
-                }
-            }
-            Spacer()
-            Button(action: onGreet) {
-                Text(t("hall.sayHi")).font(.system(size: 13)).foregroundStyle(.white)
-                    .padding(.horizontal, 14).padding(.vertical, 6)
-                    .background(Capsule().fill(Theme.accent))
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.vertical, 10)
-    }
-}
-
-/// 找人 / 找搭子
-struct PeopleView: View {
-    let mode: String
-    @State private var tab = "all"
-    @State private var items: [Person] = []
-    @State private var chatTarget: ChatTarget?
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 20) {
-                TextTab(text: t("me.verified"), selected: tab == "guide") { tab = "guide"; Task { await load() } }
-                TextTab(text: t("hall.all"), selected: tab == "all") { tab = "all"; Task { await load() } }
-                Spacer()
-            }
-            .padding(.horizontal, 16).padding(.vertical, 10)
-
-            if items.isEmpty {
-                EmptyHint(text: t("hall.noUsers"))
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(items) { p in
-                            PersonRow(p: p, showCity: true) {
-                                Task {
-                                    if let t = await openChatWith(userId: p.id, nickname: p.nickname ?? "") { chatTarget = t }
-                                }
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                }
-            }
-        }
-        .fullBg()
-        .navigationTitle(tab == "guide" ? t("hall.findBuddy") : t("hall.findPeople"))
-        .navigationBarTitleDisplayMode(.inline)
-        .compatNavBarBackground(Theme.bg)
-        .fullScreenCover(item: $chatTarget) { t in
-            ChatRoomSheet(target: t)
-        }
-        .task {
-            tab = mode == "guide" ? "guide" : "all"
-            await load()
-        }
-    }
-
-    private func load() async {
-        items = (try? await Api.request(tab == "guide" ? "/guide/list" : "/guide/discover")) ?? []
     }
 }

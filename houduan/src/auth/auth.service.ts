@@ -1,54 +1,60 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { Wallet } from 'ethers';
 import { PrismaService } from '../prisma/prisma.service';
-import { CryptoService } from '../common/crypto.service';
 import { RegisterDto } from './auth.dto';
+import { browserLabel, DeviceService } from './device.service';
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
-    private readonly crypto: CryptoService,
+    private readonly devices: DeviceService,
   ) {}
 
-  async enter(deviceId: string) {
-    const user = await this.prisma.user.findUnique({ where: { deviceId } });
-    if (!user || user.isBot) {
+  /**
+   * 启动进入：这台设备挂在哪个账号下就登录哪个（设备表为准，见 DeviceService）。
+   * 不认识、或者已被移除 → registered=false，客户端去注册页（那里有「刷脸找回」）。
+   * did：这台设备在设备表里的行 id，写进登录令牌（移除设备时靠它让令牌失效）。
+   * newDevices：上次用这台设备之后，通过刷脸新挂到这个账号上的其它设备，客户端提醒一次。
+   */
+  async enter(deviceId: string, ua = '') {
+    const dev = await this.devices.resolve(deviceId, true, browserLabel(ua));
+    const user = dev ? await this.prisma.user.findUnique({ where: { id: dev.userId } }) : null;
+    if (!dev || !user) {
       return { registered: false, token: null, user: null };
     }
     if (user.status !== 0) {
       throw new BadRequestException('账号已被封禁');
     }
-    return { registered: true, token: this.sign(user.id), user: this.toProfile(user) };
+    const newDevices = await this.devices.newSince(user.id, dev.did, dev.prevSeen);
+    return { registered: true, token: this.sign(user.id, dev.did), did: dev.did.toString(), user: this.toProfile(user), newDevices };
   }
 
   async register(dto: RegisterDto, ip = '') {
-    const exists = await this.prisma.user.findUnique({ where: { deviceId: dto.deviceId } });
-    if (exists?.isBot || dto.deviceId.startsWith('bot_')) throw new BadRequestException('设备 ID 无效');
-    if (exists) {
+    const dev = await this.devices.resolve(dto.deviceId, true);
+    const exists = dev ? await this.prisma.user.findUnique({ where: { id: dev.userId } }) : null;
+    if (dev && exists) {
       // 一机一号：已注册直接恢复，不允许二次注册
-      return { registered: true, token: this.sign(exists.id), user: this.toProfile(exists), inviter: null };
+      if (exists.status !== 0) throw new BadRequestException('账号已被封禁');
+      return { registered: true, token: this.sign(exists.id, dev.did), did: dev.did.toString(), user: this.toProfile(exists), inviter: null };
     }
+    // 这台设备以前注册过的号已经不归它了（被移除、或并号后作废）：把旧号上的设备号让出来，才能建新号
+    await this.devices.release(dto.deviceId);
 
-    // 账号 = BNB 链(BSC)地址，私钥主密钥加密托管
-    const wallet = Wallet.createRandom();
     const user = await this.prisma.user.create({
       data: {
         deviceId: dto.deviceId,
-        address: wallet.address,
-        encPrivKey: this.crypto.wrapKey(Buffer.from(wallet.privateKey.slice(2), 'hex')),
         shortId: await this.genShortId(),
         nickname: dto.nickname,
         age: dto.age,
         gender: dto.gender,
         avatar: dto.avatar ?? '',
-        wallet: { create: {} },
       },
     });
+    const { did } = await this.devices.attach(user.id, dto.deviceId, 'register');
     const inviter = await this.attributeInvite(user, dto.inviteCode, ip).catch(() => null);
-    return { registered: true, token: this.sign(user.id), user: this.toProfile(user), inviter };
+    return { registered: true, token: this.sign(user.id, did), did: did.toString(), user: this.toProfile(user), inviter };
   }
 
   /**
@@ -102,13 +108,14 @@ export class AuthService {
       : null;
   }
 
-  private sign(userId: bigint): string {
-    return this.jwt.sign({ sub: userId.toString() });
+  /** did：设备表的行 id。带上它，这台设备被移除后令牌就不认了（JwtAuthGuard 里查） */
+  private sign(userId: bigint, did?: bigint): string {
+    return this.jwt.sign(did === undefined ? { sub: userId.toString() } : { sub: userId.toString(), did: did.toString() });
   }
 
-  /** 给其它登录方式（审核演示账号）签发同款 token */
-  signFor(userId: bigint): string {
-    return this.sign(userId);
+  /** 给其它登录方式（审核演示账号、刷脸找回、并号）签发同款 token */
+  signFor(userId: bigint, did?: bigint): string {
+    return this.sign(userId, did);
   }
 
   /** 生成唯一 6 位数字短号（100000-999999） */
@@ -125,7 +132,6 @@ export class AuthService {
     return {
       id: u.id,
       shortId: u.shortId,
-      address: u.address,
       nickname: u.nickname,
       avatar: u.avatar,
       gender: u.gender,
@@ -134,10 +140,11 @@ export class AuthService {
       cityName: u.cityName,
       signature: u.signature,
       isGuide: u.isGuide,
-      videoPriceFen: u.videoPriceFen ?? 0,
-      // 实名认证状态（不返回证号，姓名脱敏为首字 + *）
-      realname: !!u.idCard,
-      realNameMasked: u.realName ? u.realName[0] + '*'.repeat(Math.max(1, u.realName.length - 1)) : '',
+      /** 视频见面开关（默认关） */
+      allowVideo: !!u.allowVideo,
+      // 实人认证状态（只返回是否通过，不返回姓名和证号）
+      realname: u.realStatus === 1,
+      realNameMasked: '',
       createdAt: u.createdAt,
     };
   }

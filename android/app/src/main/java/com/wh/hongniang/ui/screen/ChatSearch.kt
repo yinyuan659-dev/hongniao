@@ -51,20 +51,9 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 
 @Serializable
-data class NoticeLast(val title: String = "", val body: String = "", val createdAt: String = "")
-
-@Serializable
-data class NoticeSummary(val unread: Int = 0, val last: NoticeLast? = null)
-
-/** GET /notifications/summary：评论 / 接单两个系统会话的未读数 + 最新一条 */
-@Serializable
-data class NoticeSummaryResp(val comment: NoticeSummary = NoticeSummary(), val task: NoticeSummary = NoticeSummary())
-
-@Serializable
 data class SearchMsgHit(
     val id: String,
     val conversationId: String,
-    val convType: Int = 1,
     val targetId: String = "",
     val title: String = "",
     val avatar: String = "",
@@ -74,7 +63,7 @@ data class SearchMsgHit(
 )
 
 @Serializable
-data class SearchUserHit(val id: String, val nickname: String = "", val avatar: String = "", val age: Int? = null, val cityName: String? = null, val isBot: Boolean = false, val username: String? = null)
+data class SearchUserHit(val id: String, val nickname: String = "", val avatar: String = "", val age: Int? = null, val cityName: String? = null)
 
 @Serializable
 data class SearchResp(val messages: List<SearchMsgHit> = emptyList(), val users: List<SearchUserHit> = emptyList())
@@ -83,7 +72,7 @@ data class SearchResp(val messages: List<SearchMsgHit> = emptyList(), val users:
 @Serializable
 data class SearchRecent(val kind: String, val id: String, val title: String = "", val avatar: String = "", val subtitle: String = "")
 
-/** 消息页里不是会话的固定条目（AI 助手 / 音乐 / 评论通知 / 接单通知），也能被搜到 */
+/** 消息页里不是会话的固定条目（AI 助手），也能被搜到 */
 class SearchExtra(
     val key: String,
     val title: String,
@@ -108,9 +97,9 @@ private fun saveRecent(ctx: Context, list: List<SearchRecent>) {
         .apply()
 }
 
-private fun convTitle(c: ConversationItem) = if (c.type == 1) c.peer?.nickname ?: "" else c.group?.name ?: ""
-private fun convAvatar(c: ConversationItem) = if (c.type == 1) c.peer?.avatar else c.group?.avatar
-private fun convTarget(c: ConversationItem) = if (c.type == 1) c.peer?.id ?: "" else c.group?.id ?: ""
+private fun convTitle(c: ConversationItem) = c.peer?.nickname ?: ""
+private fun convAvatar(c: ConversationItem) = c.peer?.avatar
+private fun convTarget(c: ConversationItem) = c.peer?.id ?: ""
 
 /** 关键词高亮（不区分大小写） */
 private fun highlight(text: String, q: String): AnnotatedString = buildAnnotatedString {
@@ -148,8 +137,8 @@ fun ChatSearchDialog(
     convs: List<ConversationItem>,
     extras: List<SearchExtra>,
     onDismiss: () -> Unit,
-    onOpenChat: (convId: String, convType: Int, targetId: String, title: String) -> Unit,
-    onOpenMessage: (convId: String, convType: Int, targetId: String, title: String, msgId: String) -> Unit,
+    onOpenChat: (convId: String, targetId: String, title: String) -> Unit,
+    onOpenMessage: (convId: String, targetId: String, title: String, msgId: String) -> Unit,
     /** 搜到的用户（id, 昵称）：直接打开私聊 */
     onOpenUser: (String, String) -> Unit,
     onScan: () -> Unit,
@@ -180,8 +169,7 @@ fun ChatSearchDialog(
     fun openConv(c: ConversationItem) {
         addRecent(SearchRecent("conv", c.id))
         keyboard?.hide()
-        val title = if (c.type == 2) t("chat.groupTitle", "name" to convTitle(c)) else convTitle(c)
-        onOpenChat(c.id, c.type, convTarget(c), title)
+        onOpenChat(c.id, convTarget(c), convTitle(c))
     }
     fun openExtra(e: SearchExtra) {
         addRecent(SearchRecent("extra", e.key))
@@ -196,13 +184,13 @@ fun ChatSearchDialog(
 
     val convById = remember(convs) { convs.associateBy { it.id } }
     val extraByKey = remember(extras) { extras.associateBy { it.key } }
-    val peerIds = remember(convs) { convs.filter { it.type == 1 }.mapNotNull { it.peer?.id }.toSet() }
+    val peerIds = remember(convs) { convs.mapNotNull { it.peer?.id }.toSet() }
     val chatHits = if (keyword.isEmpty()) emptyList() else convs.filter { convTitle(it).contains(keyword, ignoreCase = true) }
     val extraHits = if (keyword.isEmpty()) emptyList() else extras.filter { it.title.contains(keyword, ignoreCase = true) }
     val fresh = result?.takeIf { it.first == keyword }?.second
     val userHits = fresh?.users.orEmpty().filterNot { it.id in peerIds }
-    // 服务端按 @用户名 搜到、但本地已有会话的（比如机器人），按会话显示
-    val knownHits = fresh?.users.orEmpty().filter { it.id in peerIds }.mapNotNull { u -> convs.find { it.type == 1 && it.peer?.id == u.id } }
+    // 服务端搜到、但本地已有会话的，按会话显示
+    val knownHits = fresh?.users.orEmpty().filter { it.id in peerIds }.mapNotNull { u -> convs.find { it.peer?.id == u.id } }
         .filter { c -> chatHits.none { it.id == c.id } }
     val msgHits = fresh?.messages.orEmpty()
 
@@ -325,8 +313,7 @@ fun ChatSearchDialog(
                     if (userHits.isNotEmpty()) {
                         item("global-head") { SectionHead(t("chatSearch.global")) }
                         items(userHits, key = { "u-${it.id}" }) { u ->
-                            val sub = if (u.isBot) t("chatSearch.botSub", "username" to u.username.orEmpty())
-                            else listOfNotNull(u.age?.takeIf { it > 0 }?.let { t("chatSearch.age", "n" to it) }, u.cityName?.takeIf { it.isNotEmpty() }).joinToString(" · ").ifEmpty { t("chatSearch.user") }
+                            val sub = listOfNotNull(u.age?.takeIf { it > 0 }?.let { t("chatSearch.age", "n" to it) }, u.cityName?.takeIf { it.isNotEmpty() }).joinToString(" · ").ifEmpty { t("chatSearch.user") }
                             UserResultRow(u.nickname, u.avatar, sub, keyword) { openUser(SearchRecent("user", u.id, u.nickname, u.avatar, sub)) }
                         }
                     }
@@ -341,7 +328,7 @@ fun ChatSearchDialog(
                             keyboard?.hide()
                             val title = if (c != null) convTitle(c) else m.title
                             val target = if (c != null) convTarget(c) else m.targetId
-                            onOpenMessage(m.conversationId, m.convType, target, if (m.convType == 2) t("chat.groupTitle", "name" to title) else title, m.id)
+                            onOpenMessage(m.conversationId, target, title, m.id)
                         }
                     }
                     if (msgHits.isEmpty()) item("none") { SearchHint(if (loading) t("chatSearch.searching") else t("chatSearch.noMessages")) }
@@ -376,23 +363,12 @@ private fun ResultRow(onClick: () -> Unit, leading: @Composable () -> Unit, cont
 }
 
 @Composable
-private fun GroupTag() {
-    Text(
-        t("chat.groupTag"), color = TextSub, fontSize = 10.sp,
-        modifier = Modifier.padding(start = 6.dp).clip(RoundedCornerShape(4.dp)).background(Bg3).padding(horizontal = 4.dp),
-    )
-}
-
-@Composable
 private fun ConvResultRow(c: ConversationItem, keyword: String, onOpen: (ConversationItem) -> Unit) {
     ResultRow(
         onClick = { onOpen(c) },
         leading = { Avatar(convAvatar(c), 44) },
         content = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(highlight(convTitle(c), keyword), color = TextMain, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                if (c.type == 2) GroupTag()
-            }
+            Text(highlight(convTitle(c), keyword), color = TextMain, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(preview(c.lastMsg), color = TextSub, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
         },
         trailing = { RoundBadge(c.unread) },
@@ -431,14 +407,11 @@ private fun MessageResultRow(m: SearchMsgHit, keyword: String, onClick: () -> Un
         leading = { Avatar(m.avatar, 44) },
         content = {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                    Text(m.title, color = TextMain, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                    if (m.convType == 2) GroupTag()
-                }
+                Text(m.title, color = TextMain, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 Text(shortDate(m.createdAt), color = TextDim, fontSize = 11.sp, modifier = Modifier.padding(start = 8.dp))
             }
             val text = buildAnnotatedString {
-                if (m.convType == 2 || m.senderNickname == "我") {
+                if (m.senderNickname == "我") {
                     withStyle(SpanStyle(color = TextMain)) { append("${m.senderNickname}：") }
                 }
                 append(highlight(m.content, keyword))

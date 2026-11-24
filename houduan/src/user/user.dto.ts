@@ -1,4 +1,4 @@
-import { ArrayMaxSize, IsArray, IsInt, IsOptional, IsString, Length, Max, Min } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsInt, IsOptional, IsString, Length, Max, Min } from 'class-validator';
 
 export class UpdateProfileDto {
   @IsOptional()
@@ -29,11 +29,10 @@ export class UpdateProfileDto {
   @IsString()
   cityName?: string;
 
-  /** 女生自定视频价（分/分钟），不得低于平台下限 */
+  /** 视频见面开关（默认关；双方都打开才能互相发起视频通话） */
   @IsOptional()
-  @IsInt()
-  @Min(0)
-  videoPriceFen?: number;
+  @IsBoolean()
+  allowVideo?: boolean;
 }
 
 export class UpdateAlbumsDto {

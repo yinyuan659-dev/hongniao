@@ -1,10 +1,10 @@
 import { CSSProperties, useCallback, useRef, useState } from 'react';
 import { t } from '../../i18n';
 
-/** 搜索行右侧的快捷 emoji（Telegram 同款顺序）：贴纸按 emoji 过滤，GIF 当搜索词 */
+/** 搜索行右侧的快捷 emoji（Telegram 同款顺序） */
 export const QUICK_EMOJIS = ['❤️', '👍', '👎', '🎉', '👋', '😀', '😢', '😠'];
 
-/** 面板高度：跟键盘差不多，且收起顶部后能完整放 5 行贴纸 */
+/** 面板高度：跟键盘差不多 */
 export function defaultPanelHeight() {
   const w = Math.min(typeof window !== 'undefined' ? window.innerWidth : 375, 480);
   return Math.min(400, Math.max(320, Math.round(w * 0.9)));
@@ -47,8 +47,7 @@ export function useScrollChrome() {
       if (anchor.current - top > 40) set(false, top);
     }
   }, []);
-  const reset = useCallback(() => { anchor.current = 0; lastToggle.current = 0; hiddenRef.current = false; setHidden(false); }, []);
-  return { hidden, onScroll, reset };
+  return { hidden, onScroll };
 }
 
 /** 可折叠的头部（顶部条 + 搜索行）：hidden 时高度收到 0 */
@@ -71,8 +70,8 @@ export function SearchIcon({ size = 15 }: { size?: number }) {
 
 /**
  * 搜索行（Telegram 图）：一整条圆角胶囊，左边 🔍「搜索」，右边一排**虚化**的快捷 emoji。
- * - 贴纸页传 onTap：整条胶囊是个按钮（和「+」一样弹表情商店 sheet 并聚焦搜索），点快捷 emoji 直接带着它去搜；
- * - 表情 / GIF 页不传：点胶囊变成输入框就地搜，快捷 emoji 点亮一个当过滤词。
+ * - 传 onTap：整条胶囊是个按钮（弹搜索 sheet 并聚焦搜索），点快捷 emoji 直接带着它去搜；
+ * - 不传：点胶囊变成输入框就地搜，快捷 emoji 点亮一个当过滤词。
  */
 export function SearchRow({ value, onChange, chip, onChip, placeholder = t('common.search'), onTap }: {
   value: string; onChange: (v: string) => void; chip: string; onChip: (e: string) => void; placeholder?: string; onTap?: () => void;
@@ -134,7 +133,7 @@ export function SectionTitle({ children, right, style }: { children: React.React
 }
 
 /** 顶部条上的一个格子（图标 / 封面），expanded 时下面带名字 */
-export function BarCell({ active, onClick, title, expanded, badge, dataKey, children }: { active: boolean; onClick: () => void; title?: string; expanded?: boolean; badge?: boolean; dataKey?: string; children: React.ReactNode }) {
+export function BarCell({ active, onClick, title, expanded, dataKey, children }: { active: boolean; onClick: () => void; title?: string; expanded?: boolean; dataKey?: string; children: React.ReactNode }) {
   return (
     <div
       title={title}
@@ -144,7 +143,6 @@ export function BarCell({ active, onClick, title, expanded, badge, dataKey, chil
     >
       <div style={{ width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>{children}</div>
       {expanded && <span style={{ fontSize: 10, color: 'var(--text-2)', maxWidth: 54, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</span>}
-      {badge && <span style={{ position: 'absolute', right: 2, top: expanded ? 4 : 2, width: 14, height: 14, borderRadius: 7, background: 'var(--accent)', color: '#fff', fontSize: 11, lineHeight: '14px', textAlign: 'center' }}>+</span>}
     </div>
   );
 }

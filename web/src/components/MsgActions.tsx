@@ -1,15 +1,14 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import type { Reaction, ReplyPreview } from '../ws';
-import { chainCardPreview } from './ChainCards';
 import { fileSnippet } from './ChatMedia';
 import { t } from '../i18n';
 
 /** 与后端 MSG_REACTIONS 一致；前 7 个是菜单顶上那一排 */
 export const MSG_REACTIONS = ['❤️', '👍', '👎', '🔥', '🥰', '👏', '😁', '😂', '😮', '😢', '🎉', '🙏'];
 
-/** 能转发的类型（礼物、通话记录、转账卡片不行；喊单卡片可以），和后端 message.service FORWARDABLE 一致 */
-export const FORWARDABLE = new Set(['text', 'image', 'video', 'audio', 'file', 'location', 'sticker', 'callout', 'card']);
+/** 能转发的类型（通话记录不行），和后端 message.service FORWARDABLE 一致 */
+export const FORWARDABLE = new Set(['text', 'image', 'video', 'audio', 'file', 'location']);
 
 export interface MenuMsg {
   id: string;
@@ -28,14 +27,7 @@ export function msgSnippet(type: string, content: string): string {
     case 'video': return t('msg.preview.video');
     case 'audio': return t('msg.preview.voice');
     case 'file': return fileSnippet(content);
-    case 'sticker': return t('msg.preview.sticker');
     case 'location': return t('msg.preview.location');
-    case 'gift': return t('msg.preview.gift');
-    case 'transfer':
-    case 'callout':
-    case 'perp':
-    case 'card':
-    case 'payreq': return chainCardPreview(type, content) ?? t('msg.preview.message');
     default: return type.startsWith('call') ? t('msg.preview.call') : t('msg.preview.message');
   }
 }
@@ -63,14 +55,13 @@ export interface MenuActions {
  * 各操作是否出现由调用方按类型决定（传 undefined 就不显示）。
  */
 export function MsgMenu({
-  m, mine, convType, myReaction, pinned, x, y, onClose, actions,
+  m, mine, myReaction, pinned, x, y, onClose, actions,
 }: {
-  m: MenuMsg; mine: boolean; convType: number; myReaction?: string; pinned: boolean;
+  m: MenuMsg; mine: boolean; myReaction?: string; pinned: boolean;
   x: number; y: number; onClose: () => void; actions: MenuActions;
 }) {
   const [expand, setExpand] = useState(false);
   const [readInfo, setReadInfo] = useState<any>(null);
-  const [showReaders, setShowReaders] = useState(false);
 
   useEffect(() => {
     if (!mine || m.pending) return;
@@ -103,25 +94,8 @@ export function MsgMenu({
           {!expand && <span className="more" title={t('msg.moreReactions')} onClick={() => setExpand(true)}>⌄</span>}
         </div>
         <div className="msg-menu-list">
-          {readInfo && convType === 1 && (
+          {readInfo && (
             <div className="read-line">{readInfo.read ? `✓✓ ${readInfo.readAt ? fmtReadAt(readInfo.readAt) + ' ' : ''}${t('msg.read')}` : `✓ ${t('msg.unread')}`}</div>
-          )}
-          {readInfo && convType === 2 && (
-            <>
-              <div className="read-line" style={{ cursor: readInfo.count ? 'pointer' : 'default' }} onClick={() => readInfo.count && setShowReaders((v) => !v)}>
-                ✓✓ {readInfo.count ? t('msg.readByN', { n: readInfo.count }) : t('msg.readByNone')}{readInfo.count ? (showReaders ? ' ⌃' : ' ›') : ''}
-              </div>
-              {showReaders && (
-                <div className="readers">
-                  {readInfo.users.map((u: any) => (
-                    <div key={u.id} className="row" style={{ gap: 8, padding: '4px 0' }}>
-                      <div className="avatar" style={{ width: 22, height: 22 }}>{u.avatar && <img src={u.avatar} alt="" />}</div>
-                      <span className="ellipsis" style={{ fontSize: 13 }}>{u.nickname}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
           )}
           {items.filter(([, fn]) => !!fn).map(([label, fn, danger]) => (
             <div key={label} className={`msg-menu-item${danger ? ' danger' : ''}`} onClick={run(fn)}>{label}</div>
@@ -182,8 +156,8 @@ export function ReplyBar({ m, onCancel }: { m: MenuMsg; onCancel: () => void }) 
 export interface PinItem extends ReplyPreview { pinnedAt: string }
 
 /** 顶部置顶条：点一下跳到这条，再点轮到下一条（新的在前） */
-export function PinBar({ pins, index, canUnpin, onJump, onUnpin }: {
-  pins: PinItem[]; index: number; canUnpin: boolean; onJump: () => void; onUnpin: () => void;
+export function PinBar({ pins, index, onJump, onUnpin }: {
+  pins: PinItem[]; index: number; onJump: () => void; onUnpin: () => void;
 }) {
   const p = pins[index % pins.length];
   if (!p) return null;
@@ -194,14 +168,14 @@ export function PinBar({ pins, index, canUnpin, onJump, onUnpin }: {
         <div className="name">{t('msg.pinnedMsg')}{pins.length > 1 ? ` #${(index % pins.length) + 1}` : ''}</div>
         <div className="ellipsis small">{p.type === 'text' ? p.content : msgSnippet(p.type, '')}</div>
       </div>
-      {canUnpin && <span className="close" title={t('msg.unpin')} onClick={(e) => { e.stopPropagation(); onUnpin(); }}>×</span>}
+      <span className="close" title={t('msg.unpin')} onClick={(e) => { e.stopPropagation(); onUnpin(); }}>×</span>
     </div>
   );
 }
 
 /** 删除确认（Telegram 式）：自己的消息可勾选「同时为对方删除」 */
-export function DeleteDialog({ count, canForAll, convType, peerName, onConfirm, onClose }: {
-  count: number; canForAll: boolean; convType: number; peerName?: string;
+export function DeleteDialog({ count, canForAll, peerName, onConfirm, onClose }: {
+  count: number; canForAll: boolean; peerName?: string;
   onConfirm: (forAll: boolean) => void; onClose: () => void;
 }) {
   const [forAll, setForAll] = useState(true);
@@ -212,7 +186,7 @@ export function DeleteDialog({ count, canForAll, convType, peerName, onConfirm, 
         {canForAll ? (
           <label className="row" style={{ gap: 8, fontSize: 14, margin: '6px 0 18px', cursor: 'pointer' }}>
             <input type="checkbox" checked={forAll} onChange={(e) => setForAll(e.target.checked)} />
-            {convType === 1 ? t('msg.deleteForPeer', { name: peerName || t('msg.peer') }) : t('msg.deleteForAll')}
+            {t('msg.deleteForPeer', { name: peerName || t('msg.peer') })}
           </label>
         ) : (
           <p style={{ textAlign: 'left' }}>{t('msg.deleteLocalOnly')}</p>
@@ -264,9 +238,7 @@ export function ReportSheet({ msgId, onClose, onDone }: { msgId: string; onClose
 
 interface ConvLite {
   id: string;
-  type: number;
-  peer?: { id: string; nickname: string; avatar: string; isBot?: boolean };
-  group?: { id: string; name: string; avatar: string; kind?: number };
+  peer?: { id: string; nickname: string; avatar: string };
 }
 
 /** 转发：选会话（最多 10 个），按原消息顺序发过去 */
@@ -279,18 +251,18 @@ export function ForwardSheet({ fromConversationId, ids, onClose, onDone }: {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api<ConvLite[]>('/im/conversations').then((l) => setConvs(l.filter((c) => c.peer || c.group))).catch(() => {});
+    api<ConvLite[]>('/im/conversations').then((l) => setConvs(l.filter((c) => c.peer))).catch(() => {});
   }, []);
 
-  const name = (c: ConvLite) => c.peer?.nickname ?? c.group?.name ?? '';
+  const name = (c: ConvLite) => c.peer?.nickname ?? '';
   const shown = convs.filter((c) => !q.trim() || name(c).toLowerCase().includes(q.trim().toLowerCase()));
   const toggle = (id: string) =>
     setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : p.length >= 10 ? p : [...p, id]));
 
   const send = async () => {
     const targets = picked.map((id) => convs.find((c) => c.id === id)!).map((c) => ({
-      convType: c.type === 1 ? 1 : 2,
-      targetId: c.type === 1 ? c.peer!.id : c.group!.id,
+      convType: 1,
+      targetId: c.peer!.id,
     }));
     setBusy(true);
     try {
@@ -313,12 +285,8 @@ export function ForwardSheet({ fromConversationId, ids, onClose, onDone }: {
         {shown.length === 0 && <div className="empty" style={{ padding: 20 }}>{t('msg.noChats')}</div>}
         {shown.map((c) => (
           <div key={c.id} className="row fwd-item" onClick={() => toggle(c.id)}>
-            <div className="avatar" style={{ width: 38, height: 38 }}>{(c.peer?.avatar || c.group?.avatar) && <img src={c.peer?.avatar || c.group?.avatar} alt="" />}</div>
-            <div className="grow ellipsis">
-              {name(c)}
-              {c.group && <span className="small"> · {c.group.kind === 2 ? t('chat.tagChannel') : t('chat.tagGroup')}</span>}
-              {c.peer?.isBot && <span className="bot-tag">{t('chat.bot')}</span>}
-            </div>
+            <div className="avatar" style={{ width: 38, height: 38 }}>{c.peer?.avatar && <img src={c.peer.avatar} alt="" />}</div>
+            <div className="grow ellipsis">{name(c)}</div>
             <span className={`sel-circle${picked.includes(c.id) ? ' on' : ''}`}>{picked.includes(c.id) ? '✓' : ''}</span>
           </div>
         ))}

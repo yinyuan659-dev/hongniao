@@ -3,7 +3,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { ConnectionRegistry } from '../im/connection.registry';
 import { UpdateProfileDto } from './user.dto';
-import { chainWalletFeature } from './chain-wallet';
+import { HnService } from '../hn/hn.service';
+import { profileDone } from '../common/need-profile';
 
 /** 18 位身份证号校验（GB 11643-1999 校验位算法），无需第三方接口 */
 export function validIdCard(id: string): boolean {
@@ -27,27 +28,31 @@ export class UserService {
     private readonly prisma: PrismaService,
     private readonly auth: AuthService,
     private readonly registry: ConnectionRegistry,
+    private readonly hn: HnService,
   ) {}
 
   async getMe(userId: bigint) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      include: { wallet: true, albums: { orderBy: { sort: 'asc' } } },
+      include: { albums: { orderBy: { sort: 'asc' } } },
     });
     if (!user) throw new NotFoundException('用户不存在');
-    const [following, fans, chainWallet] = await Promise.all([
+    const [following, fans, done, prof, deepSession] = await Promise.all([
       this.prisma.follow.count({ where: { followerId: userId } }),
       this.prisma.follow.count({ where: { targetId: userId } }),
-      chainWalletFeature(this.prisma, user),
+      profileDone(this.prisma, userId),
+      this.prisma.profile.findUnique({ where: { userId }, select: { deepConfirmedAt: true } }),
+      this.prisma.deepSession.findFirst({ where: { userId }, orderBy: { id: 'desc' }, select: { status: true } }),
     ]);
     return {
       ...this.auth.toProfile(user),
-      balance: user.wallet?.balance ?? 0n,
-      frozen: user.wallet?.frozen ?? 0n,
+      /** 是否已完成资料收集（相亲画像已确认）；没完成不能主动发起聊天 */
+      profileDone: done,
+      /** AI 深聊：none 没聊过 | chatting 聊到一半 | draft 画像等确认 | done 已确认 */
+      deepStatus: prof?.deepConfirmedAt && (!deepSession || deepSession.status === 'done') ? 'done' : (deepSession?.status ?? 'none'),
       following,
       fans,
       albums: user.albums,
-      features: { wallet: chainWallet.enabled, walletUrl: chainWallet.url },
     };
   }
 
@@ -85,20 +90,6 @@ export class UserService {
   }
 
   async updateProfile(userId: bigint, dto: UpdateProfileDto) {
-    if (dto.videoPriceFen !== undefined) {
-      const me = await this.prisma.user.findUnique({ where: { id: userId } });
-      if (me?.gender !== 2) throw new ForbiddenException('仅女生可设置视频价格');
-      if (dto.videoPriceFen !== 0) {
-        const price = await this.prisma.priceConfig.findFirst();
-        // 平台每分钟抽成 = 流量成本 x 平台倍率；定价必须高于抽成，否则女方利润为 0
-        const cut = (price?.videoBaseFenPerMin ?? 2) * (price?.videoPlatformX ?? 2);
-        if (dto.videoPriceFen <= cut) {
-          throw new ForbiddenException(
-            `视频价格须高于 ${(cut / 100).toFixed(2)} 积分/分钟（平台手续费 ${(cut / 100).toFixed(2)} 积分/分钟，你的收入 = 价格 - 手续费）`,
-          );
-        }
-      }
-    }
     const user = await this.prisma.user.update({ where: { id: userId }, data: { ...dto } });
     return this.auth.toProfile(user);
   }
@@ -114,7 +105,7 @@ export class UserService {
     const baseWhere = { gender: viewer.gender === 1 ? 2 : 1, status: 0, hidden: false, id: { not: viewerId } };
     const select = {
       id: true, nickname: true, avatar: true, gender: true, age: true, cityName: true,
-      isGuide: true, idCard: true, ratingAvg: true, ratingCount: true, videoPriceFen: true, createdAt: true,
+      isGuide: true, realStatus: true, ratingAvg: true, ratingCount: true, createdAt: true, allowVideo: true,
     } as const;
 
     let users: any[];
@@ -154,8 +145,7 @@ export class UserService {
     if (users.length === 0) return [];
 
     const ids = users.map((u) => u.id);
-    const [priceCfg, onlineSet, busyRows, intimacyRows] = await Promise.all([
-      this.prisma.priceConfig.findFirst(),
+    const [onlineSet, busyRows, intimacyRows, likeRows] = await Promise.all([
       this.registry.onlineSet(ids),
       // 占线：进行中或 90 秒内呼叫中的通话
       this.prisma.callRecord.findMany({
@@ -168,15 +158,20 @@ export class UserService {
         select: { callerId: true, calleeId: true },
       }),
       this.prisma.intimacy.findMany({ where: { userId: viewerId, peerId: { in: ids } } }),
+      // 我和这些人的喜欢关系（卡片上的 ♥ 按它显示）
+      this.prisma.matchAction.findMany({
+        where: { kind: 'like', OR: [{ userId: viewerId, targetId: { in: ids } }, { targetId: viewerId, userId: { in: ids } }] },
+        select: { userId: true, targetId: true },
+      }),
     ]);
+    const iLike = new Set(likeRows.filter((r) => r.userId === viewerId).map((r) => r.targetId.toString()));
+    const likesMe = new Set(likeRows.filter((r) => r.userId !== viewerId).map((r) => r.userId.toString()));
     const busySet = new Set<string>();
     for (const r of busyRows) {
       busySet.add(r.callerId.toString());
       busySet.add(r.calleeId.toString());
     }
     const intimacyMap = new Map(intimacyRows.map((r) => [r.peerId.toString(), r.score]));
-    const cut = (priceCfg?.videoBaseFenPerMin ?? 2) * (priceCfg?.videoPlatformX ?? 2);
-    const dft = (priceCfg?.videoBaseFenPerMin ?? 2) * 5;
     const newSince = Date.now() - 7 * 86400_000;
 
     return users.map((u) => ({
@@ -187,18 +182,20 @@ export class UserService {
       age: u.age,
       cityName: u.cityName,
       isGuide: u.isGuide,
-      realnameVerified: !!u.idCard,
+      realnameVerified: u.realStatus === 1,
       // 0-100 缓存分，客户端换算五星显示
       ratingAvg: u.ratingAvg,
       ratingCount: u.ratingCount,
-      // 女生返回视频实际价格（分/分钟），男生为 0
-      videoPriceFen: u.gender === 2 ? (u.videoPriceFen > cut ? u.videoPriceFen : dft) : 0,
+      /** 对方打开了视频见面（默认关）；没打开就不显示视频按钮 */
+      allowVideo: u.allowVideo,
       online: onlineSet.has(u.id.toString()),
       busy: busySet.has(u.id.toString()),
       /** 注册 7 天内 = 新人徽章 */
       isNew: u.createdAt.getTime() > newSince,
       /** 与我的亲密度（分，含 0.5 粒度） */
       intimacy: (intimacyMap.get(u.id.toString()) ?? 0) / 10,
+      /** none 都没表态 | liked 我喜欢了 | likedMe 对方喜欢了我 | mutual 互相喜欢 */
+      like: iLike.has(u.id.toString()) ? (likesMe.has(u.id.toString()) ? 'mutual' : 'liked') : likesMe.has(u.id.toString()) ? 'likedMe' : 'none',
     }));
   }
 
@@ -217,27 +214,12 @@ export class UserService {
    * 实名认证（仅女生）：本地校验身份证格式 + 校验位 + 出生日期，
    * 一证一号（证号全局唯一），通过即认证成功。
    */
-  async verifyRealname(userId: bigint, name: string, idCard: string) {
-    const me = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!me) throw new NotFoundException('用户不存在');
-    if (me.gender !== 2) throw new ForbiddenException('该功能仅对女生开放');
-    if (me.idCard) throw new BadRequestException('已完成实名认证，无需重复提交');
-
-    const trimmedName = (name ?? '').trim();
-    if (!/^[\u4e00-\u9fa5·]{2,20}$/.test(trimmedName)) throw new BadRequestException('请输入正确的真实姓名');
-    const card = (idCard ?? '').trim().toUpperCase();
-    if (!validIdCard(card)) throw new BadRequestException('身份证号不正确');
-
-    try {
-      await this.prisma.user.update({
-        where: { id: userId },
-        data: { realName: trimmedName, idCard: card },
-      });
-    } catch (e: any) {
-      if (e?.code === 'P2002') throw new BadRequestException('该身份证号已被其他账号使用');
-      throw e;
-    }
-    return { ok: true };
+  /**
+   * 【已停用】旧的免费实名（只验校验位、明文落库）。M1 改为实人认证（身份证 + 刷脸，走 /kyc/*），
+   * 这个入口不再写任何明文，直接拒绝，避免老客户端或接口调用往库里写证号明文。
+   */
+  async verifyRealname(_userId: bigint, _name: string, _idCard: string) {
+    throw new BadRequestException('实名方式已升级为实人认证，请在完善资料里完成');
   }
 
   /** GPS 位置上报 */
@@ -256,7 +238,6 @@ export class UserService {
       this.prisma.user.findUnique({ where: { id: targetId }, include: { albums: { orderBy: { sort: 'asc' } } } }),
     ]);
     if (!target || target.status !== 0) throw new NotFoundException('用户不存在');
-    if (target.isBot) throw new NotFoundException('机器人没有个人主页');
     // 全局性别隔离：仅异性可见
     if (viewer && viewer.gender === target.gender && viewerId !== targetId) {
       throw new ForbiddenException('无法查看该用户');
@@ -273,7 +254,6 @@ export class UserService {
       photo: number; obedience: number; legs: number; chest: number; skin: number;
     } | null = null;
     let answerRate: number | null = null;
-    let videoPriceActualFen = 0;
     if (target.gender === 2) {
       // 五维度均分（0-100），供主页评分面板展示
       const dims = await this.prisma.callRating.aggregate({
@@ -289,20 +269,18 @@ export class UserService {
         chest: Math.round(dims._avg.chest ?? 0),
         skin: Math.round(dims._avg.skin ?? 0),
       };
-      const [total, connected, priceCfg] = await Promise.all([
+      const [total, connected] = await Promise.all([
         this.prisma.callRecord.count({ where: { calleeId: targetId, type: 2, status: { in: [1, 2, 3, 4] } } }),
         this.prisma.callRecord.count({ where: { calleeId: targetId, type: 2, status: { in: [1, 2] } } }),
-        this.prisma.priceConfig.findFirst(),
       ]);
       answerRate = total > 0 ? Math.round((connected / total) * 100) : -1; // -1=暂无数据
-      const cost = priceCfg?.videoBaseFenPerMin ?? 2;
-      const cut = cost * (priceCfg?.videoPlatformX ?? 2);
-      videoPriceActualFen = target.videoPriceFen > cut ? target.videoPriceFen : cost * 5;
     }
 
     // 在线与占线状态（视频通话按钮三态：可打 / 通话中 / 离线）
-    const [online, busyRow] = await Promise.all([
+    const [online, matchProfile, busyRow] = await Promise.all([
       this.registry.isOnline(targetId),
+      // 相亲资料卡：对方完成资料收集后才有（不含收入）
+      this.hn.publicCard(targetId, target.gender),
       this.prisma.callRecord.findFirst({
         where: {
           AND: [
@@ -322,10 +300,10 @@ export class UserService {
       albums: target.albums,
       rating,
       answerRate,
-      videoPriceActualFen,
+      matchProfile,
       online,
       busy: !!busyRow,
-      realnameVerified: !!target.idCard,
+      realnameVerified: target.realStatus === 1,
     };
   }
 }

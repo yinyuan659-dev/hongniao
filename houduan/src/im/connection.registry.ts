@@ -14,6 +14,7 @@ export class ConnectionRegistry implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger('ImRegistry');
   readonly nodeId = randomUUID();
   private readonly local = new Map<string, Set<WebSocket>>();
+  private readonly socketDid = new WeakMap<WebSocket, string>();
 
   private static readonly ROUTE_KEY = 'im:route';
   private get channel() {
@@ -39,11 +40,36 @@ export class ConnectionRegistry implements OnModuleInit, OnModuleDestroy {
     await this.redis.sub.unsubscribe(this.channel);
   }
 
-  async register(userId: bigint, ws: WebSocket) {
+  /** did：这条连接是哪台设备的（登录令牌里带的设备表行 id，老令牌没有）。移除设备时靠它只断那一台 */
+  async register(userId: bigint, ws: WebSocket, did?: string) {
     const key = userId.toString();
     if (!this.local.has(key)) this.local.set(key, new Set());
     this.local.get(key)!.add(ws);
+    if (did) this.socketDid.set(ws, did);
     await this.redis.client.hset(ConnectionRegistry.ROUTE_KEY, key, this.nodeId);
+  }
+
+  /**
+   * 断开某个账号在本节点上的连接：给了 did 只断那台设备的，不给就全断（并号后作废的号）。
+   * 只管本节点；别的节点上的连接靠客户端收到「设备被移除」的推送后自己退出，接口那边令牌也已经不认了。
+   */
+  kickLocal(userId: bigint | string, did?: string) {
+    const set = this.local.get(userId.toString());
+    if (!set) return;
+    for (const ws of [...set]) {
+      if (did && this.socketDid.get(ws) !== did) continue;
+      try { ws.close(4003, 'device removed'); } catch { /* 已经断了 */ }
+    }
+  }
+
+  /** 这台设备被移除了、或者这个号并号后作废了（和 JwtAuthGuard 查的是同一组标记） */
+  async isDead(userId: string, did: string): Promise<boolean> {
+    try {
+      const keys = did ? [`auth:uid:x:${userId}`, `auth:did:x:${did}`] : [`auth:uid:x:${userId}`];
+      return (await this.redis.client.exists(...keys)) > 0;
+    } catch {
+      return false;
+    }
   }
 
   async unregister(userId: bigint, ws: WebSocket) {

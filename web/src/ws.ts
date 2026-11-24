@@ -4,8 +4,6 @@ import { lang } from './i18n';
 export interface MessagePayload {
   id: string;
   conversationId: string;
-  convType: number;
-  groupId: string | null;
   senderId: string;
   senderNickname: string;
   senderAvatar: string;
@@ -13,9 +11,6 @@ export interface MessagePayload {
   type: string;
   content: string;
   createdAt: string;
-  /** 机器人发的消息才有 */
-  senderIsBot?: boolean;
-  markup?: { inline_keyboard: { text: string; url?: string; callback_data?: string }[][] } | null;
   replyTo?: ReplyPreview | null;
   fwdFrom?: string | null;
   reactions?: Reaction[];
@@ -59,9 +54,6 @@ class WsManager {
       const pending = this.queue;
       this.queue = [];
       pending.forEach((f) => this.ws?.send(f));
-      // 合约喊单卡片：重连后服务端不记得在看哪些卡片，重新告诉它
-      if (this.perpWatching && !pending.some((f) => f.includes('"perpWatch"'))) this.ws?.send(JSON.stringify(this.perpWatching));
-      if (this.cardWatching && !pending.some((f) => f.includes('"cardWatch"'))) this.ws?.send(JSON.stringify(this.cardWatching));
     };
     this.ws.onmessage = (e) => {
       try {
@@ -86,15 +78,37 @@ class WsManager {
     this.ws?.close();
   }
 
+  /**
+   * 登录身份换了（刷脸找回、并号进了原来的账号）：断开旧连接，用新令牌重连。
+   * 旧连接的回调先摘掉再关，免得它的 onclose 晚一步触发，把新连接的引用和心跳清掉。
+   * 之前没连过（没人用聊天连接）就什么都不做，等用到时自己会连。
+   */
+  reconnect() {
+    const old = this.ws;
+    const wasActive = !!old || this.reconnectTimer !== null;
+    if (old) {
+      old.onopen = null;
+      old.onmessage = null;
+      old.onclose = null;
+      try { old.close(); } catch { /* 已经断了 */ }
+    }
+    if (this.heartbeat) window.clearInterval(this.heartbeat);
+    this.heartbeat = null;
+    if (this.reconnectTimer) window.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.ws = null;
+    if (wasActive) this.connect();
+  }
+
   on(handler: Handler): () => void {
     this.handlers.add(handler);
     return () => this.handlers.delete(handler);
   }
 
-  /** 发送聊天消息，返回 tempId */
-  send(convType: 1 | 2, targetId: string, msgType: string, content: string, replyToId?: string): string {
+  /** 发送单聊消息，返回 tempId */
+  send(targetId: string, msgType: string, content: string, replyToId?: string): string {
     const tempId = `t_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    this.raw({ op: 'send', tempId, convType, targetId, msgType, content, ...(replyToId ? { replyToId } : {}) });
+    this.raw({ op: 'send', tempId, convType: 1, targetId, msgType, content, ...(replyToId ? { replyToId } : {}) });
     return tempId;
   }
 
@@ -118,31 +132,6 @@ class WsManager {
     this.raw({ op: 'read', conversationId, msgId });
   }
 
-  /** 正在看的会话里的合约喊单卡片（服务端据此每 3 秒推 perpTick，见后端 perp-watch.service.ts） */
-  private perpWatching: { op: string; conversationId: string; ids: string[] } | null = null;
-
-  perpWatch(conversationId: string, ids: string[]) {
-    this.perpWatching = { op: 'perpWatch', conversationId, ids: ids.slice(-100) };
-    this.raw(this.perpWatching);
-  }
-
-  perpUnwatch(conversationId: string) {
-    if (this.perpWatching?.conversationId === conversationId) this.perpWatching = null;
-    this.raw({ op: 'perpUnwatch', conversationId });
-  }
-
-  /** 通用卡片（msgType card）的实时数据：服务端统一拉、推 cardTick（card-watch.service.ts） */
-  private cardWatching: { op: string; conversationId: string; ids: string[] } | null = null;
-
-  cardWatch(conversationId: string, ids: string[]) {
-    this.cardWatching = { op: 'cardWatch', conversationId, ids: ids.slice(-100) };
-    this.raw(this.cardWatching);
-  }
-
-  cardUnwatch(conversationId: string) {
-    if (this.cardWatching?.conversationId === conversationId) this.cardWatching = null;
-    this.raw({ op: 'cardUnwatch', conversationId });
-  }
   /** 没连上时 send / read 先排队，连上后补发（刚打开页面就发消息不会丢） */
   private raw(frame: { op: string; [k: string]: unknown }) {
     if (this.ws?.readyState === WebSocket.OPEN) {

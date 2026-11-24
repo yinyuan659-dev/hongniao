@@ -21,13 +21,16 @@ import okio.source
 import java.util.concurrent.TimeUnit
 
 @Serializable
-data class ApiResp(val code: Int, val msg: String, val data: JsonElement? = null)
+data class ApiResp(
+    val code: Int, val msg: String, val data: JsonElement? = null,
+    /** 服务端给的原因代码（例如 AI 费用的 no_balance / key_invalid），页面按它决定弹哪张提示 */
+    val reason: String? = null,
+)
 
 @Serializable
 data class UserProfile(
     val id: String,
     val shortId: String? = null,
-    val address: String = "",
     val nickname: String,
     val avatar: String = "",
     val gender: Int,
@@ -35,46 +38,49 @@ data class UserProfile(
     val cityCode: String = "",
     val cityName: String = "",
     val signature: String = "",
-    val isGuide: Boolean = false,
-    val videoPriceFen: Int = 0,
+    /** 视频见面开关（默认关；双方都打开才能互相发起视频通话） */
+    val allowVideo: Boolean = false,
+    /** 是否已完成资料收集（只有 /user/me 返回） */
+    val profileDone: Boolean = false,
+    /** AI 深聊：none 没聊过 | chatting 聊到一半 | draft 画像等确认 | done 已确认（只有 /user/me 返回） */
+    val deepStatus: String = "none",
     val realname: Boolean = false,
     val realNameMasked: String = "",
-    val balance: String? = null,
-    val frozen: String? = null,
     val following: Int = 0,
     val fans: Int = 0,
     /** 照片墙（最多 8 张） */
     val albums: List<AlbumItem> = emptyList(),
-    /** 只有 /user/me 返回；后台开关决定的功能入口 */
-    val features: UserFeatures = UserFeatures(),
 )
-
-@Serializable
-data class UserFeatures(
-    /** 链上钱包入口（后台「用户管理」按人开，或全局开放） */
-    val wallet: Boolean = false,
-    val walletUrl: String = "",
-)
-
-/** 分 → 积分 显示 */
-fun fmtPoints(fen: String?): String {
-    val n = (fen?.toDoubleOrNull() ?: 0.0) / 100.0
-    var s = String.format("%.2f", n)
-    if (s.contains(".")) s = s.trimEnd('0').trimEnd('.')
-    return if (s.isEmpty()) "0" else s
-}
 
 /** 注册归因到的邀请人（通过 TA 的专属邀请页下载安装）；仅异性时返回，客户端据此直接打开 TA 主页 */
 @Serializable
 data class InviterBrief(val id: String, val nickname: String = "", val avatar: String = "", val gender: Int = 0)
 
+/** 通过刷脸新挂到这个账号上的一台设备（给其它设备的提醒里用）。kind：android | ios | web；label：网页的浏览器名 */
 @Serializable
-data class EnterResp(val registered: Boolean, val token: String? = null, val user: UserProfile? = null, val inviter: InviterBrief? = null)
+data class NewDevice(val id: String = "", val kind: String = "", val label: String = "", val at: String = "") {
+    /** 设备列表、提醒里怎么称呼它 */
+    val name: String get() = when (kind) {
+        "android" -> "安卓手机"
+        "ios" -> "iPhone"
+        else -> if (label.isEmpty()) "网页" else "网页（$label）"
+    }
+}
+
+/**
+ * did：这台设备在服务器「登录设备」表里的编号（推送里靠它认出说的是不是本机）。
+ * newDevices：上次用这台设备之后，通过刷脸新挂到这个账号上的其它设备，提醒一次。
+ */
+@Serializable
+data class EnterResp(
+    val registered: Boolean, val token: String? = null, val user: UserProfile? = null, val inviter: InviterBrief? = null,
+    val did: String? = null, val newDevices: List<NewDevice> = emptyList(),
+)
 
 @Serializable
 data class AppModuleItem(val id: Int, val name: String, val icon: String, val type: String, val entry: String)
 
-class ApiException(val code: Int, message: String) : Exception(message)
+class ApiException(val code: Int, message: String, val reason: String? = null) : Exception(message)
 
 /** 包装 RequestBody 统计写出字节数，回调上传进度（主线程、按百分比节流） */
 class ProgressRequestBody(
@@ -127,7 +133,8 @@ private class UriRequestBody(private val ctx: Context, private val uri: android.
 }
 
 object Api {
-    const val BASE_URL = "https://api.yyheart.com"
+    // 测试环境（阿里云杭州）。域名备案前只能用 IP + HTTP；备案后换成 https://域名，正式包不能留这个地址。
+    const val BASE_URL = "http://120.55.59.158"
 
     val json = Json { ignoreUnknownKeys = true }
     private val client = OkHttpClient.Builder()
@@ -158,6 +165,11 @@ object Api {
     var token: String?
         get() = prefs.getString("token", null)
         set(value) = prefs.edit().putString("token", value).apply()
+
+    /** 这台设备在服务器「登录设备」表里的编号（进入 / 注册 / 刷脸找回 / 并号时服务器给的） */
+    var did: String?
+        get() = prefs.getString("did", null)
+        set(value) = prefs.edit().putString("did", value).apply()
 
     /** 男方视频通话默认是否开启自己画面（默认关闭，仅男方"我的"页可设置） */
     var camDefaultOn: Boolean
@@ -257,7 +269,7 @@ object Api {
             val resp = client.newCall(builder.build()).execute()
             val text = resp.body?.string() ?: throw ApiException(-1, t("common.networkError"))
             val parsed = json.decodeFromString<ApiResp>(text)
-            if (parsed.code != 0) throw ApiException(parsed.code, parsed.msg)
-            parsed.data?.let { com.wh.hongniang.i18n.I18n.localizeServer(it) }
+            if (parsed.code != 0) throw ApiException(parsed.code, parsed.msg, parsed.reason)
+            parsed.data
         }
 }

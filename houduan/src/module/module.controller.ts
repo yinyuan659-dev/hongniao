@@ -14,7 +14,7 @@ import { HallTabsService } from './hall-tabs.service';
 export class ModuleController {
   constructor(private readonly prisma: PrismaService, private readonly hallTabs: HallTabsService) {}
 
-  /** 大厅 tab 顺序（后台可调）：{order:['guide','games','gallery','treehole']} */
+  /** 大厅 tab 顺序（后台可调）：{order:['games']} */
   @Get('hall-tabs')
   async hallTabOrder() {
     return { order: await this.hallTabs.order() };

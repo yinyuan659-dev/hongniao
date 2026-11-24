@@ -6,6 +6,7 @@ import { AuthService } from './auth.service';
 import { CryptoService } from '../common/crypto.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { ReviewService } from './review.service';
+import { DeviceService } from './device.service';
 
 @Module({
   imports: [
@@ -20,7 +21,7 @@ import { ReviewService } from './review.service';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, CryptoService, JwtAuthGuard, ReviewService],
-  exports: [AuthService, CryptoService, JwtAuthGuard, ReviewService],
+  providers: [AuthService, CryptoService, JwtAuthGuard, ReviewService, DeviceService],
+  exports: [AuthService, CryptoService, JwtAuthGuard, ReviewService, DeviceService],
 })
 export class AuthModule {}

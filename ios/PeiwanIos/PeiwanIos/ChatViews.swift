@@ -12,15 +12,6 @@ struct PeerBrief: Codable, Hashable {
     var nickname: String? = ""
     var avatar: String? = ""
     var gender: Int? = 0
-    var isBot: Bool? = false
-}
-
-struct GroupBrief: Codable, Hashable {
-    var id: String = ""
-    var name: String? = ""
-    var avatar: String? = ""
-    /// 2 = 频道
-    var kind: Int? = 1
 }
 
 struct LastMsg: Codable, Hashable {
@@ -35,12 +26,18 @@ struct ConversationItem: Codable, Identifiable, Hashable {
     var id: String = ""
     var type: Int = 1
     var peer: PeerBrief? = nil
-    var group: GroupBrief? = nil
     var lastMsg: LastMsg? = nil
     var unread: Int? = 0
-    /// 频道静音：未读不计入底栏总数，角标显示灰色
-    var muted: Bool? = false
     var lastMsgAt: String? = ""
+    /// 互相喜欢的才有：fresh = 刚配上还没说过话
+    var match: ConvMatch? = nil
+    /// 对方点了「不合适，不再联系」
+    var ended: Bool? = false
+}
+
+struct ConvMatch: Codable, Hashable {
+    var at: String? = nil
+    var fresh: Bool? = false
 }
 
 struct MsgItem: Codable, Identifiable {
@@ -53,8 +50,6 @@ struct MsgItem: Codable, Identifiable {
     var type: String = "text"
     var content: String = ""
     var createdAt: String? = ""
-    var senderIsBot: Bool? = nil
-    var markup: InlineMarkup? = nil
     var isRead: Bool? = nil
     var replyTo: ReplyPreview? = nil
     var fwdFrom: String? = nil
@@ -71,72 +66,44 @@ func previewOf(_ msg: LastMsg?) -> String {
     case "text": return String((msg.content ?? "").prefix(30))
     case "image": return t("chat.preview.image")
     case "video": return t("chat.preview.video")
-    case "sticker": return (msg.content ?? "").contains("\"mp4\"") ? "[GIF]" : t("chat.preview.sticker")
     case "audio": return t("chat.preview.voice")
     case "file": return fileSnippet(msg.content ?? "", label: t("chat.preview.file"))
     case "location": return t("chat.preview.location")
-    case "gift": return t("chat.preview.gift")
-    case "transfer", "callout", "payreq", "perp", "card": return ChainCards.preview(type, msg.content ?? "") ?? ""
     default: return type.hasPrefix("call") ? t("chat.preview.call") : ""
     }
 }
 
-/// 消息主页：标题 + 搜索 + 合并列表（AI 助手 / 音乐置顶，会话与评论 / 接单通知按最新时间排）
+/// 消息主页：标题 + 搜索 + 会话列表（会话按最新时间排）
 struct MessagesView: View {
     @State private var convs: [ConversationItem] = []
-    @State private var summary = NoticeSummaryResp()
     @State private var chatTarget: ChatTarget?
     @State private var pushRoute: Route?
     @State private var removeListener: (() -> Void)?
-    /// 音乐播放弹层（顶部「正在播放」栏 / 置顶入口打开）
-    @State private var showMusic = false
     @State private var showSearch = false
     @State private var showScan = false
+    /// 顶上三个数字：喜欢我的 / 我喜欢的 / 互相喜欢
+    @State private var likeSum: MatchSummary?
+    @ObservedObject private var matchCenter = MatchCenter.shared
 
-    private enum Entry: Identifiable {
-        case conv(ConversationItem)
-        case notice(String, NoticeSummary)
-
-        var id: String {
-            switch self {
-            case .conv(let c): return "c-\(c.id)"
-            case .notice(let k, _): return "n-\(k)"
-            }
-        }
-
-        var at: Date {
-            switch self {
-            case .conv(let c): return parseIsoDate(c.lastMsgAt) ?? .distantPast
-            case .notice(_, let s): return parseIsoDate(s.last?.createdAt) ?? .distantPast
-            }
-        }
-    }
-
-    private var entries: [Entry] {
-        var list = convs.map { Entry.conv($0) }
-        for k in ["comment", "task"] {
-            if let s = summary.of(k), s.last != nil { list.append(.notice(k, s)) }
-        }
-        return list.sorted { $0.at > $1.at }
+    private var entries: [ConversationItem] {
+        convs.sorted { (parseIsoDate($0.lastMsgAt) ?? .distantPast) > (parseIsoDate($1.lastMsgAt) ?? .distantPast) }
     }
 
     var body: some View {
         ZStack {
             NavStack {
                 VStack(spacing: 0) {
-                    // 播放中：固定在消息页最上面
-                    NowPlayingBar { showMusic = true }
                     header
                     searchPill
                     ScrollView {
                         LazyVStack(spacing: 0) {
-                            aiEntryRow
-                            newsEntryRow
-                            ForEach(entries) { entryRow($0) }
+                            // 喜欢我的 / 我喜欢的 / 互相喜欢：点开是喜欢列表（网页）
+                            LikeEntriesView(sum: likeSum)
+                            ForEach(entries) { convRow($0) }
                             if entries.isEmpty {
-                                Text(t("chat.empty")).font(.subheadline).foregroundStyle(Theme.textSub)
+                                Text("还没有聊天。\n互相喜欢以后，对方会出现在这里。").font(.subheadline).foregroundStyle(Theme.textSub)
                                     .multilineTextAlignment(.center).lineSpacing(8)
-                                    .padding(.vertical, 70)
+                                    .padding(.vertical, 60)
                             }
                         }
                     }
@@ -145,23 +112,24 @@ struct MessagesView: View {
                 .withRoutes()
                 .routePush($pushRoute)
                 .scanFlow(isPresented: $showScan)
+                // 从喜欢列表（网页）回来：数字和列表重新取
+                .onAppear { Task { await loadConvs() } }
             }
             if showSearch {
                 ChatSearchView(
                     convs: convs,
-                    extras: searchExtras,
+                    extras: [],
                     onClose: { showSearch = false },
                     onOpenChat: { t in
                         showSearch = false
-                        if let g = convs.first(where: { $0.id == t.convId })?.group, g.kind == 2 {
-                            pushRoute = .channel(g.id)
-                        } else {
-                            chatTarget = t
-                        }
+                        chatTarget = t
                     },
                     onOpenUser: { id, name in
                         showSearch = false
-                        Task { if let t = await openChatWith(userId: id, nickname: name) { chatTarget = t } }
+                        // 搜到的人：互相喜欢了才能直接聊，不能聊的打开 TA 的画像（在那里点喜欢）
+                        Task {
+                            if let t = await openChatIfAllowed(userId: id, nickname: name) { chatTarget = t } else { pushRoute = .userHome(id) }
+                        }
                     },
                     onScan: { showSearch = false; showScan = true }
                 )
@@ -172,39 +140,23 @@ struct MessagesView: View {
         .fullScreenCover(item: $chatTarget) { t in
             ChatRoomSheet(target: t)
         }
-        .sheet(isPresented: $showMusic) {
-            MusicSheetView(onClose: { showMusic = false })
-        }
         .task {
-            await loadConvs(); await loadSummary()
+            await loadConvs()
             WsClient.shared.connect()
             removeListener = WsClient.shared.addListener { frame in
                 let op = frame["op"] as? String
-                // conv_refresh：入群/退群等成员变动（扫码入群后新群立即出现在列表）
                 if op == "msg" || op == "conv_cleared" || op == "conv_refresh" { Task { await loadConvs() } }
-                if op == "notify" { Task { await loadSummary() } }
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .noticesRead)) { _ in Task { await loadSummary() } }
         .onDisappear { removeListener?() }
+        // 有人喜欢了我 / 互相喜欢了 / 对方结束了聊天：数字和列表都重新取
+        .onChange(of: matchCenter.version) { _ in Task { await loadConvs() } }
     }
 
     private var header: some View {
         HStack {
             Text(t("tab.messages")).font(.system(size: 22, weight: .bold)).foregroundStyle(Theme.text)
             Spacer()
-            Menu {
-                RouteLink(.createGroup) { Label(t("chat.createGroup"), systemImage: "person.2.badge.plus") }
-                RouteLink(.joinGroup(nil)) { Label(t("chat.joinGroup"), systemImage: "qrcode.viewfinder") }
-                RouteLink(.createChannel) { Label(t("chat.plus.createChannel"), systemImage: "megaphone") }
-                RouteLink(.channels) { Label(t("chat.plus.discoverChannels"), systemImage: "magnifyingglass") }
-                RouteLink(.bots) { Label(t("me.bots"), systemImage: "cpu") }
-            } label: {
-                Text("+").font(.system(size: 18)).foregroundStyle(Theme.text)
-                    .frame(width: 34, height: 34)
-                    .background(Circle().fill(Theme.bg3))
-            }
-            .buttonStyle(.plain)
         }
         .padding(EdgeInsets(top: 12, leading: 16, bottom: 8, trailing: 16))
     }
@@ -235,25 +187,9 @@ struct MessagesView: View {
         .padding(.bottom, 6)
     }
 
-    private var searchExtras: [SearchExtra] {
-        var list = [
-            SearchExtra(key: "ai", title: t("ai.title"), subtitle: t("ai.subtitle"), icon: { AnyView(AiIconView(size: $0)) },
-                        onOpen: { showSearch = false; pushRoute = .aiChat }),
-            SearchExtra(key: "music", title: t("music.title"), subtitle: t("chat.music.subtitle"), icon: { AnyView(MusicIconView(size: $0)) },
-                        onOpen: { showSearch = false; showMusic = true }),
-        ]
-        for k in ["comment", "task"] {
-            guard let s = summary.of(k), let last = s.last else { continue }
-            list.append(SearchExtra(key: k, title: noticeTitle(k), subtitle: last.title ?? "", unread: s.unread ?? 0,
-                                    icon: { AnyView(NoticeIconView(kind: k, size: $0)) },
-                                    onOpen: { showSearch = false; pushRoute = .notices(k) }))
-        }
-        return list
-    }
-
     /// 消息列表一行：左图标 54 + 标题 / 时间 + 预览 / 角标，分隔线和文字对齐
     private func listRow<Leading: View, Title: View>(
-        time: String, sub: String, badge: Int, badgeMuted: Bool = false, pinned: Bool = false,
+        time: String, sub: String, badge: Int, pinned: Bool = false,
         @ViewBuilder leading: () -> Leading, @ViewBuilder title: () -> Title
     ) -> some View {
         HStack(spacing: 12) {
@@ -271,7 +207,7 @@ struct MessagesView: View {
                         if badge > 0 {
                             Text(badge > 99 ? "99+" : "\(badge)").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white)
                                 .padding(.horizontal, 6).frame(minWidth: 20, minHeight: 20)
-                                .background(Capsule().fill(badgeMuted ? Theme.textDim : Theme.accent))
+                                .background(Capsule().fill(Theme.accent))
                         }
                         if pinned {
                             Image(systemName: "pin.fill").font(.system(size: 11)).foregroundStyle(Theme.textDim).rotationEffect(.degrees(45))
@@ -288,83 +224,34 @@ struct MessagesView: View {
         .contentShape(Rectangle())
     }
 
-    private func tag(_ text: String) -> some View {
-        Text(text).font(.system(size: 10)).foregroundStyle(Theme.accent)
-            .padding(.horizontal, 5).padding(.vertical, 2)
-            .background(RoundedRectangle(cornerRadius: 4).fill(Theme.accent.opacity(0.12)))
-    }
-
-    private var aiEntryRow: some View {
-        RouteLink(.aiChat) {
-            listRow(time: "", sub: t("ai.subtitle"), badge: 0, pinned: true) {
-                AiIconView()
-            } title: {
-                Text(t("ai.title")).font(.system(size: 16, weight: .medium)).foregroundStyle(Theme.text)
-                tag(t("ai.free"))
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
-    /// 音乐频道置顶入口（Telegram 频道同步，最多保留 100 首）：弹出播放弹层
-    private var newsEntryRow: some View {
-        Button { showMusic = true } label: {
-            listRow(time: "", sub: t("chat.music.subtitle"), badge: 0, pinned: true) {
-                MusicIconView()
-            } title: {
-                Text(t("music.title")).font(.system(size: 16, weight: .medium)).foregroundStyle(Theme.text)
-                tag(t("chat.music.tag"))
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
-    @ViewBuilder private func entryRow(_ e: Entry) -> some View {
-        switch e {
-        case .conv(let c):
-            convRow(c)
-        case .notice(let k, let s):
-            RouteLink(.notices(k)) {
-                listRow(time: fmtTime(s.last?.createdAt), sub: s.last?.title ?? "", badge: s.unread ?? 0) {
-                    NoticeIconView(kind: k)
-                } title: {
-                    Text(noticeTitle(k)).font(.system(size: 16, weight: .medium)).foregroundStyle(Theme.text)
-                }
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
     private func convRow(_ c: ConversationItem) -> some View {
-        let name = c.type == 1 ? (c.peer?.nickname ?? "") : (c.group?.name ?? "")
-        let title = c.type == 1 ? name : t("chat.groupTitle", ["name": name])
-        let avatar = c.type == 1 ? c.peer?.avatar : c.group?.avatar
-        let target = c.type == 1 ? (c.peer?.id ?? "") : (c.group?.id ?? "")
-        let isChannel = c.type == 2 && c.group?.kind == 2
+        let name = c.peer?.nickname ?? ""
+        let avatar = c.peer?.avatar
+        let target = c.peer?.id ?? ""
+        // 刚互相喜欢、还没说过话
+        let fresh = c.match?.fresh == true
+        let sub = fresh ? "你们互相喜欢了，打个招呼吧" : (c.ended == true && c.lastMsg == nil ? "对方已结束聊天" : previewOf(c.lastMsg))
         return Button {
-            if isChannel {
-                pushRoute = .channel(target)
-            } else {
-                chatTarget = ChatTarget(convId: c.id, convType: c.type, targetId: target, title: title)
-            }
+            chatTarget = ChatTarget(convId: c.id, convType: c.type, targetId: target, title: name)
         } label: {
-            listRow(time: fmtTime(c.lastMsgAt), sub: previewOf(c.lastMsg), badge: c.unread ?? 0, badgeMuted: c.muted == true) {
+            listRow(time: fmtTime(c.lastMsgAt), sub: sub, badge: c.unread ?? 0) {
                 AvatarView(url: avatar, size: 54)
             } title: {
                 Text(name).font(.system(size: 16, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
-                if c.type == 2 {
-                    Text(isChannel ? t("channel.title") : t("chat.groupTag")).font(.system(size: 10)).foregroundStyle(Theme.textSub)
-                        .padding(.horizontal, 4)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(Theme.bg3))
+                if fresh {
+                    Text("刚配上").font(.system(size: 10.5, weight: .semibold)).foregroundStyle(HnTheme.rose).lineLimit(1).fixedSize()
+                        .padding(.horizontal, 8).padding(.vertical, 2)
+                        .background(Capsule().fill(HnTheme.soft))
                 }
-                if c.peer?.isBot == true { BotTag() }
             }
         }
         .buttonStyle(.plain)
     }
 
-    private func loadConvs() async { convs = (try? await Api.request("/im/conversations")) ?? convs }
-    private func loadSummary() async { summary = (try? await Api.request("/notifications/summary")) ?? summary }
+    private func loadConvs() async {
+        convs = (try? await Api.request("/im/conversations")) ?? convs
+        if let s: MatchSummary = try? await Api.request("/match/summary") { likeSum = s }
+    }
 }
 
 /// 聊天全屏容器（fullScreenCover 用，带关闭按钮）
@@ -374,7 +261,7 @@ struct ChatRoomSheet: View {
 
     var body: some View {
         NavStack {
-            ChatRoomView(convId: target.convId, convType: target.convType, targetId: target.targetId, title: target.title, focusMsgId: target.focusMsgId)
+            ChatRoomView(convId: target.convId, convType: target.convType, targetId: target.targetId, title: target.title, focusMsgId: target.focusMsgId, draft: target.draft)
                 .toolbar {
                     ToolbarItem(placement: .navigationBarLeading) {
                         Button { dismiss() } label: {
@@ -384,6 +271,13 @@ struct ChatRoomSheet: View {
                 }
         }
     }
+}
+
+/// WS 帧里的 id 可能是字符串也可能是数字
+private func frameStr(_ v: Any?) -> String? {
+    if let s = v as? String { return s }
+    if let n = v as? NSNumber { return n.stringValue }
+    return nil
 }
 
 /// 语音播放器（保持引用）
@@ -505,21 +399,25 @@ struct RecordingOverlay: View {
     }
 }
 
-/// 聊天页：文字 / 图片 / 语音 / 位置 / 礼物 / 通话
+/// 聊天页：文字 / 图片 / 语音 / 位置 / 通话
 struct ChatRoomView: View {
     let convId: String
     let convType: Int
     let targetId: String
     let title: String
     var focusMsgId: String? = nil
+    /// 先填进输入框的话（从互相喜欢的庆祝页点了一句开场白进来），可以改了再发
+    var draft: String? = nil
 
     @EnvironmentObject var state: AppState
+    @ObservedObject private var matchCenter = MatchCenter.shared
+    @Environment(\.dismiss) private var dismissChat
+    /// 我和对方的关系：互相喜欢了才能发消息（规则上线前就聊过的有保留期）
+    @State private var rel: MatchRelation?
+    @State private var showReportUser = false
+    @State private var showEndConfirm = false
+    @State private var draftUsed = false
     @State private var messages: [MsgItem] = []
-    @State private var removePerpListener: (() -> Void)?
-    @State private var loaded = false
-    /// 对方是机器人时的公开资料（简介卡片 / 开始按钮 / 命令菜单）
-    @State private var bot: BotPublic?
-    @State private var showCmds = false
     // 从搜索结果进来：首屏定位到该消息并闪一下，之后照常滚到底
     @State private var focusPending = true
     @State private var flashId: String?
@@ -527,14 +425,16 @@ struct ChatRoomView: View {
     @State private var voiceMode = false
     @State private var recording = false
     @State private var showAttach = false
-    @State private var showSticker = false
-    @State private var showGift = false
+    @State private var showEmoji = false
     @State private var fullImage: String?
     @State private var removeListener: (() -> Void)?
     @State private var toastMsg: String?
     @State private var showClearConfirm = false
-    @State private var showVoiceRoom = false
-    @ObservedObject private var vroom = VoiceRoomManager.shared
+    /// 没完成资料收集就发消息：弹框带去 AI 红娘
+    @State private var needProfile = false
+    /// 后台要求先做实人认证、没做就发消息被拒
+    @State private var needKyc = false
+    @State private var pushRoute: Route?
     private let recorderBox = VoiceRecorder()
     @FocusState private var inputFocused: Bool
     // 长按菜单及其衍生操作
@@ -543,18 +443,10 @@ struct ChatRoomView: View {
     @State private var pins: [PinItem] = []
     @State private var pinIdx = 0
     @State private var selecting: Set<String>?
-    /// 正在播删除动画（灰飞烟灭）的消息 id
-    @State private var dying: Set<String> = []
     @State private var deleteIds: [String]?
     @State private var forwardIds: IdList?
     @State private var reportId: String?
-    @State private var myRole = "member"
     @State private var jumpReq: String?
-    // 链上钱包：转账（对方公开了收款地址才能转）、喊单卡片点开
-    @State private var walletOk = false
-    @State private var walletRoute: Route?
-    @State private var transferAddr: ChainAddr?
-    @State private var transferPick: String?
     @State private var scannedQr: String?
     // 发图：本地预览、上传进度 / 失败、待传的原图（按 upKey）
     @State private var localImages: [String: UIImage] = [:]
@@ -571,99 +463,71 @@ struct ChatRoomView: View {
     private func anchorId(_ id: String) -> String {
         rows.first(where: { r in r.items.contains(where: { $0.id == id }) })?.first.id ?? id
     }
-    private var isGroupAdmin: Bool { convType == 2 && (myRole == "owner" || myRole == "admin") }
-    private var canPin: Bool { convType == 1 || isGroupAdmin }
-    private var perpIds: [String] { messages.filter { $0.type == "perp" && !$0.pending }.map { $0.id } }
-    private var cardIds: [String] { messages.filter { $0.type == "card" && !$0.pending }.map { $0.id } }
+    private var canPin: Bool { convType == 1 }
 
     // body 拆成几段，整块写在一起 Swift 类型检查会超时
     var body: some View {
-        decorated(msgActionLayers(mainColumn))
+        matchDecorated(decorated(msgActionLayers(mainColumn)))
             .task { await onLoad() }
-            .task { walletOk = await ChainWallet.visible(state.user) }
-            .onDisappear {
-                removeListener?()
-                removePerpListener?()
-                WsClient.shared.perpUnwatch(conversationId: convId)
-                WsClient.shared.cardUnwatch(conversationId: convId)
-            }
-            // 合约喊单卡片：告诉服务端这个聊天里在看哪些卡片，它每 3 秒推实时状态（PerpLive）
-            .onChange(of: perpIds) { ids in
-                if !ids.isEmpty { WsClient.shared.perpWatch(conversationId: convId, ids: ids) }
-            }
-            // 通用卡片：同样告诉服务端在看哪些，它推 cardTick（CardLive）
-            .onChange(of: cardIds) { ids in
-                if !ids.isEmpty { WsClient.shared.cardWatch(conversationId: convId, ids: ids) }
-            }
-            .onAppear {
-                removePerpListener = WsClient.shared.addListener { frame in
-                    PerpLive.shared.onFrame(frame)
-                    CardLive.shared.onFrame(frame)
-                }
-                if !perpIds.isEmpty { WsClient.shared.perpWatch(conversationId: convId, ids: perpIds) }
-                if !cardIds.isEmpty { WsClient.shared.cardWatch(conversationId: convId, ids: cardIds) }
-            }
-            .routePush($walletRoute)
-            .onReceive(NotificationCenter.default.publisher(for: ChainWallet.resultNotification)) { n in
-                if let s = n.userInfo?["json"] as? String { onWalletResult(s) }
-            }
-            .sheet(item: $transferAddr, onDismiss: {
-                // sheet 收起动画中 push 会被吞掉，等收完再跳钱包
-                if let p = transferPick {
-                    transferPick = nil
-                    walletRoute = .chainWalletPath(p)
-                }
-            }) { a in
-                TransferChainSheet(addr: a) { addr, chain in
-                    transferPick = ChainCards.transferPath(address: addr, chain: chain, name: title)
-                }
-                .compatDetents(height: 430)
-            }
+            .onDisappear { removeListener?() }
             .scanHandler($scannedQr)
-    }
-
-    /// 聊天里「转账」：先查对方公开的收款地址，两条链都有就让选，再打开钱包转账页（ret=1 转完交回结果）
-    private func startTransfer() {
-        Task { @MainActor in
-            do {
-                let a: ChainAddr = try await Api.request("/user/\(targetId)/chain-address")
-                let opts = a.options
-                if opts.isEmpty {
-                    toastMsg = t("chat.transfer.disabled")
-                } else if opts.count > 1 {
-                    transferAddr = a
-                } else {
-                    walletRoute = .chainWalletPath(ChainCards.transferPath(address: opts[0].address, chain: opts[0].chain, name: title))
-                }
-            } catch {
-                toastMsg = error.localizedDescription
-            }
-        }
-    }
-
-    /// 钱包交回的转账结果：服务端核对链上交易后发转账卡片
-    private func onWalletResult(_ json: String) {
-        let r = ChainCards.obj(json)
-        // 付收款消息（带 req）由服务端决定卡片发到哪：群里回到群，频道里私聊发给收款人
-        guard r["kind"] as? String == "transfer", convType == 1 || r["req"] != nil else { return }
-        toastMsg = t("chat.transfer.verifying")
-        Task { @MainActor in
-            do {
-                if let m = try await ChainCards.postTransfer(targetId: convType == 1 ? targetId : "", resultJson: json), m.conversationId == convId, !messages.contains(where: { $0.id == m.id }) {
-                    messages.append(m)
-                }
-            } catch {
-                toastMsg = t("chat.transfer.cardFailed", ["msg": error.localizedDescription])
-            }
-        }
     }
 
     private var mainColumn: some View {
         VStack(spacing: 0) {
             pinBarView
+            // 顶上一条提示：哪天配上的 + 防骗提醒
+            ChatMatchBanner(rel: rel)
             ScrollViewReader { proxy in messageScroll(proxy) }
             bottomArea
         }
+    }
+
+    /// 取我和对方的关系：进来取一次；互相喜欢了 / 对方结束了聊天、从对方的画像网页回来，都重新取
+    private func loadRel() async {
+        guard !targetId.isEmpty else { return }
+        if let r: MatchRelation = try? await Api.request("/match/relation/\(targetId)") { rel = r }
+    }
+
+    /// 喜欢相关的几样：关系刷新、举报、不合适不再联系
+    private func matchDecorated<V: View>(_ v: V) -> some View {
+        v
+        .onAppear {
+            if !draftUsed, let d = draft, !d.isEmpty, input.isEmpty { input = d }
+            draftUsed = true
+            Task { await loadRel() }
+        }
+        .onChange(of: matchCenter.version) { _ in Task { await loadRel() } }
+        .confirmationDialog("举报的原因（对方不会知道是你举报的）", isPresented: $showReportUser, titleVisibility: .visible) {
+            ForEach(reportUserReasons, id: \.self) { reason in
+                Button(reason) { Task { toastMsg = await reportUser(targetId, reason: reason) } }
+            }
+            Button(t("common.cancel"), role: .cancel) {}
+        }
+        .alert("不合适，不再联系", isPresented: $showEndConfirm) {
+            Button("不再联系", role: .destructive) { endChat() }
+            Button(t("common.cancel"), role: .cancel) {}
+        } message: {
+            Text("之后你们都不能再给对方发消息，这个聊天会从列表里收起，也不再互相推荐。对方只会看到「对方已结束聊天」。")
+        }
+    }
+
+    private func endChat() {
+        Task {
+            do {
+                let _: MatchOk = try await Api.request("/match/end/\(targetId)", method: "POST")
+                MatchCenter.shared.version += 1
+                dismissChat()
+            } catch {
+                toastMsg = (error as? ApiError)?.msg ?? t("chat.sendFailed")
+            }
+        }
+    }
+
+    /// 聊天页右上角能不能点「不合适，不再联系」：互相喜欢的、老聊天、对方已经结束的
+    private var canEnd: Bool {
+        guard let r = rel, r.endedBy != "me" else { return false }
+        return r.state == "mutual" || (r.chatReason ?? "").hasPrefix("legacy") || r.endedBy == "peer"
     }
 
     @ViewBuilder
@@ -681,7 +545,6 @@ struct ChatRoomView: View {
 
     private var messageStack: some View {
         LazyVStack(spacing: 0) {
-            if botFresh, let b = bot { botIntro(b) }
             ForEach(rows) { row in
                 rowView(row)
             }
@@ -697,7 +560,6 @@ struct ChatRoomView: View {
         let m = row.first
         let ids = row.items.map(\.id)
         let flashOn = flashId.map { ids.contains($0) } ?? false
-        let allDying = ids.allSatisfy { dying.contains($0) }
         return VStack(spacing: 0) {
             if shouldShowTime(row.start) {
                 Text(fmtTime(m.createdAt))
@@ -705,10 +567,8 @@ struct ChatRoomView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
             }
-            DustOut(dying: allDying, onGone: { for id in ids { msgGone(id) } }) {
-                messageRow(row)
-            }
-            .background(RoundedRectangle(cornerRadius: 8).fill(flashOn ? Theme.accent.opacity(0.14) : Color.clear))
+            messageRow(row)
+                .background(RoundedRectangle(cornerRadius: 8).fill(flashOn ? Theme.accent.opacity(0.14) : Color.clear))
         }
         .id(m.id)
     }
@@ -724,7 +584,7 @@ struct ChatRoomView: View {
 
     private func messageScroll(_ proxy: ScrollViewProxy) -> some View {
         ScrollView { messageStack }
-        .simultaneousGesture(TapGesture().onEnded { showSticker = false; showCmds = false; inputFocused = false })
+        .simultaneousGesture(TapGesture().onEnded { showEmoji = false; inputFocused = false })
         .inAppLinks()
         .onChange(of: jumpReq) { id in
             guard let id else { return }
@@ -760,7 +620,7 @@ struct ChatRoomView: View {
         .onChange(of: inputFocused) { focused in
             if focused {
                 // 键盘弹出时收起表情面板，避免两者叠加把内容顶飞
-                showSticker = false
+                showEmoji = false
                 if !messages.isEmpty {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                         withAnimation { proxy.scrollTo(Self.bottomId, anchor: .bottom) }
@@ -774,15 +634,9 @@ struct ChatRoomView: View {
     private var bottomArea: some View {
         if let sel = selecting {
             selectBar(sel)
-        } else if botFresh {
-            // 和机器人的空会话：底部是「开始」按钮（发 /start），同 Telegram
-            Button { sendMsg("text", "/start") } label: {
-                Text(t("chat.botStart")).font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.accent)
-                    .frame(maxWidth: .infinity).padding(.vertical, 16)
-                    .background(Theme.bg2)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
+        } else if let r = rel, r.canChat == false {
+            // 不能发消息：输入区换成一句说明，聊天记录照常能看
+            ChatBlockedBar(rel: r) { pushRoute = .userHome(targetId) }
         } else {
             bottomBar
         }
@@ -804,32 +658,25 @@ struct ChatRoomView: View {
         .toolbar { toolbarItems }
     }
 
-    private var voiceRoomLabel: String {
-        let n = vroom.memberCount(targetId)
-        return n > 0 ? t("chat.menu.voiceRoomN", ["n": n]) : t("chat.menu.voiceRoom")
-    }
-
     @ToolbarContentBuilder
     private var toolbarItems: some ToolbarContent {
-        // ToolbarContentBuilder 里的 if 要 iOS 16，所以 principal 一直放，分支写在里面
         ToolbarItem(placement: .principal) {
-            HStack(spacing: 6) {
-                Text(title).font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
-                if bot != nil { BotTag() }
-            }
+            Text(title).font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
         }
         ToolbarItem(placement: .navigationBarTrailing) {
             Menu {
-                if convType == 2 {
-                    Button {
-                        showVoiceRoom = true
-                    } label: {
-                        Label(voiceRoomLabel, systemImage: "waveform")
+                if !targetId.isEmpty {
+                    Button { pushRoute = .userHome(targetId) } label: { Label("看 TA 的画像", systemImage: "person.crop.rectangle") }
+                    // 视频见面：能聊天、并且两个人都打开了视频见面开关才打得通（没打开服务器会给出提示）
+                    if rel?.canChat == true {
+                        Button {
+                            let peerAvatar = messages.first(where: { $0.senderId == targetId })?.senderAvatar ?? ""
+                            startCallWithPermissions(calleeId: targetId, type: 2, name: title, avatar: peerAvatar)
+                        } label: { Label("视频见面", systemImage: "video") }
                     }
-                    Button {
-                        walletRoute = .groupInfo(targetId)
-                    } label: {
-                        Label(t("chat.menu.groupInfo"), systemImage: "person.3")
+                    Button { showReportUser = true } label: { Label("举报", systemImage: "exclamationmark.bubble") }
+                    if canEnd {
+                        Button(role: .destructive) { showEndConfirm = true } label: { Label("不合适，不再联系", systemImage: "hand.raised") }
                     }
                 }
                 Button(role: .destructive) {
@@ -842,11 +689,6 @@ struct ChatRoomView: View {
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(Theme.text)
                     .frame(width: 32, height: 32)
-                    .overlay(alignment: .topTrailing) {
-                        if convType == 2 && vroom.memberCount(targetId) > 0 {
-                            Circle().fill(Color.red).frame(width: 7, height: 7).offset(x: -2, y: 4)
-                        }
-                    }
             }
         }
     }
@@ -854,19 +696,30 @@ struct ChatRoomView: View {
     private func decorated<V: View>(_ v: V) -> some View {
         navDecorated(v)
         .confirmationDialog(
-            convType == 1 ? t("chat.clearSingleConfirm") : t("chat.clearGroupConfirm"),
+            t("chat.clearSingleConfirm"),
             isPresented: $showClearConfirm,
             titleVisibility: .visible
         ) {
             Button(t("chat.menu.clear"), role: .destructive) { clearChat() }
             Button(t("common.cancel"), role: .cancel) {}
         }
+        .alert(t("hn.needTitle"), isPresented: $needProfile) {
+            Button(t("hn.needGo")) { pushRoute = .interview }
+            Button(t("common.cancel"), role: .cancel) {}
+        } message: {
+            Text(t("hn.needBody"))
+        }
+        .alert("先完成实人认证", isPresented: $needKyc) {
+            Button("去认证") { pushRoute = .web("/kyc?next=/me") }
+            Button("以后再说", role: .cancel) {}
+        } message: {
+            Text("聊天、发动态、评论都要先做实人认证。\n身份证 + 刷脸，¥1 从 AI 余额扣。")
+        }
+        .routePush($pushRoute)
         .sheet(isPresented: $showAttach) {
             AttachSheet(
-                isSingle: convType == 1 && bot == nil,
-                canVideoCall: state.user?.gender == 1,
-                canTransfer: convType == 1 && bot == nil && walletOk,
-                canVoice: convType == 2,
+                isSingle: convType == 1,
+                canVideoCall: true,
                 canFile: true,
                 onClose: { showAttach = false },
                 onSendAssets: sendAttachAssets,
@@ -878,14 +731,6 @@ struct ChatRoomView: View {
         }
         .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             if case .success(let urls) = result { sendFiles(urls) }
-        }
-        .sheet(isPresented: $showGift) {
-            GiftSheetView(toUserId: targetId)
-                .compatDetents(height: 420)
-        }
-        .sheet(isPresented: $showVoiceRoom) {
-            VoiceRoomSheet(groupId: targetId, groupName: title)
-                .compatDetents(height: 440)
         }
         .fullScreenCover(item: $fullImage) { img in
             let imgs = messages.filter { $0.type == "image" }.map { imageUrlOf($0.content) }.filter { !$0.isEmpty }
@@ -916,32 +761,29 @@ struct ChatRoomView: View {
         let first: [MsgItem] = (try? await Api.request("/im/messages?conversationId=\(convId)\(around)")) ?? []
         // 列表回来前已发出去的消息别被覆盖
         messages = first + messages.filter { m in m.pending && !first.contains(where: { $0.id == m.id }) }
-        loaded = true
         Task { @MainActor in
             await loadPins()
-            guard convType == 2 else { return }
-            struct RoleMember: Codable { var id: String; var role: String? }
-            struct RoleResp: Codable { var members: [RoleMember]? }
-            if let g: RoleResp = try? await Api.request("/im/group/\(targetId)") {
-                myRole = g.members?.first(where: { $0.id == myId })?.role ?? "member"
-            }
         }
         if let last = messages.last { WsClient.shared.markRead(conversationId: convId, msgId: last.id) }
         WsClient.shared.connect()
-        // 空会话或对方发过机器人消息：查一下对方是不是机器人
-        if convType == 1 && (messages.isEmpty || messages.contains(where: { $0.senderIsBot == true && $0.senderId == targetId })) {
-            bot = await BotInfoCache.shared.get(targetId)
-        }
-        // 群聊：拉一次语音房人数（入口角标）
-        if convType == 2 { await vroom.refreshInfo(groupId: targetId) }
         removeListener = WsClient.shared.addListener { frame in handleFrame(frame) }
 }
 
     private func handleFrame(_ frame: [String: Any]) {
         let op = frame["op"] as? String
         if op == "error" {
-            // 发送被后端拒绝（如积分不足）：提示并撤回乐观显示的消息
-            toastMsg = frame["msg"] as? String ?? t("chat.sendFailed")
+            // 发送被后端拒绝：撤回乐观显示的消息；没完成资料收集的弹框带去 AI 红娘，其它的提示一下
+            let code = frame["code"] as? String
+            if code == "need_profile" {
+                needProfile = true
+            } else if code == "need_kyc" {
+                // 后台要求先做实人认证：弹框带去认证页（网页）
+                needKyc = true
+            } else {
+                toastMsg = frame["msg"] as? String ?? t("chat.sendFailed")
+                // 没互相喜欢 / 对方已结束聊天：重新取一次关系，输入区换成说明
+                if code == "need_like" || code == "chat_ended" { Task { await loadRel() } }
+            }
             let tid = frame["tempId"] as? String
             let idx = tid != nil ? messages.firstIndex(where: { $0.id == tid }) : messages.lastIndex(where: { $0.id.hasPrefix("t_") })
             if let idx {
@@ -951,9 +793,9 @@ struct ChatRoomView: View {
         }
         if op == "ack" {
             // 乐观消息换成正式 id，菜单 / 回复 / 置顶才能用
-            guard botFrameStr(frame["conversationId"]) == convId,
+            guard frameStr(frame["conversationId"]) == convId,
                   let tid = frame["tempId"] as? String,
-                  let mid = botFrameStr(frame["msgId"]),
+                  let mid = frameStr(frame["msgId"]),
                   let idx = messages.firstIndex(where: { $0.id == tid }) else { return }
             if messages.contains(where: { $0.id == mid }) { messages.remove(at: idx); return }
             messages[idx].id = mid
@@ -961,16 +803,16 @@ struct ChatRoomView: View {
             return
         }
         if op == "read" {
-            guard botFrameStr(frame["conversationId"]) == convId,
-                  (botFrameStr(frame["userId"]) ?? "") != myId else { return }
+            guard frameStr(frame["conversationId"]) == convId,
+                  (frameStr(frame["userId"]) ?? "") != myId else { return }
             for i in messages.indices where messages[i].senderId == myId { messages[i].isRead = true }
             return
         }
         if op == "msg_reactions" || op == "msg_pin" {
             guard let data = frame["data"] as? [String: Any],
-                  botFrameStr(data["conversationId"]) == convId else { return }
+                  frameStr(data["conversationId"]) == convId else { return }
             if op == "msg_pin" { Task { await loadPins() }; return }
-            guard let id = botFrameStr(data["msgId"]),
+            guard let id = frameStr(data["msgId"]),
                   let idx = messages.firstIndex(where: { $0.id == id }),
                   let raw = data["reactions"],
                   let json = try? JSONSerialization.data(withJSONObject: raw),
@@ -979,7 +821,7 @@ struct ChatRoomView: View {
             return
         }
         if op == "conv_cleared" {
-            // 有人清空了记录（单聊=全部，群聊=其发送的消息）：重新拉取同步
+            // 有人清空了记录：重新拉取同步
             if let data = frame["data"] as? [String: Any],
                (data["conversationId"] as? String) == convId {
                 Task { await reloadMessages() }
@@ -987,17 +829,16 @@ struct ChatRoomView: View {
             return
         }
         if op == "msg_edit" || op == "msg_delete" {
-            // 机器人改消息（文字 / 按钮）或撤回
+            // 消息被改（文字）或撤回
             guard let data = frame["data"] as? [String: Any],
-                  botFrameStr(data["conversationId"]) == convId,
-                  let id = botFrameStr(data["msgId"]) else { return }
+                  frameStr(data["conversationId"]) == convId,
+                  let id = frameStr(data["msgId"]) else { return }
             if op == "msg_delete" {
                 removeMsgs([id])
                 if replyTo?.id == id { replyTo = nil }
                 if pins.contains(where: { $0.id == id }) { Task { await loadPins() } }
             } else if let idx = messages.firstIndex(where: { $0.id == id }) {
                 if let c = data["content"] as? String { messages[idx].content = c }
-                messages[idx].markup = InlineMarkup.from(data["markup"])
             }
             return
         }
@@ -1010,87 +851,20 @@ struct ChatRoomView: View {
         messages.append(MsgItem(id: m.id, conversationId: m.conversationId, senderId: m.senderId,
                                 senderNickname: m.senderNickname, senderAvatar: m.senderAvatar,
                                 receiverId: m.receiverId, type: m.type, content: m.content, createdAt: m.createdAt,
-                                senderIsBot: m.senderIsBot, markup: m.markup,
                                 replyTo: m.replyTo, fwdFrom: m.fwdFrom, reactions: m.reactions))
         WsClient.shared.markRead(conversationId: convId, msgId: m.id)
-        if m.senderIsBot == true && convType == 1 && bot == nil {
-            Task { bot = await BotInfoCache.shared.get(m.senderId) }
-        }
     }
 
     // MARK: - 底部输入区（微信式）
-
-    private var botFresh: Bool { bot != nil && loaded && messages.isEmpty }
-
-    private func botIntro(_ b: BotPublic) -> some View {
-        VStack(spacing: 4) {
-            AvatarView(url: b.avatar, size: 64)
-            HStack(spacing: 6) {
-                Text(b.name ?? title).font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.text)
-                BotTag()
-            }
-            .padding(.top, 6)
-            Text("@\(b.username ?? "")").font(.system(size: 12)).foregroundStyle(Theme.textSub)
-            if let d = b.description, !d.isEmpty {
-                Text(d).font(.system(size: 14)).foregroundStyle(Theme.text).lineSpacing(4)
-                    .multilineTextAlignment(.center).padding(.top, 8)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(20)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Theme.bg2))
-        .padding(.horizontal, 24).padding(.top, 40)
-    }
-
-    /// 命令菜单：点「/」展开全部，或输入以 / 开头时按前缀过滤
-    private var shownCmds: [BotCommandItem] {
-        let cmds = bot?.commands ?? []
-        if showCmds { return cmds }
-        guard input.hasPrefix("/"), !input.contains(" ") else { return [] }
-        let q = input.dropFirst().lowercased()
-        return cmds.filter { $0.command.lowercased().hasPrefix(q) }
-    }
 
     private var bottomBar: some View {
         VStack(spacing: 0) {
             if let r = replyTo {
                 ReplyBar(nickname: r.senderNickname ?? "", snippet: msgSnippet(r.type, r.content)) { replyTo = nil }
             }
-            if !shownCmds.isEmpty {
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ForEach(shownCmds, id: \.command) { c in
-                            Button {
-                                showCmds = false; input = ""
-                                sendMsg("text", "/\(c.command)")
-                            } label: {
-                                HStack(spacing: 12) {
-                                    Text("/\(c.command)").font(.system(size: 14, weight: .medium)).foregroundStyle(botBlue)
-                                    Text(c.description ?? "").font(.system(size: 13)).foregroundStyle(Theme.textSub).lineLimit(1)
-                                    Spacer(minLength: 0)
-                                }
-                                .padding(.horizontal, 16).padding(.vertical, 10)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-                .frame(maxHeight: min(CGFloat(shownCmds.count) * 40, 220))
-            }
             HStack(alignment: .bottom, spacing: 8) {
-                if !(bot?.commands ?? []).isEmpty {
-                    Button {
-                        showSticker = false; showCmds.toggle()
-                    } label: {
-                        Text("/").font(.system(size: 18, weight: .bold)).foregroundStyle(showCmds ? botBlue : Theme.textSub)
-                            .frame(width: 40, height: 40)
-                            .background(Circle().fill(showCmds ? Theme.bubbleMine : Theme.bg3))
-                    }
-                    .buttonStyle(.plain)
-                }
                 Button {
-                    voiceMode.toggle(); showSticker = false; inputFocused = false
+                    voiceMode.toggle(); showEmoji = false; inputFocused = false
                 } label: {
                     Image(systemName: voiceMode ? "keyboard" : "waveform")
                         .font(.system(size: 17)).foregroundStyle(Theme.textSub)
@@ -1125,19 +899,19 @@ struct ChatRoomView: View {
                     .background(RoundedRectangle(cornerRadius: 20).fill(Theme.bg3))
                 }
 
-                // 表情按钮：面板顶替键盘（Telegram 式，点贴纸即发送）
+                // 表情按钮：面板顶替键盘
                 Button {
-                    inputFocused = false; voiceMode = false; showSticker.toggle()
+                    inputFocused = false; voiceMode = false; showEmoji.toggle()
                 } label: {
                     Image(systemName: "face.smiling")
-                        .font(.system(size: 19)).foregroundStyle(showSticker ? Theme.accent : Theme.textSub)
+                        .font(.system(size: 19)).foregroundStyle(showEmoji ? Theme.accent : Theme.textSub)
                         .frame(width: 40, height: 40)
-                        .background(Circle().fill(showSticker ? Theme.bubbleMine : Theme.bg3))
+                        .background(Circle().fill(showEmoji ? Theme.bubbleMine : Theme.bg3))
                 }
                 .buttonStyle(.plain)
 
                 Button {
-                    inputFocused = false; showSticker = false; showAttach = true
+                    inputFocused = false; showEmoji = false; showAttach = true
                 } label: {
                     Image(systemName: "plus")
                         .font(.system(size: 18)).foregroundStyle(Theme.textSub)
@@ -1161,13 +935,12 @@ struct ChatRoomView: View {
             }
             .padding(8)
 
-            if showSticker {
-                // 贴纸 / GIF 点即发送（消息类型都是 sticker，GIF 的 format=mp4）；「最近使用」由面板自己记
+            if showEmoji {
+                // 「最近使用」由面板自己记
                 EmojiPanel(
-                    onPick: { p in sendMsg("sticker", p.encoded()) },
                     onEmoji: { input += $0 },
                     onDelete: { input = dropLastGrapheme(input) },
-                    onKeyboard: { showSticker = false; inputFocused = true }
+                    onKeyboard: { showEmoji = false; inputFocused = true }
                 )
             }
         }
@@ -1177,12 +950,9 @@ struct ChatRoomView: View {
     private func handleAttach(_ action: AttachAction) {
         showAttach = false
         let peerAvatar = messages.first(where: { $0.senderId == targetId })?.senderAvatar ?? ""
-        // 等弹框收起再弹礼物 / 通话页，两个 sheet 同时切换会丢一个
+        // 等弹框收起再弹通话页，两个 sheet 同时切换会丢一个
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
             switch action {
-            case .gift: showGift = true
-            case .transfer: startTransfer()
-            case .voice: voiceMode = true; showSticker = false
             case .location: sendLocation()
             case .voiceCall: startCallWithPermissions(calleeId: targetId, type: 1, name: title, avatar: peerAvatar)
             // 视频通话仅男方可发起（女方只能接听），弹框里已按性别隐藏入口
@@ -1441,20 +1211,19 @@ struct ChatRoomView: View {
         let m = row.first
         let mine = m.senderId == myId
         return MsgBubble(
-            m: m, mine: mine, convType: convType,
+            m: m, mine: mine,
             fallbackAvatar: mine ? (state.user?.avatar ?? "") : peerAvatarGuess,
             myId: myId,
-            onMenu: { inputFocused = false; showSticker = false; menuMsg = m },
+            onMenu: { inputFocused = false; showEmoji = false; menuMsg = m },
             onReact: { react(m.id, $0) },
             onJump: { jumpTo($0) },
-            onOpenWallet: walletOk ? { walletRoute = .chainWalletPath($0) } : nil,
             onImage: { url in if !url.isEmpty { fullImage = url } },
             album: row.isAlbum ? row.items : nil,
             uploads: uploads,
             localImages: localImages,
             onItemMenu: { item in
                 guard !item.pending else { return }
-                inputFocused = false; showSticker = false; menuMsg = item
+                inputFocused = false; showEmoji = false; menuMsg = item
             },
             onItemReact: { item, e in react(item.id, e) },
             onRetry: { item in retryUpload(item) }
@@ -1478,7 +1247,7 @@ struct ChatRoomView: View {
         return HStack(spacing: 6) {
             Image(systemName: on ? "checkmark.circle.fill" : "circle")
                 .font(.system(size: 20))
-                .foregroundStyle(on ? botBlue : Theme.textDim)
+                .foregroundStyle(on ? linkBlue : Theme.textDim)
             makeBubble(row).allowsHitTesting(false)
         }
         .contentShape(Rectangle())
@@ -1506,7 +1275,7 @@ struct ChatRoomView: View {
             } label: {
                 Image(systemName: "arrowshape.turn.up.right").font(.system(size: 18))
             }
-            .foregroundStyle(sel.isEmpty ? Theme.textDim : botBlue)
+            .foregroundStyle(sel.isEmpty ? Theme.textDim : linkBlue)
             .disabled(sel.isEmpty)
             .padding(.trailing, 18)
             Button {
@@ -1523,7 +1292,7 @@ struct ChatRoomView: View {
     }
 
     private func canDeleteForAll(_ m: MsgItem) -> Bool {
-        m.type != "gift" && (m.senderId == myId || isGroupAdmin)
+        m.senderId == myId
     }
 
     private func menuActions(_ m: MsgItem) -> MenuActions {
@@ -1559,7 +1328,7 @@ struct ChatRoomView: View {
             .overlay {
                 if let m = menuMsg {
                     MsgMenuOverlay(
-                        msgId: m.id, mine: m.senderId == myId, convType: convType,
+                        msgId: m.id, mine: m.senderId == myId,
                         myReaction: m.reactions?.first(where: { $0.userIds.contains(myId) })?.emoji,
                         pinned: pins.contains(where: { $0.id == m.id }),
                         actions: menuActions(m),
@@ -1575,7 +1344,7 @@ struct ChatRoomView: View {
                 titleVisibility: .visible
             ) {
                 if delCanForAll {
-                    Button(convType == 1 ? t("msg.deleteForMeAndPeer", ["name": title]) : t("msg.deleteForAll"), role: .destructive) {
+                    Button(t("msg.deleteForMeAndPeer", ["name": title]), role: .destructive) {
                         if let ids = deleteIds { doDelete(ids, forAll: true) }
                     }
                     Button(t("msg.deleteForMeOnly"), role: .destructive) {
@@ -1632,30 +1401,8 @@ struct ChatRoomView: View {
         }
     }
 
-    /// 播完灰飞烟灭再从列表移掉；不在屏幕上的（LazyVStack 没渲染）2 秒后兜底移除
     private func removeMsgs(_ ids: Set<String>) {
-        var todo = ids.subtracting(dying)
-        guard !todo.isEmpty else { return }
-        // 相册只删其中几张：不播动画，直接移掉，剩下的重新拼版
-        for row in rows where row.isAlbum {
-            let rowIds = Set(row.items.map(\.id))
-            let hit = rowIds.intersection(todo)
-            if !hit.isEmpty && hit.count < rowIds.count {
-                messages.removeAll { hit.contains($0.id) }
-                todo.subtract(hit)
-            }
-        }
-        guard !todo.isEmpty else { return }
-        dying.formUnion(todo)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            messages.removeAll { todo.contains($0.id) }
-            dying.subtract(todo)
-        }
-    }
-
-    private func msgGone(_ id: String) {
-        messages.removeAll { $0.id == id }
-        dying.remove(id)
+        messages.removeAll { ids.contains($0.id) }
     }
 
     private func doDelete(_ ids: [String], forAll: Bool) {
@@ -1752,15 +1499,12 @@ struct VoiceBars: View {
 struct MsgBubble: View {
     let m: MsgItem
     let mine: Bool
-    let convType: Int
     /// 消息本身头像缺失时的兜底
     var fallbackAvatar: String = ""
     var myId: String = ""
     var onMenu: (() -> Void)? = nil
     var onReact: ((String) -> Void)? = nil
     var onJump: ((String) -> Void)? = nil
-    /// 打开链上钱包某一页（没有钱包入口为 nil：喊单卡片去网页看）
-    var onOpenWallet: ((String) -> Void)? = nil
     var onImage: (String) -> Void
     /// 多图相册（第一张就是 m）
     var album: [MsgItem]? = nil
@@ -1783,26 +1527,17 @@ struct MsgBubble: View {
         (m.senderAvatar?.isEmpty == false) ? m.senderAvatar! : fallbackAvatar
     }
 
-    /// 收款消息的「转账」：打开钱包转账页（没有钱包入口为 nil）
-    private var payreqAction: (() -> Void)? {
-        guard let open = onOpenWallet, let path = ChainCards.payreqPath(m.content, msgId: m.id, name: m.senderNickname ?? "") else { return nil }
-        return { open(path) }
-    }
-
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             if mine { Spacer(minLength: 50) }
             if !mine { AvatarView(url: avatarUrl, size: 38) }
             VStack(alignment: mine ? .trailing : .leading, spacing: 2) {
                 if !mine {
-                    HStack(spacing: 4) {
-                        Text(m.senderNickname ?? "").font(.system(size: 11)).foregroundStyle(Theme.textSub)
-                        if m.senderIsBot == true && convType == 2 { BotTag() }
-                    }
-                    .padding(.leading, 4)
+                    Text(m.senderNickname ?? "").font(.system(size: 11)).foregroundStyle(Theme.textSub)
+                        .padding(.leading, 4)
                 }
                 if let f = m.fwdFrom, !f.isEmpty {
-                    Text(t("chat.forwardedFrom", ["name": f])).font(.system(size: 11)).foregroundStyle(botBlue).padding(.horizontal, 4)
+                    Text(t("chat.forwardedFrom", ["name": f])).font(.system(size: 11)).foregroundStyle(linkBlue).padding(.horizontal, 4)
                 }
                 if let r = m.replyTo {
                     ReplyQuote(r: r) { onJump?(r.id) }
@@ -1821,9 +1556,6 @@ struct MsgBubble: View {
                 }
                 if uploadFailed {
                     Text(t("chat.upload.failed")).font(.system(size: 11)).foregroundStyle(Color.red).padding(.horizontal, 4)
-                }
-                if !(m.markup?.inlineKeyboard ?? []).isEmpty {
-                    InlineKeyboardView(markup: m.markup, messageId: m.id).frame(width: 230)
                 }
             }
             .frame(maxWidth: 240, alignment: mine ? .trailing : .leading)
@@ -1925,16 +1657,6 @@ struct MsgBubble: View {
         switch m.type {
         case "image":
             singleImage
-        case "sticker":
-            // 贴纸不画气泡底
-            if let p = StickerPayload.parse(m.content) {
-                // GIF 比贴纸大一号、带圆角
-                StickerImageView(p: p, size: p.isGif ? 220 : 140)
-            } else {
-                Text(t("chat.preview.sticker")).font(.system(size: 15)).foregroundStyle(fg)
-                    .padding(.horizontal, 14).padding(.vertical, 10)
-                    .background(bubbleShape.fill(bg))
-            }
         case "audio":
             let obj = parseJson(m.content)
             let url = obj["url"] as? String ?? m.content
@@ -1974,36 +1696,6 @@ struct MsgBubble: View {
             }
             .padding(.horizontal, 14).padding(.vertical, 10)
             .background(bubbleShape.fill(bg))
-        case "gift":
-            let obj = parseJson(m.content)
-            let giftName = obj["name"] as? String ?? t("chat.giftDefault")
-            let giftPrice = (obj["price"] as? String) ?? String((obj["price"] as? Int) ?? 0)
-            let giftTitle = mine ? t("chat.gift.sent", ["name": giftName]) : t("chat.gift.received", ["name": giftName])
-            HStack(spacing: 10) {
-                RemoteImage(url: obj["icon"] as? String ?? "")
-                    .frame(width: 42, height: 42)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(giftTitle)
-                        .font(.system(size: 14, weight: .medium)).foregroundStyle(fg)
-                    Text(t("chat.gift.points", ["n": fmtPoints(giftPrice)]))
-                        .font(.system(size: 12)).foregroundStyle(Theme.warn)
-                }
-            }
-            .padding(.horizontal, 14).padding(.vertical, 10)
-            .background(bubbleShape.fill(bg))
-        case "transfer":
-            TransferCardView(content: m.content, mine: mine)
-        case "callout":
-            CalloutCardView(content: m.content, canWallet: onOpenWallet != nil) { onOpenWallet?($0) }
-        case "card":
-            GenericCardView(msgId: m.id, content: m.content, canWallet: onOpenWallet != nil) { onOpenWallet?($0) }
-        case "perp":
-            PerpCardView(msgId: m.id, content: m.content, canWallet: onOpenWallet != nil) {
-                if let p = PerpLive.followPath(m.content, name: m.senderNickname ?? "") { onOpenWallet?(p) }
-            }
-        case "payreq":
-            PayreqCardView(content: m.content, mine: mine, onPay: payreqAction)
         case "call":
             let obj = parseJson(m.content)
             let callType = (obj["callType"] as? Int) ?? 1
@@ -2037,92 +1729,6 @@ struct MsgBubble: View {
         case "end": return "\(label) \(String(format: "%02d:%02d", duration / 60, duration % 60))"
         case "reject": return t("chat.call.rejected", ["label": label])
         default: return t("chat.call.canceled", ["label": label])
-        }
-    }
-}
-
-/// 礼物面板
-struct GiftSheetView: View {
-    let toUserId: String
-    @Environment(\.dismiss) private var dismiss
-    @State private var gifts: [GiftDef] = []
-    @State private var balance = "0"
-    @State private var selected: Int?
-    @State private var errMsg = ""
-    @State private var okMsg = ""
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Spacer().frame(width: 28)
-                Text(t("chat.gift.title")).font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.text)
-                    .frame(maxWidth: .infinity)
-                Button { dismiss() } label: {
-                    Text("×").font(.system(size: 18)).foregroundStyle(Theme.textSub)
-                        .frame(width: 28, height: 28)
-                        .background(Circle().fill(Theme.bg3))
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(16)
-
-            ScrollView {
-                let cols = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
-                LazyVGrid(columns: cols, spacing: 8) {
-                    ForEach(gifts) { g in
-                        Button { selected = g.id } label: {
-                            VStack(spacing: 4) {
-                                RemoteImage(url: g.icon ?? "")
-                                    .frame(width: 42, height: 42)
-                                Text(g.name).font(.system(size: 12)).foregroundStyle(Theme.text)
-                                Text(fmtPoints(g.price)).font(.system(size: 11)).foregroundStyle(Theme.warn)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                            .background(RoundedRectangle(cornerRadius: 10).fill(selected == g.id ? Theme.accent.opacity(0.15) : .clear))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 16)
-            }
-
-            if !errMsg.isEmpty {
-                Text(errMsg).font(.system(size: 13)).foregroundStyle(Theme.danger).padding(.bottom, 6)
-            }
-            if !okMsg.isEmpty {
-                Text(okMsg).font(.system(size: 13)).foregroundStyle(Theme.warn).padding(.bottom, 6)
-            }
-            HStack {
-                Text(t("chat.gift.balance", ["n": fmtPoints(balance)])).font(.system(size: 13)).foregroundStyle(Theme.textSub)
-                Spacer()
-                Button {
-                    guard let gid = selected else { errMsg = t("chat.gift.pick"); return }
-                    Task {
-                        do {
-                            struct Empty: Codable { var ok: Bool? }
-                            let _: Empty = try await Api.request("/gifts/send", method: "POST", body: ["toUserId": toUserId, "giftId": gid])
-                            // 送出后不关面板，刷新余额，可连续赠送
-                            errMsg = ""
-                            okMsg = t("chat.gift.sentOk")
-                            if let w: WalletData = try? await Api.request("/wallet") { balance = w.balance ?? "0" }
-                            try? await Task.sleep(nanoseconds: 1_500_000_000)
-                            okMsg = ""
-                        } catch { okMsg = ""; errMsg = error.localizedDescription }
-                    }
-                } label: {
-                    Text(t("chat.gift.send")).font(.system(size: 13)).foregroundStyle(.white)
-                        .padding(.horizontal, 16).padding(.vertical, 8)
-                        .background(Capsule().fill(Theme.accent))
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(16)
-        }
-        .background(Theme.bg2)
-        .task {
-            gifts = (try? await Api.request("/gifts")) ?? []
-            if let w: WalletData = try? await Api.request("/wallet") { balance = w.balance ?? "0" }
         }
     }
 }
@@ -2253,290 +1859,7 @@ struct ZoomableImage: View {
     }
 }
 
-/// 创建群聊
-struct CreateGroupView: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var name = ""
-    @State private var avatar = ""
-    @State private var uploading = false
-    @State private var people: [Person] = []
-    @State private var selected: Set<String> = []
-    @State private var created: ChatTarget?
-
-    var body: some View {
-        VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 12) {
-                    // 群头像（可选，不设置默认用群主头像）
-                    CompatPhotoPicker(kind: .images, onPicked: { datas in
-                        guard let data = datas.first else { return }
-                        uploading = true
-                        Task {
-                            if let url = try? await Api.upload("image", data: data, filename: "g.jpg", mime: "image/jpeg") {
-                                avatar = url
-                            }
-                            uploading = false
-                        }
-                    }) {
-                        if avatar.isEmpty {
-                            Circle().fill(Theme.bg3)
-                                .frame(width: 56, height: 56)
-                                .overlay(Text(uploading ? "…" : t("group.avatar")).font(.system(size: 11)).foregroundStyle(Theme.textDim))
-                        } else {
-                            AvatarView(url: avatar, size: 56)
-                        }
-                    }
-                    TextField("", text: $name, prompt: Text(t("group.namePlaceholder")).foregroundColor(Theme.textDim))
-                        .foregroundStyle(Theme.text)
-                        .padding(14)
-                        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.bg2))
-                }
-                Text(t("group.createHint")).font(.system(size: 12)).foregroundStyle(Theme.textSub)
-            }
-            .padding(16)
-
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(people) { p in
-                        Button {
-                            if selected.contains(p.id) { selected.remove(p.id) } else { selected.insert(p.id) }
-                        } label: {
-                            HStack(spacing: 10) {
-                                AvatarView(url: p.avatar, size: 36)
-                                Text(p.nickname ?? "").foregroundStyle(Theme.text)
-                                Spacer()
-                                Text(selected.contains(p.id) ? t("group.selected") : t("common.select"))
-                                    .font(.system(size: 13))
-                                    .foregroundStyle(selected.contains(p.id) ? Theme.accent : Theme.textDim)
-                            }
-                            .padding(.horizontal, 16).padding(.vertical, 8)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-
-            AccentButton(title: t("group.createWithN", ["n": selected.count]), enabled: !name.trimmingCharacters(in: .whitespaces).isEmpty) {
-                Task {
-                    struct GroupCreated: Codable { var id: String = ""; var name: String? = ""; var conversationId: String = "" }
-                    if let g: GroupCreated = try? await Api.request("/im/group", method: "POST", body: [
-                        "name": name.trimmingCharacters(in: .whitespaces),
-                        "memberIds": Array(selected),
-                        "avatar": avatar,
-                    ]) {
-                        created = ChatTarget(convId: g.conversationId, convType: 2, targetId: g.id, title: t("chat.groupTitle", ["name": g.name ?? ""]))
-                    }
-                }
-            }
-            .padding(16)
-        }
-        .fullBg()
-        .navigationTitle(t("group.create"))
-        .navigationBarTitleDisplayMode(.inline)
-        .compatNavBarBackground(Theme.bg)
-        .fullScreenCover(item: $created, onDismiss: { dismiss() }) { t in
-            ChatRoomSheet(target: t)
-        }
-        .task {
-            people = (try? await Api.request("/guide/discover")) ?? []
-        }
-    }
-}
-
-/// AI 助手：免费问答，历史存服务端（GET /ai/messages POST /ai/chat POST /ai/clear）
-struct AiChatView: View {
-    struct AiMsg: Codable, Identifiable {
-        var id: String = "0"
-        var role: String = "user"
-        var content: String = ""
-        var createdAt: String? = ""
-    }
-
-    @EnvironmentObject var state: AppState
-    @State private var messages: [AiMsg] = []
-    @State private var input = ""
-    @State private var thinking = false
-    @State private var toastMsg: String?
-    @State private var htmlPreview: HtmlPreview?
-    @FocusState private var inputFocused: Bool
-
-    struct HtmlPreview: Identifiable {
-        let id = UUID()
-        let html: String
-    }
-
-    /// 把回复拆成 文字说明 + HTML 文档（AI 写攻略/页面时输出 ```html 代码块）
-    private static func extractHtml(_ content: String) -> (text: String, html: String?) {
-        if let r = content.range(of: "```html\\s*([\\s\\S]*?)```", options: [.regularExpression, .caseInsensitive]) {
-            let block = String(content[r])
-            let html = block
-                .replacingOccurrences(of: "```html", with: "", options: .caseInsensitive)
-                .replacingOccurrences(of: "```", with: "")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            return (content.replacingCharacters(in: r, with: "").trimmingCharacters(in: .whitespacesAndNewlines), html)
-        }
-        if let r = content.range(of: "<!DOCTYPE html[\\s\\S]*</html\\s*>|<html[\\s\\S]*</html\\s*>", options: [.regularExpression, .caseInsensitive]) {
-            let html = String(content[r])
-            return (content.replacingCharacters(in: r, with: "").trimmingCharacters(in: .whitespacesAndNewlines), html)
-        }
-        return (content, nil)
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            if messages.isEmpty && !thinking {
-                EmptyHint(text: t("ai.empty"))
-            } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(messages) { m in
-                                aiBubble(m.content, mine: m.role == "user")
-                                    .id(m.id)
-                            }
-                            if thinking {
-                                aiBubble(t("ai.thinking"), mine: false, dim: true)
-                                    .id("thinking")
-                            }
-                        }
-                        .padding(.horizontal, 12).padding(.vertical, 8)
-                    }
-                    .onTapGesture { inputFocused = false }
-                    // 进入默认停在最底部；defaultScrollAnchor 是 iOS 17 API，改用 scrollTo
-                    .onAppear {
-                        if let last = messages.last {
-                            DispatchQueue.main.async { proxy.scrollTo(last.id, anchor: .bottom) }
-                        }
-                    }
-                    .onChange(of: messages.count) { _ in
-                        if let last = messages.last { proxy.scrollTo(last.id, anchor: .bottom) }
-                    }
-                    .onChange(of: thinking) { v in
-                        if v { proxy.scrollTo("thinking", anchor: .bottom) }
-                    }
-                }
-            }
-
-            // 底部输入区（对齐聊天页：圆角输入框 + 有文字才显示发送键）
-            HStack(alignment: .bottom, spacing: 8) {
-                Group {
-                    if #available(iOS 16.0, *) {
-                        TextField("", text: $input, prompt: Text(t("ai.inputHint")).foregroundColor(Theme.textDim), axis: .vertical)
-                            .lineLimit(1 ... 4)
-                            .focused($inputFocused)
-                    } else {
-                        TextField("", text: $input, prompt: Text(t("ai.inputHint")).foregroundColor(Theme.textDim))
-                            .focused($inputFocused)
-                    }
-                }
-                .foregroundStyle(Theme.text)
-                .padding(.horizontal, 14).padding(.vertical, 9)
-                .background(RoundedRectangle(cornerRadius: 20).fill(Theme.bg3))
-                if !input.trimmingCharacters(in: .whitespaces).isEmpty && !thinking {
-                    Button { send() } label: {
-                        Text(t("common.send")).font(.system(size: 14)).foregroundStyle(.white)
-                            .padding(.horizontal, 16).frame(height: 40)
-                            .background(Capsule().fill(Theme.accent))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(8)
-            .background(Theme.bg2)
-        }
-        .fullBg()
-        .toast($toastMsg)
-        .navigationTitle(t("ai.title"))
-        .navigationBarTitleDisplayMode(.inline)
-        .compatNavBarBackground(Theme.bg)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    Task {
-                        struct OkResp: Codable { var ok: Bool? }
-                        let _: OkResp? = try? await Api.request("/ai/clear", method: "POST")
-                        messages = []
-                    }
-                } label: {
-                    Text(t("chat.clear")).font(.system(size: 13)).foregroundStyle(Theme.textSub)
-                }
-            }
-        }
-        .task {
-            messages = (try? await Api.request("/ai/messages")) ?? []
-        }
-        .fullScreenCover(item: $htmlPreview) { p in
-            WebPreviewSheet(html: p.html)
-        }
-    }
-
-    private func send() {
-        let text = input.trimmingCharacters(in: .whitespaces)
-        guard !text.isEmpty, !thinking else { return }
-        input = ""
-        messages.append(AiMsg(id: "local_\(Int(Date().timeIntervalSince1970 * 1000))", role: "user", content: text))
-        thinking = true
-        Task {
-            do {
-                let reply: AiMsg = try await Api.request("/ai/chat", method: "POST", body: ["content": text])
-                messages.append(reply)
-            } catch {
-                toastMsg = error.localizedDescription
-            }
-            thinking = false
-        }
-    }
-
-    private func aiBubble(_ content: String, mine: Bool, dim: Bool = false) -> some View {
-        let parts = mine ? (text: content, html: String?.none) : Self.extractHtml(content)
-        return HStack(alignment: .top, spacing: 8) {
-            if mine { Spacer(minLength: 50) }
-            if !mine {
-                Circle().fill(Theme.accentGrad)
-                    .frame(width: 38, height: 38)
-                    .overlay(Text("AI").font(.system(size: 12, weight: .heavy)).foregroundStyle(.white))
-            }
-            VStack(alignment: mine ? .trailing : .leading, spacing: 6) {
-                if !parts.text.isEmpty {
-                    Text(parts.text)
-                        .font(.system(size: 15))
-                        .foregroundStyle(dim ? Theme.textSub : Theme.text)
-                        .lineSpacing(4)
-                        .padding(.horizontal, 14).padding(.vertical, 10)
-                        .background(
-                            (mine
-                                ? CompatUnevenRounded(topLeadingRadius: 16, bottomLeadingRadius: 16, bottomTrailingRadius: 16, topTrailingRadius: 4)
-                                : CompatUnevenRounded(topLeadingRadius: 4, bottomLeadingRadius: 16, bottomTrailingRadius: 16, topTrailingRadius: 16))
-                                .fill(mine ? Theme.bubbleMine : Theme.bg3),
-                        )
-                }
-                if let html = parts.html {
-                    Button { htmlPreview = HtmlPreview(html: html) } label: {
-                        HStack(spacing: 10) {
-                            Text("🌐").font(.system(size: 22))
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(t("ai.webContent")).font(.system(size: 14)).foregroundStyle(Theme.text)
-                                Text(t("ai.openPreview")).font(.system(size: 11)).foregroundStyle(Theme.accent)
-                            }
-                        }
-                        .padding(.horizontal, 14).padding(.vertical, 10)
-                        .background(
-                            CompatUnevenRounded(topLeadingRadius: 4, bottomLeadingRadius: 16, bottomTrailingRadius: 16, topTrailingRadius: 16)
-                                .fill(Theme.bg3),
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            if mine { AvatarView(url: state.user?.avatar, size: 38) }
-            if !mine { Spacer(minLength: 50) }
-        }
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity, alignment: mine ? .trailing : .leading)
-    }
-}
-
-/// 内部网页全屏预览（共用：AI 生成的 HTML 或新闻原文 url）
+/// 内部网页全屏预览（共用：AI 生成的 HTML 或聊天里点开的链接 url）
 struct WebPreviewSheet: View {
     var html: String? = nil
     var url: URL? = nil
@@ -2581,498 +1904,4 @@ struct WebContentView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {}
-}
-
-/// 群信息
-struct GroupInfoView: View {
-    let groupId: String
-    @EnvironmentObject var state: AppState
-    @Environment(\.dismiss) private var dismiss
-
-    struct GroupMemberItem: Codable, Identifiable {
-        var id: String = ""
-        var nickname: String? = ""
-        var avatar: String? = ""
-        var role: String? = "member"
-        var isBot: Bool? = false
-    }
-    struct GroupInfoData: Codable {
-        var id: String = ""
-        var name: String? = ""
-        var avatar: String? = ""
-        var notice: String? = ""
-        var members: [GroupMemberItem]? = []
-    }
-
-    @State private var info: GroupInfoData?
-    @State private var showShare = false
-    @State private var showBots = false
-
-    var body: some View {
-        VStack(spacing: 0) {
-            if let g = info {
-                let myRoleForEdit = g.members?.first { $0.id == state.user?.id }?.role ?? "member"
-                let canEdit = myRoleForEdit == "owner" || myRoleForEdit == "admin"
-                // 群头像（群主/管理员点击可换）+ 人数
-                HStack(spacing: 12) {
-                    if canEdit {
-                        CompatPhotoPicker(kind: .images, onPicked: { datas in
-                            guard let data = datas.first else { return }
-                            Task {
-                                struct Empty: Codable { var id: String? }
-                                if let url = try? await Api.upload("image", data: data, filename: "g.jpg", mime: "image/jpeg") {
-                                    let _: Empty? = try? await Api.request("/im/group/\(groupId)", method: "PUT", body: ["avatar": url])
-                                    info = try? await Api.request("/im/group/\(groupId)")
-                                }
-                            }
-                        }) {
-                            AvatarView(url: g.avatar, size: 56)
-                        }
-                    } else {
-                        AvatarView(url: g.avatar, size: 56)
-                    }
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(t("group.memberCount", ["n": g.members?.count ?? 0]))
-                            .font(.system(size: 13)).foregroundStyle(Theme.textSub)
-                        if canEdit {
-                            Text(t("group.tapAvatarToEdit")).font(.system(size: 11)).foregroundStyle(Theme.textDim)
-                        }
-                    }
-                    Spacer()
-                    if canEdit {
-                        Button { showBots = true } label: {
-                            Text(t("chat.bot")).font(.system(size: 13)).foregroundStyle(botBlue)
-                                .padding(.horizontal, 12).padding(.vertical, 6)
-                                .background(Capsule().fill(Theme.bg3))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 6)
-                ScrollView {
-                    let cols = Array(repeating: GridItem(.flexible(), spacing: 12), count: 5)
-                    LazyVGrid(columns: cols, spacing: 12) {
-                        ForEach(g.members ?? []) { m in
-                            VStack(spacing: 4) {
-                                AvatarView(url: m.avatar, size: 48)
-                                Text((m.nickname ?? "") + (m.role == "owner" ? " " + t("group.ownerBadge") : ""))
-                                    .font(.system(size: 11)).foregroundStyle(m.isBot == true ? botBlue : Theme.textSub).lineLimit(1)
-                                if m.isBot == true { Text(t("chat.bot")).font(.system(size: 9)).foregroundStyle(botBlue) }
-                            }
-                        }
-                    }
-                    .padding(16)
-                }
-                let myRole = g.members?.first { $0.id == state.user?.id }?.role ?? "member"
-                AccentButton(title: myRole == "owner" ? t("group.dissolve") : t("group.leave")) {
-                    Task {
-                        struct Empty: Codable { var ok: Bool? }
-                        let _: Empty? = try? await Api.request("/im/group/\(groupId)/\(myRole == "owner" ? "dissolve" : "leave")", method: "POST")
-                        dismiss()
-                    }
-                }
-                .padding(16)
-            } else {
-                EmptyHint(text: t("common.loading"))
-            }
-        }
-        .fullBg()
-        .navigationTitle(info?.name ?? t("chat.menu.groupInfo"))
-        .navigationBarTitleDisplayMode(.inline)
-        .compatNavBarBackground(Theme.bg)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button(t("common.share")) { showShare = true }
-                    .font(.system(size: 14)).foregroundStyle(Theme.accent)
-            }
-        }
-        .sheet(isPresented: $showShare) {
-            GroupShareSheet(groupId: groupId)
-        }
-        .sheet(isPresented: $showBots) {
-            AddBotSheet(groupId: groupId) {
-                Task { info = try? await Api.request("/im/group/\(groupId)") }
-            }
-        }
-        .task {
-            info = try? await Api.request("/im/group/\(groupId)")
-        }
-    }
-}
-
-/// 群分享面板：二维码 + 邀请码 + 密码设置（群主/管理员）；频道不设密码
-struct GroupShareSheet: View {
-    let groupId: String
-    var channel = false
-    @Environment(\.dismiss) private var dismiss
-
-    struct ShareInfo: Codable {
-        var code: String = ""
-        var hasPassword: Bool = false
-        var password: String? = nil
-        var canEdit: Bool = false
-        var name: String? = ""
-    }
-
-    @State private var share: ShareInfo?
-    @State private var mode = "none" // none=无密码 pwd=有密码
-    @State private var pwd = ""
-    @State private var saving = false
-    @State private var toastMsg: String?
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 14) {
-                if let s = share {
-                    Text(channel ? t("group.shareChannel") : t("group.invite")).font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.text)
-                    Text(channel ? t("group.shareChannelHint") : (s.hasPassword ? t("group.invitePwdHint") : t("group.inviteHint")))
-                        .font(.system(size: 12)).foregroundStyle(Theme.textSub)
-
-                    if let img = makeQRImage(groupQrContent(code: s.code), size: 640) {
-                        Image(uiImage: img)
-                            .interpolation(.none)
-                            .resizable()
-                            .frame(width: 200, height: 200)
-                            .padding(12)
-                            .background(RoundedRectangle(cornerRadius: 12).fill(.white))
-                    }
-
-                    Button {
-                        UIPasteboard.general.string = s.code
-                        toastMsg = t("group.codeCopied")
-                    } label: {
-                        HStack(spacing: 6) {
-                            Text(s.code).font(.system(size: 18, weight: .bold)).tracking(3).foregroundStyle(Theme.text)
-                            Text(t("common.copy")).font(.system(size: 12)).foregroundStyle(Theme.accent)
-                        }
-                        .padding(.horizontal, 14).padding(.vertical, 8)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.bg3))
-                    }
-                    .buttonStyle(.plain)
-
-                    if s.canEdit && !channel {
-                        // 模式切换 + 行内小保存按钮
-                        HStack(spacing: 8) {
-                            ForEach([("none", t("group.noPassword")), ("pwd", t("group.withPassword"))], id: \.0) { k, label in
-                                Button {
-                                    mode = k
-                                } label: {
-                                    Text(label)
-                                        .font(.system(size: 12))
-                                        .foregroundStyle(mode == k ? .white : Theme.textSub)
-                                        .padding(.horizontal, 14).padding(.vertical, 5)
-                                        .background(Capsule().fill(mode == k ? Theme.accent : Theme.bg3))
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            Spacer()
-                            Button {
-                                guard !saving else { return }
-                                if mode == "pwd", pwd.trimmingCharacters(in: .whitespaces).isEmpty {
-                                    toastMsg = t("group.enterPassword")
-                                    return
-                                }
-                                saving = true
-                                Task {
-                                    let s2: ShareInfo? = try? await Api.request(
-                                        "/im/group/\(groupId)/share", method: "POST",
-                                        body: ["password": mode == "pwd" ? pwd.trimmingCharacters(in: .whitespaces) : ""]
-                                    )
-                                    if let s2 { share = s2; toastMsg = t("common.saved") } else { toastMsg = t("common.saveFailed") }
-                                    saving = false
-                                }
-                            } label: {
-                                Text(saving ? t("group.saving") : t("common.save"))
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 16).padding(.vertical, 5)
-                                    .background(Capsule().fill(Theme.accent))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        .padding(.horizontal, 24)
-                        if mode == "pwd" {
-                            TextField("", text: $pwd, prompt: Text(t("group.setPassword")).foregroundColor(Theme.textDim))
-                                .font(.system(size: 14))
-                                .foregroundStyle(Theme.text)
-                                .padding(.horizontal, 12).padding(.vertical, 10)
-                                .background(RoundedRectangle(cornerRadius: 10).fill(Theme.bg3))
-                                .padding(.horizontal, 24)
-                                .onChange(of: pwd) { v in if v.count > 20 { pwd = String(v.prefix(20)) } }
-                        }
-                    }
-
-                    Divider().overlay(Theme.bg3).padding(.horizontal, 24).padding(.top, 4)
-
-                    HStack(spacing: 30) {
-                        if let img = makeQRImage(groupQrContent(code: s.code), size: 640) {
-                            Button {
-                                ShareSheet.present([img])
-                            } label: {
-                                Text(t("group.shareQr")).font(.system(size: 13)).foregroundStyle(Theme.accent)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        Button(t("common.close")) { dismiss() }
-                            .font(.system(size: 13)).foregroundStyle(Theme.textDim)
-                    }
-                } else {
-                    Text(t("common.loading")).font(.system(size: 13)).foregroundStyle(Theme.textSub).padding(40)
-                }
-            }
-            .padding(.vertical, 26)
-            .frame(maxWidth: .infinity)
-        }
-        .background(Theme.bg)
-        .toast($toastMsg)
-        .task {
-            let s: ShareInfo? = try? await Api.request("/im/group/\(groupId)/share")
-            share = s
-            if let s { mode = s.hasPassword ? "pwd" : "none"; pwd = s.password ?? "" }
-        }
-    }
-}
-
-/// 加入群聊：群列表可直接加入，也可输邀请码/扫码；有密码的群需输入密码
-struct JoinGroupView: View {
-    var initialCode: String? = nil
-
-    struct CodeInfo: Codable {
-        var groupId: String = ""
-        var name: String? = ""
-        var memberCount: Int? = 0
-        var hasPassword: Bool = false
-        var isMember: Bool = false
-        var conversationId: String? = nil
-        /// 2 = 频道：直接进频道页订阅
-        var kind: Int? = 1
-    }
-
-    struct GroupListItem: Codable, Identifiable {
-        var id: String = ""
-        var name: String? = ""
-        var avatar: String? = ""
-        var memberCount: Int? = 0
-        var hasPassword: Bool = false
-        var isMember: Bool = false
-        var conversationId: String? = nil
-    }
-
-    @State private var code = ""
-    @State private var info: CodeInfo?
-    @State private var pwd = ""
-    @State private var busy = false
-    @State private var showScan = false
-    @State private var opened: ChatTarget?
-    @State private var toastMsg: String?
-    @State private var groups: [GroupListItem] = []
-    @State private var pwdTarget: GroupListItem?
-    @State private var showPwdAlert = false
-    @State private var pwdInput = ""
-    @State private var channelRoute: Route?
-
-    var body: some View {
-        VStack(spacing: 14) {
-            // 邀请码输入框（右侧内嵌扫码图标）
-            HStack(spacing: 8) {
-                TextField("", text: $code, prompt: Text(t("group.codePlaceholder")).foregroundColor(Theme.textDim))
-                    .textInputAutocapitalization(.characters)
-                    .autocorrectionDisabled()
-                    .foregroundStyle(Theme.text)
-                    .onChange(of: code) { v in
-                        let up = v.uppercased()
-                        code = String(up.prefix(12))
-                        info = nil
-                    }
-                Button {
-                    showScan = true
-                } label: {
-                    Image(systemName: "qrcode.viewfinder")
-                        .font(.system(size: 19))
-                        .foregroundStyle(Theme.accent)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 12).padding(.vertical, 11)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.bg2))
-
-            if let g = info {
-                VStack(spacing: 6) {
-                    Text(g.name ?? "").font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.text)
-                    Text(memberLine(g.memberCount, g.hasPassword))
-                        .font(.system(size: 12)).foregroundStyle(Theme.textSub)
-                    if g.isMember {
-                        Text(t("group.alreadyMember")).font(.system(size: 12)).foregroundStyle(Theme.success)
-                    } else if g.hasPassword {
-                        SecureField("", text: $pwd, prompt: Text(t("group.passwordPlaceholder")).foregroundColor(Theme.textDim))
-                            .foregroundStyle(Theme.text)
-                            .padding(12)
-                            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.bg3))
-                            .padding(.top, 6)
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .padding(16)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Theme.bg2))
-
-                AccentButton(title: g.isMember ? t("group.enter") : (busy ? t("group.joining") : t("group.joinGroup"))) {
-                    guard !busy else { return }
-                    if g.isMember, let convId = g.conversationId {
-                        opened = ChatTarget(convId: convId, convType: 2, targetId: g.groupId, title: t("chat.groupTitle", ["name": g.name ?? ""]))
-                        return
-                    }
-                    if g.hasPassword, pwd.trimmingCharacters(in: .whitespaces).isEmpty {
-                        toastMsg = t("group.enterGroupPassword")
-                        return
-                    }
-                    busy = true
-                    Task {
-                        struct Joined: Codable { var id: String = ""; var name: String? = ""; var conversationId: String? = nil }
-                        do {
-                            let j: Joined = try await Api.request("/im/group/join-by-code", method: "POST", body: [
-                                "code": code.trimmingCharacters(in: .whitespaces),
-                                "password": pwd.trimmingCharacters(in: .whitespaces),
-                            ])
-                            if let convId = j.conversationId {
-                                opened = ChatTarget(convId: convId, convType: 2, targetId: j.id, title: t("chat.groupTitle", ["name": j.name ?? ""]))
-                            }
-                        } catch {
-                            toastMsg = (error as? ApiError)?.msg ?? t("group.joinFailed")
-                        }
-                        busy = false
-                    }
-                }
-            } else if !code.isEmpty {
-                AccentButton(title: busy ? t("group.searching") : t("group.find")) {
-                    guard !busy else { return }
-                    let c = code.trimmingCharacters(in: .whitespaces)
-                    if c.count < 6 { toastMsg = t("group.codeIncomplete"); return }
-                    Task { await check(c) }
-                }
-            }
-
-            // 群列表：直接浏览加入
-            Text(t("group.list"))
-                .font(.system(size: 13)).foregroundStyle(Theme.textSub)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 4)
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    if groups.isEmpty {
-                        Text(t("group.empty")).font(.system(size: 13)).foregroundStyle(Theme.textDim).padding(.top, 20)
-                    }
-                    ForEach(groups) { g in
-                        HStack(spacing: 12) {
-                            AvatarView(url: g.avatar, size: 44)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(g.name ?? "").font(.system(size: 15)).foregroundStyle(Theme.text).lineLimit(1)
-                                Text(memberLine(g.memberCount, g.hasPassword))
-                                    .font(.system(size: 12)).foregroundStyle(Theme.textSub)
-                            }
-                            Spacer()
-                            Button {
-                                if g.isMember, let convId = g.conversationId {
-                                    opened = ChatTarget(convId: convId, convType: 2, targetId: g.id, title: t("chat.groupTitle", ["name": g.name ?? ""]))
-                                } else if g.hasPassword {
-                                    pwdInput = ""
-                                    pwdTarget = g
-                                    showPwdAlert = true
-                                } else {
-                                    Task { await joinById(g, password: "") }
-                                }
-                            } label: {
-                                Text(g.isMember ? t("group.open") : t("group.join"))
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(g.isMember ? Theme.textSub : .white)
-                                    .padding(.horizontal, 16).padding(.vertical, 6)
-                                    .background(Capsule().fill(g.isMember ? Theme.bg3 : Theme.accent))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        .padding(.vertical, 9)
-                        Divider().overlay(Theme.bg3.opacity(0.5))
-                    }
-                }
-            }
-        }
-        .padding(16)
-        .fullBg()
-        .navigationTitle(t("group.joinGroup"))
-        .navigationBarTitleDisplayMode(.inline)
-        .compatNavBarBackground(Theme.bg)
-        .toast($toastMsg)
-        .alert(pwdTarget?.name ?? t("group.pwdAlertTitle"), isPresented: $showPwdAlert) {
-            TextField(t("group.passwordPlaceholder"), text: $pwdInput)
-            Button(t("common.cancel"), role: .cancel) {}
-            Button(t("group.join")) {
-                if let g = pwdTarget {
-                    Task { await joinById(g, password: pwdInput) }
-                }
-            }
-        } message: {
-            Text(t("group.pwdAlertMsg"))
-        }
-        .task {
-            if let c = initialCode, !c.isEmpty {
-                code = c
-                await check(c)
-            }
-            groups = (try? await Api.request("/im/group/list")) ?? []
-        }
-        .fullScreenCover(isPresented: $showScan) {
-            QrScanView { text in
-                if let c = parseGroupCode(text) {
-                    code = c
-                    Task { await check(c) }
-                } else {
-                    toastMsg = t("group.badQr")
-                }
-            }
-        }
-        .fullScreenCover(item: $opened) { t in
-            ChatRoomSheet(target: t)
-        }
-        .routePush($channelRoute)
-    }
-
-    private func check(_ c: String) async {
-        guard !busy else { return }
-        busy = true
-        do {
-            let g: CodeInfo = try await Api.request("/im/group/code/\(c)")
-            if g.kind == 2 {
-                channelRoute = .channel(g.groupId)
-            } else {
-                info = g
-                pwd = ""
-            }
-        } catch {
-            toastMsg = (error as? ApiError)?.msg ?? t("group.invalidCode")
-        }
-        busy = false
-    }
-
-    private func memberLine(_ count: Int?, _ hasPassword: Bool) -> String {
-        let base = t("group.memberCount", ["n": count ?? 0])
-        return hasPassword ? base + " · " + t("group.passwordRequired") : base
-    }
-
-    /** 按群 id 加入（群列表入口），密码可空 */
-    private func joinById(_ g: GroupListItem, password: String) async {
-        guard !busy else { return }
-        busy = true
-        struct Joined: Codable { var id: String = ""; var name: String? = ""; var conversationId: String? = nil }
-        do {
-            let j: Joined = try await Api.request("/im/group/\(g.id)/join", method: "POST", body: [
-                "password": password.trimmingCharacters(in: .whitespaces),
-            ])
-            if let convId = j.conversationId {
-                opened = ChatTarget(convId: convId, convType: 2, targetId: j.id, title: t("chat.groupTitle", ["name": j.name ?? ""]))
-            }
-        } catch {
-            toastMsg = (error as? ApiError)?.msg ?? t("group.joinFailed")
-        }
-        busy = false
-    }
 }

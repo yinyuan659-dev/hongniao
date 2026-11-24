@@ -9,10 +9,11 @@ import type { IncomingMessage } from 'http';
 import type { WebSocket } from 'ws';
 import { ConnectionRegistry } from './connection.registry';
 import { ImService } from './im.service';
-import { PerpWatchService } from './perp-watch.service';
-import { CardWatchService } from './card-watch.service';
 import { ReadFrame, SendFrame } from './im.types';
 import { langOf, translate } from '../i18n/translate';
+import { NEED_PROFILE_CODE, NeedProfileException } from '../common/need-profile';
+import { NEED_KYC_CODE, NeedKycException } from '../common/kyc-gate';
+import { ChatGateException } from '../common/chat-gate';
 
 @WebSocketGateway({ path: '/ws', maxPayload: 128 * 1024 })
 export class ImGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -26,24 +27,28 @@ export class ImGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private static readonly MAX_CONN_PER_USER = 8;
   private static readonly MAX_FRAMES_PER_SEC = 25;
   private static readonly MAX_CONTENT_LEN = 8000;
-  private static readonly SERVER_ONLY_TYPES = new Set(['transfer', 'perp', 'card']);
 
   constructor(
     private readonly jwt: JwtService,
     private readonly registry: ConnectionRegistry,
     private readonly im: ImService,
-    private readonly perpWatch: PerpWatchService,
-    private readonly cardWatch: CardWatchService,
   ) {}
 
   async handleConnection(ws: WebSocket, req: IncomingMessage) {
     const url = new URL(req.url ?? '', 'http://localhost');
     const token = url.searchParams.get('token');
     let userId: bigint;
+    let did = '';
     try {
       const payload = this.jwt.verify(token ?? '');
       userId = BigInt(payload.sub);
+      did = payload.did ? String(payload.did) : '';
     } catch {
+      ws.close(4001, 'unauthorized');
+      return;
+    }
+    // 这台设备被移除了、或者这个号并号后作废了：令牌没过期也不让连
+    if (await this.registry.isDead(userId.toString(), did)) {
       ws.close(4001, 'unauthorized');
       return;
     }
@@ -56,14 +61,12 @@ export class ImGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     this.socketUser.set(ws, userId);
     this.socketLang.set(ws, langOf(url.searchParams.get('lang') ?? undefined));
-    await this.registry.register(userId, ws);
+    await this.registry.register(userId, ws, did || undefined);
 
     ws.on('message', (raw: Buffer) => this.onFrame(ws, userId, raw));
   }
 
   async handleDisconnect(ws: WebSocket) {
-    this.perpWatch.drop(ws);
-    this.cardWatch.drop(ws);
     const userId = this.socketUser.get(ws);
     if (userId !== undefined) {
       await this.registry.unregister(userId, ws);
@@ -100,8 +103,6 @@ export class ImGateway implements OnGatewayConnection, OnGatewayDisconnect {
           delete f.fwdFrom;
           if (!f.targetId || !f.msgType || typeof f.content !== 'string') return;
           if (f.content.length > ImGateway.MAX_CONTENT_LEN) return;
-          // 转账卡片只能由服务端核对链上交易后发（POST /im/transfer），合约喊单只能经 POST /im/perp-call
-          if (ImGateway.SERVER_ONLY_TYPES.has(f.msgType)) throw new Error('这种消息不能直接发送');
           const payload = await this.im.sendMessage(userId, f);
           ws.send(
             JSON.stringify({
@@ -114,20 +115,6 @@ export class ImGateway implements OnGatewayConnection, OnGatewayDisconnect {
           );
           break;
         }
-        // 合约喊单卡片：打开 / 离开聊天时告诉服务端在看哪些卡片，之后由 perp-watch.service.ts 推 perpTick
-        case 'perpWatch':
-          await this.perpWatch.watch(ws, userId, frame.conversationId, frame.ids);
-          break;
-        case 'perpUnwatch':
-          this.perpWatch.unwatch(ws, frame.conversationId);
-          break;
-        // 通用卡片的实时数据（销量、成交额…）：同上，由 card-watch.service.ts 推 cardTick
-        case 'cardWatch':
-          await this.cardWatch.watch(ws, userId, frame.conversationId, frame.ids);
-          break;
-        case 'cardUnwatch':
-          this.cardWatch.unwatch(ws, frame.conversationId);
-          break;
         case 'read': {
           const f = frame as ReadFrame;
           if (!f.conversationId || !f.msgId) return;
@@ -136,7 +123,14 @@ export class ImGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
       }
     } catch (e: any) {
-      ws.send(JSON.stringify({ op: 'error', tempId: frame?.tempId, msg: translate(e?.message ?? '操作失败', this.socketLang.get(ws) ?? null) }));
+      ws.send(JSON.stringify({
+        op: 'error',
+        tempId: frame?.tempId,
+        msg: translate(e?.message ?? '操作失败', this.socketLang.get(ws) ?? null),
+        // 没完成资料收集：客户端按 code 弹「去完成」，不靠文字判断（文字会被翻译）
+        // 没互相喜欢 / 对方已结束聊天：code 是 need_like / chat_ended
+        ...(e instanceof NeedProfileException ? { code: NEED_PROFILE_CODE } : e instanceof NeedKycException ? { code: NEED_KYC_CODE } : e instanceof ChatGateException ? { code: e.code } : {}),
+      }));
     }
   }
 }

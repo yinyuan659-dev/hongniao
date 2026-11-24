@@ -31,6 +31,23 @@ export class CryptoService {
     return Buffer.from(this.decryptWith(this.masterKey, wrapped), 'base64');
   }
 
+  /** 用主密钥直接加密一小段文字（用户自己的模型 Key、AI 深聊记录），库里不存明文 */
+  seal(plaintext: string): string {
+    return this.encryptWith(this.masterKey, plaintext);
+  }
+
+  open(payload: string): string {
+    return this.decryptWith(this.masterKey, payload);
+  }
+
+  /**
+   * 身份证号的带密钥哈希（一证一号用）。身份证号位数少、结构固定，裸 SHA-256 能被穷举，
+   * 所以用 HMAC-SHA256，密钥从主密钥派生（带域分隔前缀，和消息加密互不相同）。库里只存这个哈希、不存证号明文。
+   */
+  idHash(idNo: string): string {
+    return crypto.createHmac('sha256', this.masterKey).update(`idcard:${idNo.trim().toUpperCase()}`).digest('hex');
+  }
+
   encrypt(convKey: Buffer, plaintext: string): string {
     return this.encryptWith(convKey, plaintext);
   }

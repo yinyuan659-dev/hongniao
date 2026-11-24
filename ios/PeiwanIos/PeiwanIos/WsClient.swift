@@ -12,14 +12,9 @@ struct MessagePayload: Codable {
     let type: String
     let content: String
     let createdAt: String
-    /// 机器人发的消息才有
-    var senderIsBot: Bool?
-    var markup: InlineMarkup?
     var replyTo: ReplyPreview?
     var fwdFrom: String?
     var reactions: [MsgReaction]?
-    /// 频道里订阅者发的：当普通聊天消息显示
-    var memberMsg: Bool?
 }
 
 struct ReplyPreview: Codable, Equatable {
@@ -58,9 +53,6 @@ final class WsClient: NSObject {
         task = URLSession.shared.webSocketTask(with: url)
         task?.resume()
         receiveLoop()
-        // 合约喊单卡片：重连后服务端不记得在看哪些卡片，重新告诉它
-        if let w = perpWatching { sendFrame(w) }
-        if let w = cardWatching { sendFrame(w) }
 
         DispatchQueue.main.async { [weak self] in
             self?.heartbeatTimer?.invalidate()
@@ -103,34 +95,6 @@ final class WsClient: NSObject {
 
     func markRead(conversationId: String, msgId: String) {
         sendFrame(["op": "read", "conversationId": conversationId, "msgId": msgId])
-    }
-
-    /// 正在看的会话里的合约喊单卡片（服务端据此每 3 秒推 perpTick，见后端 perp-watch.service.ts）
-    private var perpWatching: [String: Any]?
-
-    func perpWatch(conversationId: String, ids: [String]) {
-        let frame: [String: Any] = ["op": "perpWatch", "conversationId": conversationId, "ids": Array(ids.suffix(100))]
-        perpWatching = frame
-        sendFrame(frame)
-    }
-
-    func perpUnwatch(conversationId: String) {
-        if (perpWatching?["conversationId"] as? String) == conversationId { perpWatching = nil }
-        sendFrame(["op": "perpUnwatch", "conversationId": conversationId])
-    }
-
-    /// 正在看的会话里的通用卡片（服务端统一拉实时数据、推 cardTick，见后端 card-watch.service.ts）
-    private var cardWatching: [String: Any]?
-
-    func cardWatch(conversationId: String, ids: [String]) {
-        let frame: [String: Any] = ["op": "cardWatch", "conversationId": conversationId, "ids": Array(ids.suffix(100))]
-        cardWatching = frame
-        sendFrame(frame)
-    }
-
-    func cardUnwatch(conversationId: String) {
-        if (cardWatching?["conversationId"] as? String) == conversationId { cardWatching = nil }
-        sendFrame(["op": "cardUnwatch", "conversationId": conversationId])
     }
 
     private func sendFrame(_ dict: [String: Any]) {

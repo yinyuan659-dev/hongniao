@@ -3,21 +3,17 @@ import Photos
 import SwiftUI
 
 /// 聊天「+」弹框（Telegram 式）：顶部 × / 相册切换，3 列相册网格（第一格相机），
-/// 底部悬浮胶囊切 相册 / 礼物 / 位置 / 通话；选了图后胶囊换成「添加说明 + 发送」。
+/// 底部悬浮胶囊切 相册 / 文件 / 位置 / 通话；选了图后胶囊换成「添加说明 + 发送」。
 enum AttachAction {
-    case gift, transfer, location, voice, voiceCall, videoCall, file
+    case location, voiceCall, videoCall, file
 }
 
 private let attachMaxPick = 9
 
 struct AttachSheet: View {
-    /// 单聊才有礼物 / 通话
+    /// 单聊才有通话
     let isSingle: Bool
     let canVideoCall: Bool
-    /// 链上钱包转账（单聊、有钱包入口）
-    var canTransfer: Bool = false
-    /// 群 / 频道：胶囊里放「语音」（单聊的语音在输入框左边，胶囊放不下）
-    var canVoice: Bool = false
     /// 胶囊里放「文件」（选任意文件，每个发一条文件消息）
     var canFile: Bool = false
     let onClose: () -> Void
@@ -178,10 +174,7 @@ struct AttachSheet: View {
     private var tabs: [Tab] {
         var list = [Tab(id: "album", icon: "photo.fill", label: t("attach.album"), action: nil)]
         if canFile { list.append(Tab(id: "file", icon: "doc.fill", label: t("attach.file"), action: .file)) }
-        if isSingle { list.append(Tab(id: "gift", icon: "gift.fill", label: t("attach.gift"), action: .gift)) }
-        if canTransfer { list.append(Tab(id: "transfer", icon: "arrow.left.arrow.right", label: t("attach.transfer"), action: .transfer)) }
         list.append(Tab(id: "location", icon: "location.fill", label: t("attach.location"), action: .location))
-        if canVoice { list.append(Tab(id: "voiceMsg", icon: "mic.fill", label: t("attach.voice"), action: .voice)) }
         if isSingle {
             list.append(Tab(id: "voice", icon: "phone.fill", label: t("attach.voiceCall"), action: .voiceCall))
             if canVideoCall { list.append(Tab(id: "video", icon: "video.fill", label: t("attach.videoCall"), action: .videoCall)) }
@@ -190,7 +183,7 @@ struct AttachSheet: View {
     }
 
     private var tabBar: some View {
-        // 单聊最多 7 格，窄屏放不下就左右滑
+        // 单聊最多 5 格，窄屏放不下就左右滑
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 0) {
                 ForEach(tabs) { t in

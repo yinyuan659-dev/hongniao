@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, fmtPoints, toFen, uploadFile, UserProfile } from '../api';
+import { api, uploadFile, UserProfile } from '../api';
 import { useApp } from '../store';
 import { CityPickerSheet } from '../components/CityPicker';
 import { t } from '../i18n';
@@ -19,9 +19,6 @@ export function EditProfilePage() {
   const [showCity, setShowCity] = useState(false);
   const [showAge, setShowAge] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [videoPrice, setVideoPrice] = useState('');
-  // 平台手续费（分/分钟）= 流量成本 x 平台倍率，定价必须高于手续费
-  const [feeCut, setFeeCut] = useState(4);
   const [photos, setPhotos] = useState<string[]>([]);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -35,14 +32,7 @@ export function EditProfilePage() {
       setCityName(u.cityName ?? '');
       setSignature(u.signature ?? '');
       setAvatar(u.avatar ?? '');
-      if (u.videoPriceFen && u.videoPriceFen > 0) setVideoPrice(fmtPoints(u.videoPriceFen));
       setPhotos((u.albums ?? []).filter((a) => a.type === 1).map((a) => a.url));
-      api<any>('/call/config').then((c) => {
-        const base = c.videoBaseFenPerMin ?? 2;
-        setFeeCut(base * (c.videoPlatformX ?? 2));
-        // 未设置时默认价 = 成本 x5
-        if (u.gender === 2 && !(u.videoPriceFen && u.videoPriceFen > 0)) setVideoPrice(fmtPoints(base * 5));
-      }).catch(() => {});
     }).catch(() => {});
   }, []);
 
@@ -80,9 +70,6 @@ export function EditProfilePage() {
 
   const save = async () => {
     if (!nickname.trim()) return alert(t('profile.nicknameEmpty'));
-    if (me?.gender === 2 && videoPrice && toFen(videoPrice) <= feeCut) {
-      return alert(t('profile.priceTooLow', { fee: fmtPoints(feeCut) }));
-    }
     setBusy(true);
     try {
       const updated = await api<UserProfile>('/user/me', {
@@ -94,7 +81,6 @@ export function EditProfilePage() {
           signature: signature.trim(),
           cityName,
           cityCode: cityName,
-          ...(me?.gender === 2 ? { videoPriceFen: videoPrice ? toFen(videoPrice) : 0 } : {}),
         },
       });
       // 照片墙整组保存
@@ -154,26 +140,6 @@ export function EditProfilePage() {
             <span className="grow" style={{ textAlign: 'right', fontSize: 15, color: cityName ? 'var(--text)' : 'var(--text-3)' }}>{cityName || t('profile.select')}</span>
             <span style={{ color: 'var(--text-3)', marginLeft: 6 }}>›</span>
           </div>
-          {me.gender === 2 && (
-            <div style={{ padding: '14px', borderBottom: '1px solid var(--line)' }}>
-              <div className="row">
-                <span style={{ fontSize: 14 }} className="muted">{t('profile.videoPrice')}</span>
-                <span className="grow" />
-                <input
-                  inputMode="decimal"
-                  value={videoPrice}
-                  placeholder={t('profile.pricePlaceholder')}
-                  onChange={(e) => setVideoPrice(e.target.value.replace(/[^\d.]/g, ''))}
-                  style={{ width: 90, background: 'transparent', border: 'none', outline: 'none', color: 'var(--text)', fontSize: 15, textAlign: 'right' }}
-                />
-                <span className="small" style={{ marginLeft: 4 }}>{t('profile.perMin')}</span>
-              </div>
-              {/* 手续费提示：收入 = 价格 - 手续费 */}
-              <div style={{ fontSize: 12, marginTop: 6, color: toFen(videoPrice) > feeCut ? 'var(--text-3)' : '#ff4d4f' }}>
-                {t('profile.feeHint', { fee: fmtPoints(feeCut), income: fmtPoints(Math.max(0, toFen(videoPrice) - feeCut)) })}
-              </div>
-            </div>
-          )}
           <div style={{ padding: '14px' }}>
             <div className="muted" style={{ fontSize: 14, marginBottom: 8 }}>{t('profile.bio')}</div>
             <textarea

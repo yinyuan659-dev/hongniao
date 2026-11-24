@@ -1,30 +1,6 @@
 package com.wh.hongniang.net
 
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-
-/** 机器人消息下面的内联按钮（Telegram inline_keyboard 格式） */
-@Serializable
-data class InlineButton(val text: String = "", val url: String? = null, @SerialName("callback_data") val callbackData: String? = null)
-
-@Serializable
-data class InlineMarkup(@SerialName("inline_keyboard") val inlineKeyboard: List<List<InlineButton>> = emptyList())
-
-@Serializable
-data class MomentUser(
-    val id: String,
-    val nickname: String = "",
-    val avatar: String = "",
-    val age: Int = 0,
-    val isGuide: Boolean = false,
-    val online: Boolean = false,
-    val latitude: Double? = null,
-    val longitude: Double? = null,
-    /** 女生视频通话实际价格（分/分钟），男生为 0 */
-    val videoPriceFen: Int = 0,
-    /** 正在通话中（占线） */
-    val busy: Boolean = false,
-)
 
 @Serializable
 data class RatingInfo(
@@ -48,7 +24,6 @@ data class FollowUser(
     val gender: Int = 1,
     val cityName: String = "",
     val signature: String = "",
-    val isGuide: Boolean = false,
 )
 
 /** 照片墙条目（user_album） */
@@ -71,19 +46,34 @@ data class HomeProfile(
     val age: Int = 0,
     val cityName: String = "",
     val signature: String = "",
-    val isGuide: Boolean = false,
     val following: Int = 0,
     val fans: Int = 0,
     val isFollowing: Boolean = false,
     val rating: RatingInfo? = null,
     /** 视频接通率（%），-1=暂无数据，null=男生 */
     val answerRate: Int? = null,
-    val videoPriceActualFen: Int = 0,
+    /** 对方打开了视频见面（默认关） */
+    val allowVideo: Boolean = false,
+    /** 相亲资料卡：对方完成资料收集后才有 */
+    val matchProfile: MatchProfile? = null,
     val online: Boolean = false,
     val busy: Boolean = false,
     val realnameVerified: Boolean = false,
     /** 照片墙（最多 8 张） */
     val albums: List<AlbumItem> = emptyList(),
+)
+
+@Serializable
+data class MatchRow(val label: String = "", val value: String = "")
+
+/** 相亲资料卡（AI 红娘收集的画像，给别人看的那部分，不含收入） */
+@Serializable
+data class MatchProfile(
+    val summary: String = "",
+    val tags: List<String> = emptyList(),
+    val intro: String = "",
+    val about: List<MatchRow> = emptyList(),
+    val prefs: List<MatchRow> = emptyList(),
 )
 
 /** 遇见列表用户卡片（/user/meet/list） */
@@ -95,30 +85,47 @@ data class MeetUser(
     val gender: Int = 0,
     val age: Int = 0,
     val cityName: String = "",
-    val isGuide: Boolean = false,
     val realnameVerified: Boolean = false,
     /** 0-100 平均分，显示时 /20 换算五星 */
     val ratingAvg: Int = 0,
     val ratingCount: Int = 0,
-    val videoPriceFen: Int = 0,
+    /** 对方打开了视频见面（默认关） */
+    val allowVideo: Boolean = false,
     val online: Boolean = false,
     val busy: Boolean = false,
     /** 注册 7 天内 */
     val isNew: Boolean = false,
     /** 与我的亲密度分（0.5 粒度） */
     val intimacy: Double = 0.0,
+    /** none 都没表态 | liked 我喜欢了 | likedMe 对方喜欢了我 | mutual 互相喜欢 */
+    val like: String = "none",
 )
 
 /** 全局会话信息（登录后写入） */
 object Session {
     var uid: String = ""
     var gender: Int = 0
-    /** 后台给这个账号开了链上钱包（/user/me features.wallet），扫码时决定钱包地址能不能直接去转账 */
-    var walletFeature: Boolean = false
     /** App 是否在前台（MainActivity 生命周期维护），后台来电用通知提醒 */
     @Volatile var foreground: Boolean = true
 }
 
+/** 动态 / 评论的作者 */
+@Serializable
+data class MomentUser(
+    val id: String,
+    val nickname: String = "",
+    val avatar: String = "",
+    val age: Int = 0,
+    val online: Boolean = false,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    /** 对方打开了视频见面（默认关） */
+    val allowVideo: Boolean = false,
+    /** 正在通话中（占线） */
+    val busy: Boolean = false,
+)
+
+/** 广场动态：type 1=图文 2=视频 */
 @Serializable
 data class Moment(
     val id: String,
@@ -144,122 +151,9 @@ data class CommentItem(
     val user: MomentUser? = null,
     val content: String = "",
     val imageUrl: String = "",
-    /** 贴纸（表情包），可与文字同时存在 */
-    val sticker: com.wh.hongniang.ui.sticker.StickerPayload? = null,
     val replyToNickname: String = "",
     val createdAt: String = "",
 )
-
-@Serializable
-data class Person(
-    val id: String,
-    val nickname: String = "",
-    val avatar: String = "",
-    val age: Int = 0,
-    val gender: Int = 0,
-    val cityName: String = "",
-    val signature: String = "",
-    val isGuide: Boolean = false,
-)
-
-@Serializable
-data class GiftDef(
-    val id: Int,
-    val name: String,
-    val icon: String,
-    val price: String,
-    val count: Int = 0,
-)
-
-@Serializable
-data class NotificationItem(
-    val id: String,
-    val kind: String,
-    val title: String,
-    val body: String = "",
-    val refId: String = "0",
-    val isRead: Boolean = false,
-    val createdAt: String = "",
-)
-
-@Serializable
-data class WalletData(val balance: String = "0", val frozen: String = "0")
-
-@Serializable
-data class UnreadCounts(val comment: Int = 0, val task: Int = 0)
-
-@Serializable
-data class WalletTx(
-    val id: String,
-    val type: String,
-    val amount: String,
-    val remark: String = "",
-    val createdAt: String = "",
-)
-
-@Serializable
-data class ContribRankItem(
-    val userId: String,
-    val nickname: String = "用户",
-    val avatar: String = "",
-    val totalFen: String = "0",
-    val giftFen: String = "0",
-    val callFen: String = "0",
-    val msgFen: String = "0",
-)
-
-@Serializable
-data class ContribRankResp(val title: String = "", val list: List<ContribRankItem> = emptyList())
-
-@Serializable
-data class ProjectItem(
-    val id: Int,
-    val name: String,
-    val desc: String = "",
-    val cover: String = "",
-    val type: String = "native",
-    val entry: String = "",
-)
-
-@Serializable
-data class TaskOrder(
-    val id: String,
-    val owner: MomentUser? = null,
-    val title: String = "",
-    val detail: String = "",
-    val meetAt: String = "",
-    val cityName: String = "",
-    val address: String = "",
-    val reward: String = "0",
-    val status: Int = 0,
-    val applyCount: Int = 0,
-    val takerId: String? = null,
-)
-
-@Serializable
-data class TaskApplyItem(
-    val id: String,
-    val user: Person? = null,
-    val message: String = "",
-    val status: Int = 0,
-)
-
-@Serializable
-data class TaskDetail(
-    val id: String,
-    val title: String = "",
-    val detail: String = "",
-    val meetAt: String = "",
-    val cityName: String = "",
-    val address: String = "",
-    val reward: String = "0",
-    val status: Int = 0,
-    val isOwner: Boolean = false,
-    val applies: List<TaskApplyItem> = emptyList(),
-)
-
-@Serializable
-data class LookupUser(val id: String, val shortId: String, val nickname: String, val avatar: String = "")
 
 @Serializable
 data class CallConfigData(
@@ -270,8 +164,4 @@ data class CallConfigData(
     val srsServer: String = "",
     val whipUrl: String = "",
     val whepUrl: String = "",
-    val msgPriceFen: Int = 10,
-    val videoBaseFenPerMin: Int = 2,
-    /** 平台倍率：平台每分钟抽成 = videoBaseFenPerMin x videoPlatformX */
-    val videoPlatformX: Int = 2,
 )

@@ -1,72 +1,32 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import type { Request } from 'express';
 import { Throttle } from '../common/rate-limit.guard';
-import { NewsService } from '../news/news.service';
-import { TreeholeService } from '../treehole/treehole.service';
-import { TreeholeSyncService } from '../treehole/treehole-sync.service';
 import { SrsService } from '../srs/srs.service';
 import { AppVersionService } from '../module/app-version.service';
 import { AdminGuard } from './admin.guard';
 import { AdminService } from './admin.service';
 import { ReviewService } from '../auth/review.service';
-import { TelegramClientService } from '../telegram/telegram.service';
-import { MusicService } from '../music/music.service';
-import { GalleryService } from '../gallery/gallery.service';
-import { StickerService } from '../sticker/sticker.service';
-import { GifService } from '../gif/gif.service';
 import { HallTabsService } from '../module/hall-tabs.service';
-import { TgForwardService } from '../tgforward/tg-forward.service';
-import { PublishService } from '../publish/publish.service';
-import { XPicsService } from '../publish/x-pics.service';
-import { ChannelService } from '../im/channel.service';
-import { BotService } from '../im/bot.service';
 import { MessageService } from '../im/message.service';
-import { GroupService } from '../im/group.service';
+import { AiWalletService } from '../ai/ai-wallet.service';
+import { DeepService } from '../hn/deep.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { getMatchConfig, setMatchConfig } from '../common/chat-gate';
+import { getKycRequired, setKycRequired } from '../common/kyc-gate';
 
 @Controller('admin')
 export class AdminController {
   constructor(
-    private readonly publish: PublishService,
-    private readonly xpics: XPicsService,
     private readonly admin: AdminService,
-    private readonly news: NewsService,
-    private readonly treehole: TreeholeService,
-    private readonly treeholeSync: TreeholeSyncService,
     private readonly srs: SrsService,
     private readonly appVersion: AppVersionService,
     private readonly review: ReviewService,
-    private readonly tg: TelegramClientService,
-    private readonly music: MusicService,
-    private readonly gallery: GalleryService,
-    private readonly stickers: StickerService,
-    private readonly gifs: GifService,
     private readonly hallTabs: HallTabsService,
-    private readonly tgForward: TgForwardService,
-    private readonly channels: ChannelService,
-    private readonly bots: BotService,
     private readonly msgs: MessageService,
-    private readonly groups: GroupService,
+    private readonly aiWallet: AiWalletService,
+    private readonly deep: DeepService,
+    private readonly prisma: PrismaService,
   ) {}
-
-  // ---------- 机器人（用户建的 Bot API 机器人：查看 / 封禁 / 删除） ----------
-
-  @Get('bots')
-  @UseGuards(AdminGuard)
-  botList(@Query('q') q?: string) {
-    return this.bots.adminList(q);
-  }
-
-  @Post('bots/:id/status')
-  @UseGuards(AdminGuard)
-  botStatus(@Param('id') id: string, @Body() body: { banned?: boolean }) {
-    return this.bots.adminSetBanned(BigInt(id), !!body?.banned);
-  }
-
-  @Post('bots/:id/delete')
-  @UseGuards(AdminGuard)
-  botDelete(@Param('id') id: string) {
-    return this.bots.adminDelete(BigInt(id));
-  }
 
   // ---------- 举报（聊天消息长按举报） ----------
 
@@ -80,481 +40,6 @@ export class AdminController {
   @UseGuards(AdminGuard)
   reportHandle(@Param('id') id: string, @Body() body: { action?: string }) {
     return this.msgs.adminHandleReport(BigInt(id), String(body?.action ?? ''));
-  }
-
-  // ---------- 频道（用户开的频道：查看 / 封禁 / 删帖 / 删评论） ----------
-
-  @Get('channels/config')
-  @UseGuards(AdminGuard)
-  channelConfig() {
-    return this.channels.adminGetConfig();
-  }
-
-  @Post('channels/config')
-  @UseGuards(AdminGuard)
-  setChannelConfig(@Body() body: { defaultLimit?: number; retentionDays?: number }) {
-    return this.channels.adminSetConfig(body ?? {});
-  }
-
-  @Get('channels')
-  @UseGuards(AdminGuard)
-  channelList(@Query('q') q?: string, @Query('cat') cat?: string, @Query('page') page?: string, @Query('size') size?: string) {
-    return this.channels.adminList({ q, cat, page: Number(page) || 1, size: Number(size) || 20 });
-  }
-
-  @Post('channels/:id/status')
-  @UseGuards(AdminGuard)
-  channelStatus(@Param('id') id: string, @Body() body: { banned?: boolean }) {
-    return this.channels.adminSetStatus(BigInt(id), body?.banned ? 2 : 0);
-  }
-
-  @Get('channels/:id/posts')
-  @UseGuards(AdminGuard)
-  channelPosts(@Param('id') id: string, @Query('beforeId') beforeId?: string) {
-    return this.channels.adminPosts(BigInt(id), beforeId ? BigInt(beforeId) : undefined);
-  }
-
-  @Get('channels/posts/:msgId/comments')
-  @UseGuards(AdminGuard)
-  channelPostComments(@Param('msgId') msgId: string) {
-    return this.channels.comments(BigInt(msgId)).catch(() => []);
-  }
-
-  @Post('channels/posts/:msgId/delete')
-  @UseGuards(AdminGuard)
-  channelDeletePost(@Param('msgId') msgId: string) {
-    return this.channels.adminDeletePost(BigInt(msgId));
-  }
-
-  @Post('channels/comments/:id/delete')
-  @UseGuards(AdminGuard)
-  channelDeleteComment(@Param('id') id: string) {
-    return this.channels.adminDeleteComment(BigInt(id));
-  }
-
-  // ---------- 群聊（查看 / 封禁 / 对用户显示开关） ----------
-
-  @Get('groups')
-  @UseGuards(AdminGuard)
-  groupList(@Query('q') q?: string, @Query('cat') cat?: string, @Query('type') type?: string, @Query('page') page?: string, @Query('size') size?: string) {
-    return this.groups.adminList({ q, cat, type, page: Number(page) || 1, size: Number(size) || 20 });
-  }
-
-  @Post('groups/:id/status')
-  @UseGuards(AdminGuard)
-  groupStatus(@Param('id') id: string, @Body() body: { banned?: boolean }) {
-    return this.groups.adminSetStatus(BigInt(id), body?.banned ? 2 : 0);
-  }
-
-  @Post('groups/:id/visible')
-  @UseGuards(AdminGuard)
-  groupVisible(@Param('id') id: string, @Body() body: { visible?: boolean }) {
-    return this.groups.adminSetVisible(BigInt(id), body?.visible !== false);
-  }
-
-  @Get('groups/:id/messages')
-  @UseGuards(AdminGuard)
-  groupMessages(@Param('id') id: string, @Query('beforeId') beforeId?: string) {
-    return this.groups.adminMessages(BigInt(id), beforeId ? BigInt(beforeId) : undefined);
-  }
-
-  // ---------- 内容分发（推广：树洞新帖 → AI 改写 → 小红书 / 抖音 / 快手 / 知乎，发布机在操作者本机） ----------
-
-  @Get('publish/overview')
-  @UseGuards(AdminGuard)
-  publishOverview() {
-    return this.publish.overview();
-  }
-
-  @Put('publish/settings')
-  @UseGuards(AdminGuard)
-  publishSettings(@Body() body: { enabled?: boolean; platforms?: string[]; dailyMax?: number; hourStart?: number; hourEnd?: number; gapMin?: number; queueDays?: number; modes?: Record<string, string>; dailyMaxes?: Record<string, number>; formats?: Record<string, string> }) {
-    return this.publish.saveSettings(body ?? {});
-  }
-
-  @Post('publish/token/rotate')
-  @UseGuards(AdminGuard)
-  publishRotateToken() {
-    return this.publish.rotateToken();
-  }
-
-  @Get('publish/jobs')
-  @UseGuards(AdminGuard)
-  publishJobs(@Query('status') status?: string, @Query('platform') platform?: string, @Query('page') page?: string, @Query('size') size?: string) {
-    return this.publish.jobs(status !== undefined && status !== '' ? Number(status) : undefined, platform || undefined, Number(page) || 1, Number(size) || 20);
-  }
-
-  /** 待发任务按某个文案模式出稿预览（raw / light / ai），不落库 */
-  @Get('publish/jobs/:id/draft')
-  @UseGuards(AdminGuard)
-  publishDraftPreview(@Param('id') id: string, @Query('mode') mode: string) {
-    return this.publish.previewDraft(BigInt(id), mode ?? 'raw');
-  }
-
-  /** 把某个模式的稿子应用为任务的发布文案（视频任务重新出图） */
-  @Post('publish/jobs/:id/draft')
-  @UseGuards(AdminGuard)
-  publishDraftApply(@Param('id') id: string, @Body() body: { mode?: string }) {
-    return this.publish.applyDraft(BigInt(id), body?.mode ?? 'raw');
-  }
-
-  @Post('publish/jobs/:id/retry')
-  @UseGuards(AdminGuard)
-  publishRetry(@Param('id') id: string) {
-    return this.publish.retry(BigInt(id));
-  }
-
-  @Post('publish/jobs/:id/skip')
-  @UseGuards(AdminGuard)
-  publishSkip(@Param('id') id: string) {
-    return this.publish.skip(BigInt(id));
-  }
-
-  @Delete('publish/jobs/:id')
-  @UseGuards(AdminGuard)
-  publishRemove(@Param('id') id: string) {
-    return this.publish.remove(BigInt(id));
-  }
-
-  /** 测试发布：拿最近一条树洞帖（或 postId）立刻给指定平台排任务，不受上限 / 时段限制 */
-  @Post('publish/test')
-  @UseGuards(AdminGuard)
-  publishTest(@Body() body: { postId?: string; platforms?: string[] }) {
-    return this.publish.testPublish(body?.postId ? BigInt(body.postId) : undefined, body?.platforms);
-  }
-
-  // ---------- X 美女图（推广：TG 频道图片 → X 纯图帖，只发 X） ----------
-
-  @Get('xpics')
-  @UseGuards(AdminGuard)
-  xpicsStatus() {
-    return this.xpics.status();
-  }
-
-  @Put('xpics/settings')
-  @UseGuards(AdminGuard)
-  xpicsSettings(@Body() body: { enabled?: boolean; channel?: string; daily?: number; ytDaily?: number; ttDaily?: number; min?: number; max?: number; fetchHour?: number }) {
-    return this.xpics.saveSettings(body ?? {});
-  }
-
-  @Post('xpics/fetch')
-  @UseGuards(AdminGuard)
-  xpicsFetch() {
-    return this.xpics.fetchNow();
-  }
-
-  @Post('xpics/post-now')
-  @UseGuards(AdminGuard)
-  xpicsPostNow() {
-    return this.xpics.postNow();
-  }
-
-  @Post('xpics/manual')
-  @UseGuards(AdminGuard)
-  xpicsManual(@Body() body: { platforms?: string[]; text?: string; en?: string; images?: string[] }) {
-    return this.xpics.manualPost(body ?? {});
-  }
-
-  @Post('xpics/translate')
-  @UseGuards(AdminGuard)
-  async xpicsTranslate(@Body() body: { text?: string }) {
-    return { en: await this.xpics.translate(body?.text ?? '') };
-  }
-
-  // ---------- 频道转发（推广：别人的频道 → 我们的推广频道，与 App 内容无关） ----------
-
-  @Get('tg-forward/status')
-  @UseGuards(AdminGuard)
-  tgForwardStatus() {
-    return this.tgForward.status();
-  }
-
-  @Put('tg-forward/target')
-  @UseGuards(AdminGuard)
-  tgForwardTarget(@Body() body: { channel: string }) {
-    return this.tgForward.saveTarget(body?.channel ?? '');
-  }
-
-  @Get('tg-forward/sources')
-  @UseGuards(AdminGuard)
-  tgForwardSources() {
-    return this.tgForward.listSources();
-  }
-
-  @Get('tg-forward/sources/preview')
-  @UseGuards(AdminGuard)
-  tgForwardPreview(@Query('channel') channel: string) {
-    return this.tgForward.preview(channel ?? '');
-  }
-
-  @Post('tg-forward/sources')
-  @UseGuards(AdminGuard)
-  tgForwardSave(@Body() body: { id?: number; channel: string; enabled?: boolean; dropAuthor?: boolean; mediaOnly?: boolean; maxPerRun?: number; blockWords?: string; backfill?: number }) {
-    return this.tgForward.saveSource(body);
-  }
-
-  @Delete('tg-forward/sources/:id')
-  @UseGuards(AdminGuard)
-  tgForwardRemove(@Param('id') id: string) {
-    return this.tgForward.removeSource(Number(id));
-  }
-
-  /** 立即转发新消息；?backfill=N 不看游标、把最近 N 条转过去 */
-  @Post('tg-forward/sources/:id/sync')
-  @UseGuards(AdminGuard)
-  tgForwardSync(@Param('id') id: string, @Query('backfill') backfill?: string) {
-    return this.tgForward.syncOne(Number(id), Number(backfill) || 0);
-  }
-
-  // ---------- 表情包（Telegram 公开贴纸集，后台精选） ----------
-
-  @Get('stickers/sets')
-  @UseGuards(AdminGuard)
-  stickerSets() {
-    return this.stickers.listSets();
-  }
-
-  @Get('stickers/sets/:id/items')
-  @UseGuards(AdminGuard)
-  stickerItems(@Param('id') id: string) {
-    return this.stickers.items(Number(id));
-  }
-
-  /** 解析（不入库）：标题/张数/类型 + 前 12 张缩略图 */
-  @Get('stickers/preview')
-  @UseGuards(AdminGuard)
-  stickerPreview(@Query('name') name: string) {
-    return this.stickers.preview(name ?? '');
-  }
-
-  /** Telegram 官方热门贴纸集 */
-  @Get('stickers/featured')
-  @UseGuards(AdminGuard)
-  stickerFeatured() {
-    return this.stickers.featured();
-  }
-
-  /** 添加并开始同步；已存在则重新同步 */
-  @Post('stickers/sets')
-  @UseGuards(AdminGuard)
-  stickerAdd(@Body() body: { name: string }) {
-    return this.stickers.addSet(body?.name ?? '');
-  }
-
-  @Post('stickers/sets/:id/sync')
-  @UseGuards(AdminGuard)
-  stickerSync(@Param('id') id: string) {
-    return this.stickers.syncOne(Number(id));
-  }
-
-  @Put('stickers/sets/:id')
-  @UseGuards(AdminGuard)
-  stickerUpdate(@Param('id') id: string, @Body() body: { title?: string; enabled?: boolean; sort?: number; isDefault?: boolean }) {
-    return this.stickers.updateSet(Number(id), body ?? {});
-  }
-
-  /** 推给所有已有面板的用户（新用户看 isDefault） */
-  @Post('stickers/sets/:id/push-all')
-  @UseGuards(AdminGuard)
-  stickerPushAll(@Param('id') id: string) {
-    return this.stickers.pushToAll(Number(id));
-  }
-
-  @Put('stickers/reorder')
-  @UseGuards(AdminGuard)
-  stickerReorder(@Body() body: { ids: number[] }) {
-    return this.stickers.reorder((body?.ids ?? []).map(Number).filter((n) => n > 0));
-  }
-
-  /** purge=1 连文件删（已发出的表情会裂图）；默认只删记录 */
-  @Delete('stickers/sets/:id')
-  @UseGuards(AdminGuard)
-  stickerRemove(@Param('id') id: string, @Query('purge') purge?: string) {
-    return this.stickers.removeSet(Number(id), purge === '1' || purge === 'true');
-  }
-
-  // ---------- GIF 缓存（Telegram @gif → MinIO） ----------
-
-  @Get('gifs')
-  @UseGuards(AdminGuard)
-  gifList(@Query('page') page?: string, @Query('size') size?: string, @Query('q') q?: string) {
-    return this.gifs.adminList(Math.max(1, Number(page) || 1), Math.min(100, Number(size) || 40), q ?? '');
-  }
-
-  @Get('gifs/stats')
-  @UseGuards(AdminGuard)
-  gifStats() {
-    return this.gifs.adminStats();
-  }
-
-  /** 屏蔽（删文件、不再出现） */
-  @Post('gifs/:id/block')
-  @UseGuards(AdminGuard)
-  gifBlock(@Param('id') id: string) {
-    return this.gifs.block(Number(id));
-  }
-
-  @Post('gifs/:id/unblock')
-  @UseGuards(AdminGuard)
-  gifUnblock(@Param('id') id: string) {
-    return this.gifs.unblock(Number(id));
-  }
-
-  /** 清空缓存（屏蔽记录保留） */
-  @Post('gifs/purge')
-  @UseGuards(AdminGuard)
-  gifPurge() {
-    return this.gifs.purge();
-  }
-
-  // ---------- 养眼图片（大厅 tab，名称/保留天数可改，按性别分流） ----------
-
-  @Get('gallery/settings')
-  @UseGuards(AdminGuard)
-  gallerySettings() {
-    return this.gallery.settings();
-  }
-
-  @Put('gallery/settings')
-  @UseGuards(AdminGuard)
-  gallerySaveSettings(@Body() body: { titleM?: string; titleF?: string; titleEnM?: string; titleEnF?: string; daysM?: number; daysF?: number; hideTextM?: boolean; hideTextF?: boolean }) {
-    return this.gallery.saveSettings(body ?? {});
-  }
-
-  @Get('gallery/sources')
-  @UseGuards(AdminGuard)
-  gallerySources() {
-    return this.gallery.listSources();
-  }
-
-  @Get('gallery/sources/preview')
-  @UseGuards(AdminGuard)
-  galleryPreview(@Query('channel') channel: string) {
-    return this.gallery.preview(channel ?? '');
-  }
-
-  @Post('gallery/sources')
-  @UseGuards(AdminGuard)
-  gallerySaveSource(@Body() body: { id?: number; channel: string; audience: number; enabled?: boolean }) {
-    return this.gallery.saveSource(body);
-  }
-
-  @Delete('gallery/sources/:id')
-  @UseGuards(AdminGuard)
-  galleryRemoveSource(@Param('id') id: string) {
-    return this.gallery.removeSource(Number(id));
-  }
-
-  @Post('gallery/sources/:id/sync')
-  @UseGuards(AdminGuard)
-  gallerySync(@Param('id') id: string) {
-    return this.gallery.syncOne(Number(id));
-  }
-
-  @Get('gallery/posts')
-  @UseGuards(AdminGuard)
-  galleryPosts(@Query('audience') audience?: string, @Query('beforeId') beforeId?: string) {
-    return this.gallery.adminPosts(audience ? Number(audience) : undefined, beforeId ? BigInt(beforeId) : undefined);
-  }
-
-  @Post('gallery/posts/:id/delete')
-  @UseGuards(AdminGuard)
-  galleryDeletePost(@Param('id') id: string) {
-    return this.gallery.adminDeletePost(BigInt(id));
-  }
-
-  @Post('gallery/purge')
-  @UseGuards(AdminGuard)
-  galleryPurge() {
-    return this.gallery.purgeOld();
-  }
-
-  // ---------- Telegram 账号（音乐频道同步用） ----------
-
-  @Get('telegram/status')
-  @UseGuards(AdminGuard)
-  tgStatus() {
-    return this.tg.status();
-  }
-
-  /** 保存 api_id / api_hash（my.telegram.org 申请；留空回退内置值） */
-  @Put('telegram/api')
-  @UseGuards(AdminGuard)
-  tgSaveApi(@Body() body: { apiId?: string; apiHash?: string }) {
-    return this.tg.saveApi(body?.apiId ?? '', body?.apiHash ?? '');
-  }
-
-  @Post('telegram/send-code')
-  @UseGuards(AdminGuard)
-  @Throttle(5, 300)
-  tgSendCode(@Body() body: { phone: string }) {
-    return this.tg.sendCode(body?.phone ?? '');
-  }
-
-  /** 输验证码；返回 needPassword=true 时再带 password 调一次 */
-  @Post('telegram/sign-in')
-  @UseGuards(AdminGuard)
-  @Throttle(10, 300)
-  tgSignIn(@Body() body: { code?: string; password?: string }) {
-    return this.tg.signIn(body?.code ?? '', body?.password);
-  }
-
-  @Post('telegram/logout')
-  @UseGuards(AdminGuard)
-  tgLogout() {
-    return this.tg.logout();
-  }
-
-  // ---------- 音乐频道 ----------
-
-  @Get('music/sources')
-  @UseGuards(AdminGuard)
-  musicSources() {
-    return this.music.listSources();
-  }
-
-  /** 预览：解析频道 + 最近音频列表（不入库），改来源前先核对 */
-  @Get('music/sources/preview')
-  @UseGuards(AdminGuard)
-  musicPreview(@Query('channel') channel: string, @Query('maxTracks') maxTracks?: string) {
-    return this.music.preview(channel ?? '', maxTracks ? Number(maxTracks) : undefined);
-  }
-
-  /** 新增/修改来源（保存前会解析频道，解析失败不保存；换频道会清掉旧曲目；maxTracks 该来源保留上限 1~500） */
-  @Post('music/sources')
-  @UseGuards(AdminGuard)
-  musicSaveSource(@Body() body: { id?: number; channel: string; enabled?: boolean; maxTracks?: number; intervalMin?: number }) {
-    return this.music.saveSource(body);
-  }
-
-  @Delete('music/sources/:id')
-  @UseGuards(AdminGuard)
-  musicRemoveSource(@Param('id') id: string) {
-    return this.music.removeSource(Number(id));
-  }
-
-  @Post('music/sources/:id/sync')
-  @UseGuards(AdminGuard)
-  musicSyncNow(@Param('id') id: string) {
-    return this.music.syncOne(Number(id));
-  }
-
-  @Get('music/tracks')
-  @UseGuards(AdminGuard)
-  musicTracks(@Query('beforeId') beforeId?: string, @Query('sourceId') sourceId?: string) {
-    return this.music.adminTracks(beforeId ? BigInt(beforeId) : undefined, sourceId ? Number(sourceId) : undefined);
-  }
-
-  @Post('music/tracks/:id/delete')
-  @UseGuards(AdminGuard)
-  musicDeleteTrack(@Param('id') id: string) {
-    return this.music.adminDeleteTrack(BigInt(id));
-  }
-
-  @Post('music/purge')
-  @UseGuards(AdminGuard)
-  musicPurge() {
-    return this.music.purgeOld();
   }
 
   // ---------- iOS 审核模式 / 演示账号 ----------
@@ -637,98 +122,6 @@ export class AdminController {
     return this.srs.adminDelete(Number(id));
   }
 
-  // ---------- 私密树洞 ----------
-
-  /** 帖子列表（含隐藏）；status=0/1 可筛 */
-  @Get('treehole')
-  @UseGuards(AdminGuard)
-  treeholeList(@Query('beforeId') beforeId?: string, @Query('status') status?: string) {
-    return this.treehole.adminList(beforeId ? BigInt(beforeId) : undefined, status != null && status !== '' ? Number(status) : undefined);
-  }
-
-  // ---- Telegram 公开频道自动同步（放在 :id 路由之前，避免被当成 id） ----
-
-  @Get('treehole/sources')
-  @UseGuards(AdminGuard)
-  treeholeSources() {
-    return this.treeholeSync.listSources();
-  }
-
-  @Post('treehole/sources')
-  @UseGuards(AdminGuard)
-  treeholeSaveSource(@Body() body: { id?: number; channel: string; enabled?: boolean; minViews?: number; stripLinks?: boolean; textMode?: string; blockWords?: string }) {
-    return this.treeholeSync.saveSource(body);
-  }
-
-  @Delete('treehole/sources/:id')
-  @UseGuards(AdminGuard)
-  treeholeRemoveSource(@Param('id') id: string) {
-    return this.treeholeSync.removeSource(Number(id));
-  }
-
-  /** 预览频道最近的帖子（不入库），用来确认频道名对、能抓到 */
-  @Get('treehole/sources/preview')
-  @UseGuards(AdminGuard)
-  treeholePreview(@Query('channel') channel: string) {
-    return this.treeholeSync.preview(channel ?? '');
-  }
-
-  /** 立即同步；full=1 时往前翻 5 页回灌历史 */
-  @Post('treehole/sources/:id/sync')
-  @UseGuards(AdminGuard)
-  treeholeSyncNow(@Param('id') id: string, @Body() body: { full?: boolean }) {
-    return this.treeholeSync.syncOne(Number(id), !!body?.full);
-  }
-
-  /** 后台手动录入一条（匿名），可带图片 */
-  @Post('treehole')
-  @UseGuards(AdminGuard)
-  treeholeCreate(@Body() body: { content?: string; images?: string[] }) {
-    return this.treehole.adminCreate(body.content ?? '', body.images);
-  }
-
-  /** 编辑后台录入 / 同步的内容与图片 */
-  @Post('treehole/:id')
-  @UseGuards(AdminGuard)
-  treeholeUpdate(@Param('id') id: string, @Body() body: { content?: string; images?: string[] }) {
-    return this.treehole.adminUpdate(BigInt(id), body.content ?? '', body.images);
-  }
-
-  /** 上/下架：status 0=显示 1=隐藏 */
-  @Post('treehole/:id/status')
-  @UseGuards(AdminGuard)
-  treeholeStatus(@Param('id') id: string, @Body() body: { status: number }) {
-    return this.treehole.adminSetStatus(BigInt(id), Number(body.status));
-  }
-
-  @Get('treehole/:id/comments')
-  @UseGuards(AdminGuard)
-  treeholeComments(@Param('id') id: string) {
-    return this.treehole.adminComments(BigInt(id));
-  }
-
-  @Post('treehole/comments/:id/delete')
-  @UseGuards(AdminGuard)
-  treeholeDeleteComment(@Param('id') id: string) {
-    return this.treehole.adminDeleteComment(BigInt(id));
-  }
-
-  // ---------- 内容（花边新闻 / 励志行） ----------
-
-  /** 手动触发采集一轮新闻（两性别，不看间隔；采不到走 AI 兜底） */
-  @Post('news/crawl')
-  @UseGuards(AdminGuard)
-  crawlNews() {
-    return this.news.forceCrawl();
-  }
-
-  /** 手动重新生成今天的励志语句（两性别，覆盖当天已有） */
-  @Post('news/quote')
-  @UseGuards(AdminGuard)
-  genQuote() {
-    return this.news.forceQuote();
-  }
-
   @Post('login')
   @Throttle(10, 300)
   login(@Body() body: { username: string; password: string }, @Req() req: Request) {
@@ -736,29 +129,69 @@ export class AdminController {
     return this.admin.login(body.username, body.password, ip);
   }
 
+  // ---------- AI 余额 ----------
+
+  /**
+   * 给账号加 AI 余额：{ who: 短号或用户 id, yuan: 元, refKey: 批次号, note? }。
+   * 同一个批次号只会加一次，重复提交不会多加。
+   */
+  @Post('ai-wallet/credit')
+  @UseGuards(AdminGuard)
+  aiCredit(@Body() body: { who?: string; yuan?: number; refKey?: string; note?: string }) {
+    return this.aiWallet.adminCredit(String(body?.who ?? ''), Number(body?.yuan), String(body?.refKey ?? ''), String(body?.note ?? ''));
+  }
+
+  /**
+   * 清掉某个人画像里「需要注意」的记录：{ userId }。
+   * 那些记录是 AI 在深聊里听本人说的，本人自己改不了；AI 记错了只能后台核实后在这里清。
+   */
+  @Post('hn/flags/clear')
+  @UseGuards(AdminGuard)
+  clearFlags(@Body() body: { userId?: string }) {
+    return this.deep.clearFlags(BigInt(String(body?.userId ?? '0')));
+  }
+
+  // ---------- 推荐、喜欢、聊天限制的设置 ----------
+
+  /** 现在的设置：每天推荐几位、每天能喜欢几个、老聊天保留几天、规则是哪天上线的 */
+  @Get('match/config')
+  @UseGuards(AdminGuard)
+  matchConfig() {
+    return getMatchConfig(this.prisma, true);
+  }
+
+  /**
+   * 改设置（只改传进来的项）：{ dailyRecs 每天推荐几位 1～10, dailyLikes 在遇见里每天能喜欢几个 0～50, legacyDays 老聊天保留几天 0～365 }。
+   * 改完最多 30 秒生效。
+   */
+  @Put('match/config')
+  @UseGuards(AdminGuard)
+  setMatchConfig(@Body() body: { dailyRecs?: number; dailyLikes?: number; legacyDays?: number }) {
+    return setMatchConfig(this.prisma, { dailyRecs: body?.dailyRecs, dailyLikes: body?.dailyLikes, legacyDays: body?.legacyDays });
+  }
+
+  // ---------- 实人认证开关 ----------
+
+  /** 是否要求实人认证才能聊天 / 发动态 / 评论（默认关；支付上线前先关着用测试号走流程） */
+  @Get('kyc/config')
+  @UseGuards(AdminGuard)
+  async kycConfig() {
+    return { required: await getKycRequired(this.prisma, true) };
+  }
+
+  /** 打开 / 关闭实人认证门槛：{ required: boolean }，改完最多 30 秒生效 */
+  @Put('kyc/config')
+  @UseGuards(AdminGuard)
+  async setKycConfig(@Body() body: { required?: boolean }) {
+    return { required: await setKycRequired(this.prisma, !!body?.required) };
+  }
+
   // ---------- 用户 ----------
 
   @Get('users')
   @UseGuards(AdminGuard)
-  async users(@Query('keyword') keyword?: string, @Query('cat') cat?: string, @Query('page') page?: string, @Query('size') size?: string) {
-    const r = await this.admin.listUsers(keyword?.trim() || undefined, cat, Number(page) || 1, Number(size) || 20);
-    const owned = await this.channels.ownedCounts(r.list.map((u) => u.id));
-    return { ...r, list: r.list.map((u) => ({ ...u, ownedChannels: owned.get(u.id) ?? 0 })) };
-  }
-
-  /** 单独设置某用户最多能创建几个频道；limit 为 null = 跟随全局默认 */
-  @Post('users/:id/channel-limit')
-  @UseGuards(AdminGuard)
-  setChannelLimit(@Param('id') id: string, @Body() body: { limit?: number | null }) {
-    const v = body?.limit;
-    return this.channels.adminSetUserLimit(BigInt(id), v === null || v === undefined || (v as unknown) === '' ? null : Number(v));
-  }
-
-  /** 链上钱包入口：单人开 / 关（全局模式见 chain-wallet/config） */
-  @Post('users/:id/wallet')
-  @UseGuards(AdminGuard)
-  setWalletEnabled(@Param('id') id: string, @Body() body: { enabled?: boolean }) {
-    return this.admin.setUserWallet(BigInt(id), !!body?.enabled);
+  users(@Query('keyword') keyword?: string, @Query('cat') cat?: string, @Query('page') page?: string, @Query('size') size?: string) {
+    return this.admin.listUsers(keyword?.trim() || undefined, cat, Number(page) || 1, Number(size) || 20);
   }
 
   @Post('users/:id/hidden')
@@ -767,58 +200,10 @@ export class AdminController {
     return this.admin.setUserHidden(BigInt(id), !!body?.hidden);
   }
 
-  @Get('chain-wallet/config')
-  @UseGuards(AdminGuard)
-  chainWalletConfig() {
-    return this.admin.chainWalletConfig();
-  }
-
-  @Post('chain-wallet/config')
-  @UseGuards(AdminGuard)
-  setChainWalletConfig(@Body() body: { mode?: string; url?: string }) {
-    return this.admin.setChainWalletConfig(body);
-  }
-
   @Post('users/:id/status')
   @UseGuards(AdminGuard)
   setStatus(@Param('id') id: string, @Body() body: { status: number }) {
     return this.admin.setUserStatus(BigInt(id), body.status);
-  }
-
-  /** 后台发放/调整积分（唯一积分来源，amount 可为负） */
-  @Post('users/:id/grant')
-  @UseGuards(AdminGuard)
-  grant(@Param('id') id: string, @Body() body: { amount: string; remark?: string }) {
-    return this.admin.grantPoints(BigInt(id), BigInt(body.amount), body.remark ?? '');
-  }
-
-  /** 查看某用户积分明细（beforeId 游标分页） */
-  @Get('users/:id/transactions')
-  @UseGuards(AdminGuard)
-  userTransactions(@Param('id') id: string, @Query('beforeId') beforeId?: string) {
-    return this.admin.listUserTransactions(BigInt(id), beforeId ? BigInt(beforeId) : undefined);
-  }
-
-  /** 用户的 Arm 商城店铺基本信息（address 可选：用户没公开钱包地址时手填） */
-  @Get('users/:id/shop')
-  @UseGuards(AdminGuard)
-  userShop(@Param('id') id: string, @Query('address') address?: string) {
-    return this.admin.userShop(BigInt(id), address);
-  }
-
-  // ---------- AI（Arm AI 桌面程序的用户，数据在 Arm indexer） ----------
-
-  @Get('ai/users')
-  @UseGuards(AdminGuard)
-  aiUsers(@Query('q') q?: string, @Query('page') page?: string, @Query('size') size?: string) {
-    return this.admin.aiUsers(q ?? '', Number(page) || 1, Number(size) || 20);
-  }
-
-  /** 这个用户的 Arm AI 显不显示币安 / OKX 充值页（默认不显示） */
-  @Post('ai/users/:id/exchanges')
-  @UseGuards(AdminGuard)
-  aiUserExchanges(@Param('id') id: string, @Body() body: { show?: boolean }) {
-    return this.admin.aiUserExchanges(id, body.show === true);
   }
 
   // ---------- 通话日志 ----------
@@ -835,68 +220,6 @@ export class AdminController {
     return this.admin.callLogDetail(callId);
   }
 
-  // ---------- 语音房日志（按房间场次汇总多端日志） ----------
-
-  @Get('vroom-logs')
-  @UseGuards(AdminGuard)
-  vroomLogs() {
-    return this.admin.listVroomSessions();
-  }
-
-  @Get('vroom-logs/:roomId')
-  @UseGuards(AdminGuard)
-  vroomLogDetail(@Param('roomId') roomId: string) {
-    return this.admin.vroomLogDetail(roomId);
-  }
-
-  // ---------- 平台账本 ----------
-
-  @Get('ledger/summary')
-  @UseGuards(AdminGuard)
-  ledgerSummary(@Query('from') from?: string, @Query('to') to?: string) {
-    return this.admin.ledgerSummary(from, to);
-  }
-
-  @Get('ledger/females')
-  @UseGuards(AdminGuard)
-  ledgerFemales(@Query('from') from?: string, @Query('to') to?: string) {
-    return this.admin.ledgerFemales(from, to);
-  }
-
-  @Get('ledger/females/:id')
-  @UseGuards(AdminGuard)
-  ledgerFemaleDetail(@Param('id') id: string, @Query('from') from?: string, @Query('to') to?: string) {
-    return this.admin.ledgerFemaleDetail(BigInt(id), from, to);
-  }
-
-  // ---------- 地陪审核 ----------
-
-  @Get('guide-applies')
-  @UseGuards(AdminGuard)
-  guideApplies(@Query('status') status?: string) {
-    return this.admin.listGuideApplies(status ? Number(status) : 0);
-  }
-
-  @Post('guide-applies/:id/review')
-  @UseGuards(AdminGuard)
-  reviewGuide(@Param('id') id: string, @Body() body: { pass: boolean; reason?: string }) {
-    return this.admin.reviewGuide(BigInt(id), body.pass, body.reason ?? '');
-  }
-
-  // ---------- 提现审核 ----------
-
-  @Get('withdrawals')
-  @UseGuards(AdminGuard)
-  withdrawals(@Query('status') status?: string) {
-    return this.admin.listWithdrawals(status ? Number(status) : 0);
-  }
-
-  @Post('withdrawals/:id/review')
-  @UseGuards(AdminGuard)
-  reviewWithdraw(@Param('id') id: string, @Body() body: { pass: boolean; remark?: string }) {
-    return this.admin.reviewWithdraw(BigInt(id), body.pass, body.remark ?? '');
-  }
-
   // ---------- 通话参数 ----------
 
   @Get('call-config')
@@ -907,11 +230,11 @@ export class AdminController {
 
   @Put('call-config')
   @UseGuards(AdminGuard)
-  callConfig(@Body() body: { width?: number; height?: number; fps?: number; bitrate?: number; voiceRoomMax?: number }) {
+  callConfig(@Body() body: { width?: number; height?: number; fps?: number; bitrate?: number }) {
     return this.admin.updateCallConfig(body);
   }
 
-  // ---------- 计费配置（单位：分） ----------
+  // ---------- 开关配置（计费字段已不用，只剩 momentNeedRealname） ----------
 
   @Get('price-config')
   @UseGuards(AdminGuard)
@@ -923,27 +246,6 @@ export class AdminController {
   @UseGuards(AdminGuard)
   updatePriceConfig(@Body() body: { msgPriceFen?: number; videoBaseFenPerMin?: number; videoPlatformX?: number; momentNeedRealname?: boolean }) {
     return this.admin.updatePriceConfig(body);
-  }
-
-  /** 重置全平台女生视频价格 = 成本 x times（默认 5） */
-  @Post('price-config/reset-female')
-  @UseGuards(AdminGuard)
-  resetFemalePrices(@Body() body: { times?: number }) {
-    return this.admin.resetFemalePrices(body.times ?? 5);
-  }
-
-  // ---------- 礼物 ----------
-
-  @Get('gifts')
-  @UseGuards(AdminGuard)
-  gifts() {
-    return this.admin.listGifts();
-  }
-
-  @Post('gifts')
-  @UseGuards(AdminGuard)
-  upsertGift(@Body() body: { id?: number; name: string; icon: string; price: string; sort?: number; enabled?: boolean }) {
-    return this.admin.upsertGift(body);
   }
 
   // ---------- 模块入口 ----------
@@ -976,20 +278,6 @@ export class AdminController {
     },
   ) {
     return this.admin.upsertModule(body);
-  }
-
-  // ---------- 约单仲裁 ----------
-
-  @Get('disputes')
-  @UseGuards(AdminGuard)
-  disputes() {
-    return this.admin.listDisputes();
-  }
-
-  @Post('disputes/:id/arbitrate')
-  @UseGuards(AdminGuard)
-  arbitrate(@Param('id') id: string, @Body() body: { settleToTaker: boolean }) {
-    return this.admin.arbitrate(BigInt(id), body.settleToTaker);
   }
 
   // ---------- 动态 ----------

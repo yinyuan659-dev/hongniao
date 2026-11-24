@@ -6,7 +6,18 @@ import { readFile, rm, writeFile } from 'fs/promises';
 import * as Minio from 'minio';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { cleanName, fixName } from '../extfile/ext-file.service';
+
+/** busboy 把 multipart 里直接写的 UTF-8 文件名按 latin1 解码，中文会变乱码；能还原成合法 UTF-8 的就还原 */
+function fixName(n: string) {
+  if (/[^\x00-\xff]/.test(n)) return n;
+  const u = Buffer.from(n, 'latin1').toString('utf8');
+  return u.includes('\ufffd') ? n : u;
+}
+
+function cleanName(n: string) {
+  const base = n.replace(/^.*[\\/]/, '').replace(/[\x00-\x1f\x7f"]/g, '').trim();
+  return (base || 'file').slice(0, 255);
+}
 
 /** 聊天文件上限 100MB（十进制）：再大 Cloudflare 免费版直接回 413，到不了源站 */
 export const FILE_MAX_SIZE = 100_000_000;
@@ -135,30 +146,8 @@ export class UploadService implements OnModuleInit {
   }
 
   /**
-   * 服务端内部转存（不走用户上传的类型/大小限制）：如 Telegram 频道同步下来的音乐文件（100MB+）。
-   * prefix 为对象前缀目录（如 music），ext 为扩展名（不带点）。
-   */
-  async putInternal(prefix: string, ext: string, buffer: Buffer, mimetype: string, extraMeta: Record<string, string> = {}) {
-    const clean = (ext || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8) || 'bin';
-    const object = `${prefix}/${new Date().toISOString().slice(0, 10)}/${randomUUID()}.${clean}`;
-    await this.client.putObject(this.bucket, object, buffer, buffer.length, { 'Content-Type': mimetype, ...extraMeta });
-    return { url: `/res/${this.bucket}/${object}` };
-  }
-
-  /**
-   * 同上，但从本地文件流式上传（MinIO fPutObject），文件不进 Node 堆：
-   * 音乐同步一首 100MB+ 的曲子若整个读成 Buffer，再加 GramJS 下载时的分块副本，api 容器（512MB 上限）会被 OOM 杀掉。
-   */
-  async putInternalFile(prefix: string, ext: string, filePath: string, mimetype: string, extraMeta: Record<string, string> = {}) {
-    const clean = (ext || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 8) || 'bin';
-    const object = `${prefix}/${new Date().toISOString().slice(0, 10)}/${randomUUID()}.${clean}`;
-    await this.client.fPutObject(this.bucket, object, filePath, { 'Content-Type': mimetype, ...extraMeta });
-    return { url: `/res/${this.bucket}/${object}` };
-  }
-
-  /**
    * 服务端复制一份用户上传的媒体（image/ video/ audio/ file/ 目录），返回新地址；其它地址原样返回。
-   * 转发消息时用：频道消息会被定时物理删除，转发出去 / 转发进来的那份不能跟着失效。
+   * 转发消息时用：原消息的文件被删时，转发出去的那份不能跟着失效。
    */
   async copy(url: string) {
     const prefix = `/res/${this.bucket}/`;

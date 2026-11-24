@@ -22,7 +22,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
@@ -61,7 +60,7 @@ class MainActivity : ComponentActivity() {
                 .respectCacheHeaders(false)
                 .components {
                     add(coil.decode.VideoFrameDecoder.Factory())
-                    // 动态 WebP / GIF（表情包）：API 28+ 用系统 ImageDecoder，之前的机型退回 GifDecoder（只播 GIF，动态 WebP 显示首帧）
+                    // 聊天里的动图（GIF / 动态 WebP）：API 28+ 用系统 ImageDecoder，之前的机型退回 GifDecoder（只播 GIF，动态 WebP 显示首帧）
                     if (android.os.Build.VERSION.SDK_INT >= 28) add(coil.decode.ImageDecoderDecoder.Factory()) else add(coil.decode.GifDecoder.Factory())
                 }
                 .crossfade(true)
@@ -98,7 +97,7 @@ private fun androidx.navigation.NavGraphBuilder.page(
 ) {
     composable(route, arguments) { entry ->
         // 子页面盖在常驻的 MainScreen 上面：background 不参与命中测试，页面空白处（比如表情面板底部胶囊两侧）
-        // 的点击会穿到下层主页的底栏「+ 发布」上。挂一个什么都不做的 pointerInput 让整页算"命中"，到此为止。
+        // 的点击会穿到下层主页的底栏上。挂一个什么都不做的 pointerInput 让整页算"命中"，到此为止。
         Box(
             Modifier
                 .fillMaxSize()
@@ -115,7 +114,6 @@ fun AppRoot() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    LaunchedEffect(user) { com.wh.hongniang.net.Session.walletFeature = user?.features?.wallet == true }
     LaunchedEffect(user?.id) {
         user?.let {
             com.wh.hongniang.net.Session.uid = it.id
@@ -123,7 +121,6 @@ fun AppRoot() {
             WsClient.connect()
             CallManager.attachContext(context)
             CallManager.init(context, it.id)
-            com.wh.hongniang.rtc.VoiceRoomManager.init(context, it.id)
             // 保活：前台服务 + 请求忽略电池优化（保证熄屏收消息/来电）
             runCatching { KeepAliveService.start(context) }
             runCatching {
@@ -150,7 +147,7 @@ fun AppRoot() {
         }
     }
 
-    // 路由跳转（进详情/抖音模式等）时停止列表内正在播放的视频
+    // 路由跳转（进动态详情等）时停止广场列表内正在播放的视频
     LaunchedEffect(Unit) {
         nav.currentBackStackEntryFlow.collect {
             com.wh.hongniang.ui.screen.FeedVideoCenter.current?.pause()
@@ -191,14 +188,76 @@ fun AppRoot() {
         }
     }
 
-    // 通过用户 id 打开会话（不能和自己私聊）
+    // 喜欢相关的实时消息：互相喜欢了 → 弹庆祝页；有人喜欢我 / 对方结束了聊天 → 让各页面重新取数字
+    LaunchedEffect(user?.id) {
+        if (user != null) MatchCenter.checkNew()
+    }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        val remove = WsClient.addListener { frame ->
+            if (frame["op"]?.jsonPrimitive?.content != "match") return@addListener
+            if (frame["event"]?.jsonPrimitive?.content == "matched") scope.launch { MatchCenter.checkNew() } else MatchCenter.version++
+        }
+        onDispose { remove() }
+    }
+
+    // 登录身份换了（刷脸找回成功、并号进了原来的账号、本机被别的设备移除）：断开聊天连接，回到启动页重新进入一次。
+    // 这台设备现在挂在哪个账号下由服务器说了算：挂着就登录那个账号，不认识了就去注册页。
+    fun restart() {
+        WsClient.close()
+        user = null
+        nav.navigate("boot") { popUpTo(nav.graph.id) { inclusive = true } }
+    }
+
+    // 登录设备相关的实时消息：有新设备通过刷脸登录了这个账号 → 弹提醒；本机被移除了 → 退出
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        val remove = WsClient.addListener { frame ->
+            if (frame["op"]?.jsonPrimitive?.content != "device") return@addListener
+            val data = frame["data"] as? JsonObject ?: return@addListener
+            val id = data["id"]?.jsonPrimitive?.content.orEmpty()
+            val mine = Api.did.orEmpty()
+            when (frame["event"]?.jsonPrimitive?.content) {
+                "added" -> if (id != mine) {
+                    DeviceCenter.alert = com.wh.hongniang.net.NewDevice(
+                        id = id,
+                        kind = data["kind"]?.jsonPrimitive?.content.orEmpty(),
+                        label = data["label"]?.jsonPrimitive?.content.orEmpty(),
+                        at = data["at"]?.jsonPrimitive?.content.orEmpty(),
+                    )
+                }
+                "removed" -> if (mine.isNotEmpty() && id == mine) {
+                    Api.token = null
+                    Api.did = null
+                    android.widget.Toast.makeText(context, "这台设备已被移除，已退出登录", android.widget.Toast.LENGTH_LONG).show()
+                    restart()
+                }
+            }
+        }
+        onDispose { remove() }
+    }
+
+    // 通过用户 id 打开会话（不能和自己私聊）。搜索、动态、老主页都从这里走：
+    // 互相喜欢了才能聊（规则上线前就聊过的有保留期）；不能聊的提示一句，带去对方的画像（在那里点喜欢）
     fun openChatWithUser(userId: String, nickname: String) {
         if (userId == user?.id || userId.isEmpty()) return
         scope.launch {
             runCatching {
+                val rel = Api.getObj<MatchRelation>("/match/relation/$userId")
+                if (!rel.canChat) {
+                    val tip = when (rel.chatReason) {
+                        "ended_peer" -> "对方已结束聊天"
+                        "ended_me" -> "你已选择不再联系"
+                        "legacy_expired" -> "互相喜欢后才能继续聊"
+                        else -> "互相喜欢后才能聊天"
+                    }
+                    android.widget.Toast.makeText(context, tip, android.widget.Toast.LENGTH_SHORT).show()
+                    val here = nav.currentBackStackEntry
+                    val onCard = here?.destination?.route == "u/{id}" && here.arguments?.getString("id") == userId
+                    if (rel.endedBy == null && !onCard) nav.navigate("u/$userId")
+                    return@runCatching
+                }
                 val data = Api.request("/im/conversations/open/$userId", "POST") as? JsonObject
                 val convId = data?.get("conversationId")?.jsonPrimitive?.content ?: return@runCatching
-                nav.navigate("chatroom/$convId?convType=1&targetId=$userId&title=${Uri.encode(nickname)}")
+                nav.navigate("chatroom/$convId?targetId=$userId&title=${Uri.encode(nickname)}")
             }
         }
     }
@@ -210,8 +269,8 @@ fun AppRoot() {
         if (user != null) {
             MainScreen(
                 initialUser = user,
-                onOpenChat = { convId, convType, targetId, title ->
-                    nav.navigate("chatroom/$convId?convType=$convType&targetId=$targetId&title=${Uri.encode(title)}")
+                onOpenChat = { convId, targetId, title ->
+                    nav.navigate("chatroom/$convId?targetId=$targetId&title=${Uri.encode(title)}")
                 },
                 onOpenChatWithUser = ::openChatWithUser,
                 onNav = { nav.navigate(it) },
@@ -225,32 +284,33 @@ fun AppRoot() {
                 )
             }
             page("register") {
-                RegisterScreen(onDone = { user = it; nav.navigate("main") { popUpTo("register") { inclusive = true } } })
+                // 注册完直接去 AI 红娘那里做资料收集（返回就是主页）
+                RegisterScreen(
+                    onDone = { user = it; nav.navigate("main") { popUpTo("register") { inclusive = true } }; nav.navigate("interview") },
+                    // 换了手机：刷脸找回原来的账号（网页）。?dev= 把本机的设备号带给网页，找回成功后挂到账号上的是这台手机
+                    onRecover = { nav.navigate(hnH5("/recover?dev=${Api.deviceId}")) },
+                )
             }
             composable("main") {
                 // 空占位：主页由底层常驻渲染
                 Box(Modifier.size(0.dp))
             }
             page(
-                "chatroom/{convId}?convType={convType}&targetId={targetId}&title={title}&focusMsgId={focusMsgId}",
+                "chatroom/{convId}?targetId={targetId}&title={title}&focusMsgId={focusMsgId}&draft={draft}",
                 arguments = listOf(
                     navArgument("convId") { type = NavType.StringType },
-                    navArgument("convType") { type = NavType.IntType; defaultValue = 1 },
                     navArgument("targetId") { type = NavType.StringType; defaultValue = "" },
                     navArgument("title") { type = NavType.StringType; defaultValue = "" },
                     navArgument("focusMsgId") { type = NavType.StringType; defaultValue = "" },
+                    // 先填进输入框的话（互相喜欢的庆祝页里点的开场白）
+                    navArgument("draft") { type = NavType.StringType; defaultValue = "" },
                 ),
             ) { entry ->
                 val a = entry.arguments!!
-                val convType = a.getInt("convType")
                 val targetId = a.getString("targetId") ?: ""
                 val startCall = rememberStartCall(targetId, a.getString("title") ?: "")
-                val ctx = androidx.compose.ui.platform.LocalContext.current
-                val walletOk = remember(user) { chainWalletVisible(ctx, user) }
-                val walletResult by entry.savedStateHandle.getStateFlow<String?>("walletResult", null).collectAsState()
                 ChatRoomScreen(
                     convId = a.getString("convId")!!,
-                    convType = convType,
                     targetId = targetId,
                     title = a.getString("title") ?: "",
                     focusMsgId = a.getString("focusMsgId").orEmpty(),
@@ -259,105 +319,32 @@ fun AppRoot() {
                     myNickname = user?.nickname ?: "",
                     onBack = { nav.popBackStack() },
                     onCall = { type -> startCall(type) },
-                    onGroupInfo = { nav.navigate("group-info/$targetId") },
-                    onOpenWallet = if (walletOk) ({ path -> nav.navigate(chainWalletRoute(path)) }) else null,
-                    walletResult = walletResult,
-                    onWalletResultUsed = { entry.savedStateHandle["walletResult"] = null },
                     onNav = { nav.navigate(it) },
+                    draft = a.getString("draft").orEmpty(),
                 )
             }
-            page("group-info/{groupId}", listOf(navArgument("groupId") { type = NavType.StringType })) { entry ->
-                GroupInfoScreen(entry.arguments!!.getString("groupId")!!, user?.id ?: "", onBack = { nav.popBackStack() }, onExit = { nav.popBackStack("main", false) })
+            // AI 红娘资料收集（「编辑资料」和没完成资料时的提示框都进这里）
+            // edit：从相亲画像网页点某一项过来改那一题（不带就是正常进入）
+            page("interview?edit={edit}", listOf(navArgument("edit") { type = NavType.StringType; defaultValue = "" })) { entry ->
+                InterviewScreen(
+                    myAvatar = user?.avatar ?: "", myCity = user?.cityName ?: "",
+                    onBack = { nav.popBackStack() }, onNav = { nav.navigate(it) },
+                    editKey = entry.arguments?.getString("edit").orEmpty(),
+                )
             }
-            page("tiktok") {
-                TikTokScreen(onExit = { nav.popBackStack() })
+            // AI 深聊（原生）：真的大模型在问，按用量花模型费
+            page("deep") {
+                DeepChatScreen(myAvatar = user?.avatar ?: "", onBack = { nav.popBackStack() }, onNav = { nav.navigate(it) })
             }
-            page("aichat") {
-                AiChatScreen(myAvatar = user?.avatar ?: "", onBack = { nav.popBackStack() })
-            }
-            page("create-group") {
-                CreateGroupScreen(onBack = { nav.popBackStack() }, onCreated = { convId, groupId, name ->
-                    nav.popBackStack()
-                    nav.navigate("chatroom/$convId?convType=2&targetId=$groupId&title=${Uri.encode(t("chat.groupTitle", "name" to name))}")
-                })
-            }
-            page("join-group?code={code}", listOf(navArgument("code") { type = NavType.StringType; defaultValue = "" })) { entry ->
-                JoinGroupScreen(
+            // AI 红娘的网页：相亲画像（/card/me、/u/用户id）、AI 费用（/ai-fee…）。route 是网页里 # 后面的路径
+            page("h5?route={route}", listOf(navArgument("route") { type = NavType.StringType; defaultValue = "/card/me" })) { entry ->
+                HnWebScreen(
+                    route = entry.arguments?.getString("route") ?: "/card/me",
                     onBack = { nav.popBackStack() },
-                    onJoined = { convId, groupId, name ->
-                        nav.popBackStack()
-                        nav.navigate("chatroom/$convId?convType=2&targetId=$groupId&title=${Uri.encode(t("chat.groupTitle", "name" to name))}")
-                    },
-                    initialCode = entry.arguments?.getString("code")?.takeIf { it.isNotBlank() },
-                    onOpenChannel = { nav.popBackStack(); nav.navigate("channel/$it") },
+                    onNav = { nav.navigate(it) },
+                    onOpenChat = { convId, targetId, title -> nav.navigate("chatroom/$convId?targetId=$targetId&title=${Uri.encode(title)}") },
+                    onSession = ::restart,
                 )
-            }
-            // 频道：发现 / 创建 / 频道页（id = 群 id）/ 帖子评论
-            page("channels") {
-                ChannelsScreen(onBack = { nav.popBackStack() }, onOpen = { nav.navigate("channel/$it") }, onCreate = { nav.navigate("create-channel") })
-            }
-            page("create-channel") {
-                CreateChannelScreen(onBack = { nav.popBackStack() }, onCreated = { nav.popBackStack(); nav.navigate("channel/$it") })
-            }
-            page("channel/{id}", listOf(navArgument("id") { type = NavType.StringType })) { entry ->
-                val ctx = androidx.compose.ui.platform.LocalContext.current
-                val walletOk = remember(user) { chainWalletVisible(ctx, user) }
-                val walletResult by entry.savedStateHandle.getStateFlow<String?>("walletResult", null).collectAsState()
-                ChannelScreen(
-                    groupId = entry.arguments!!.getString("id")!!,
-                    myUserId = user?.id ?: "",
-                    onBack = { nav.popBackStack() },
-                    onExit = { nav.popBackStack("main", false) },
-                    onOpenComments = { msgId, canAdmin -> nav.navigate("channel-post/$msgId?canAdmin=$canAdmin") },
-                    onOpenWallet = if (walletOk) ({ path -> nav.navigate(chainWalletRoute(path)) }) else null,
-                    walletResult = walletResult,
-                    onWalletResultUsed = { entry.savedStateHandle["walletResult"] = null },
-                )
-            }
-            page(
-                "channel-post/{msgId}?canAdmin={canAdmin}",
-                listOf(
-                    navArgument("msgId") { type = NavType.StringType },
-                    navArgument("canAdmin") { type = NavType.BoolType; defaultValue = false },
-                ),
-            ) { entry ->
-                ChannelCommentsScreen(
-                    msgId = entry.arguments!!.getString("msgId")!!,
-                    canAdmin = entry.arguments!!.getBoolean("canAdmin"),
-                    myUserId = user?.id ?: "",
-                    onBack = { nav.popBackStack() },
-                    onOpenUser = { nav.navigate("u/$it") },
-                )
-            }
-            page("notices/{kind}", listOf(navArgument("kind") { type = NavType.StringType })) { entry ->
-                NoticesScreen(
-                    kind = entry.arguments!!.getString("kind")!!,
-                    onBack = { nav.popBackStack() },
-                    onOpenMoment = { nav.navigate("moment/$it") },
-                    onOpenTask = { nav.navigate("task/$it") },
-                )
-            }
-            page("moment/{id}", listOf(navArgument("id") { type = NavType.StringType })) { entry ->
-                MomentDetailScreen(entry.arguments!!.getString("id")!!, onBack = { nav.popBackStack() }, onOpenChat = ::openChatWithUser)
-            }
-            // 私密树洞（广场 tab）：详情评论 / 匿名发布
-            page("treehole/{id}", listOf(navArgument("id") { type = NavType.StringType })) { entry ->
-                TreeholeDetailScreen(entry.arguments!!.getString("id")!!, onBack = { nav.popBackStack() })
-            }
-            page("treehole-publish") {
-                TreeholePublishScreen(onBack = { nav.popBackStack() }, onDone = { nav.popBackStack() })
-            }
-            page("news") {
-                NewsListScreen(onOpenNews = { nav.navigate("news/$it") }, onBack = { nav.popBackStack() })
-            }
-            page("music") {
-                MusicScreen(onBack = { nav.popBackStack() })
-            }
-            page("news/{id}", listOf(navArgument("id") { type = NavType.StringType })) { entry ->
-                NewsDetailScreen(entry.arguments!!.getString("id")!!, onBack = { nav.popBackStack() })
-            }
-            page("project/guide") {
-                GuideProjectScreen(user?.gender ?: 1, onBack = { nav.popBackStack() }, onNav = { nav.navigate(it) }, onOpenChat = ::openChatWithUser)
             }
             // 小游戏 / 第三方 H5 全屏容器（大厅 H5 经 JS 桥 openWeb 唤起）；landscape=true 该页横屏
             page(
@@ -376,50 +363,14 @@ fun AppRoot() {
                     onBack = { nav.popBackStack() },
                 )
             }
-            page("people/{mode}", listOf(navArgument("mode") { type = NavType.StringType })) { entry ->
-                PeopleScreen(entry.arguments!!.getString("mode")!!, onBack = { nav.popBackStack() }, onOpenChat = ::openChatWithUser)
-            }
+            // 广场动态：发布 / 详情评论 / 我的动态
             page("publish") { PublishScreen(onBack = { nav.popBackStack() }, onDone = { nav.popBackStack() }) }
-            page("task/post") { TaskPostScreen(onBack = { nav.popBackStack() }, onDone = { nav.popBackStack() }) }
-            page("task/hall") { TaskHallScreen(onBack = { nav.popBackStack() }, onOpen = { nav.navigate("task/$it") }) }
-            page("task/mine") { TaskMineScreen(user?.gender ?: 1, onBack = { nav.popBackStack() }, onOpen = { nav.navigate("task/$it") }) }
-            page("task/{id}", listOf(navArgument("id") { type = NavType.StringType })) { entry ->
-                TaskDetailScreen(entry.arguments!!.getString("id")!!, user?.gender ?: 1, onBack = { nav.popBackStack() })
-            }
-            page("wallet") { WalletScreen(onBack = { nav.popBackStack() }, onNav = { nav.navigate(it) }) }
-            page("transfer?sid={sid}", listOf(navArgument("sid") { type = NavType.StringType; defaultValue = "" })) { entry ->
-                TransferScreen(user?.shortId, initialSid = entry.arguments?.getString("sid").orEmpty(), onBack = { nav.popBackStack() })
-            }
-            page("edit-profile") { EditProfileScreen(onBack = { nav.popBackStack() }) }
-            page("invite-card") { InviteCardScreen(me = user, onBack = { nav.popBackStack() }) }
-            page("guide-apply") { GuideApplyScreen(onBack = { nav.popBackStack() }) }
-            page("realname") { RealnameScreen(onBack = { nav.popBackStack() }) }
-            page("gifts-received") { GiftsReceivedScreen(onBack = { nav.popBackStack() }) }
-            page("bots") { BotsScreen(onBack = { nav.popBackStack() }, onOpen = { nav.navigate("bots/$it") }) }
-            // path：直接打开钱包里的某一页（需要 URL 编码）；钱包交回的结果放进上一页的 savedStateHandle["walletResult"]（JSON 字符串）
-            page("chain-wallet?path={path}", listOf(navArgument("path") { type = NavType.StringType; defaultValue = "" })) { entry ->
-                ChainWalletScreen(
-                    onBack = { nav.popBackStack() },
-                    startPath = entry.arguments?.getString("path")?.takeIf { it.isNotBlank() },
-                    onResult = { nav.previousBackStackEntry?.savedStateHandle?.set("walletResult", it.toString()) },
-                    onOpenChat = { convId, groupId, title -> nav.navigate("chatroom/$convId?convType=2&targetId=$groupId&title=${android.net.Uri.encode(title)}") },
-                )
-            }
-            page("bots/{id}", listOf(navArgument("id") { type = NavType.StringType })) { e ->
-                BotDetailScreen(
-                    botId = e.arguments?.getString("id") ?: "",
-                    onBack = { nav.popBackStack() },
-                    onOpenChat = { id, name -> openChatWithUser(id, name) },
-                )
+            page("moment/{id}", listOf(navArgument("id") { type = NavType.StringType })) { entry ->
+                MomentDetailScreen(entry.arguments!!.getString("id")!!, onBack = { nav.popBackStack() }, onOpenChat = ::openChatWithUser, onNav = { nav.navigate(it) })
             }
             page("my-moments") { MyMomentsScreen(onBack = { nav.popBackStack() }, onOpen = { nav.navigate("moment/$it") }) }
-            page("follow-moments") {
-                FollowMomentsScreen(
-                    onBack = { nav.popBackStack() },
-                    onOpenDetail = { nav.navigate("moment/$it") },
-                    onOpenUser = { nav.navigate("u/$it") },
-                )
-            }
+            page("edit-profile") { EditProfileScreen(onBack = { nav.popBackStack() }) }
+            page("realname") { RealnameScreen(onBack = { nav.popBackStack() }) }
             page("follows/{type}", listOf(navArgument("type") { type = NavType.StringType })) { entry ->
                 FollowListScreen(
                     type = entry.arguments!!.getString("type")!!,
@@ -427,16 +378,32 @@ fun AppRoot() {
                     onOpenUser = { nav.navigate("u/$it") },
                 )
             }
+            // 别人的主页 = 相亲画像网页（用户 2026-11-23 定的）；原来的原生主页（动态、评分）挪到 u-home，从画像网页里「看 TA 的动态」进
             page("u/{id}", listOf(navArgument("id") { type = NavType.StringType })) { entry ->
+                HnWebScreen(
+                    route = "/u/${entry.arguments!!.getString("id")!!.filter { it.isDigit() }}",
+                    onBack = { nav.popBackStack() },
+                    onNav = { nav.navigate(it) },
+                    onOpenChat = { convId, targetId, title -> nav.navigate("chatroom/$convId?targetId=$targetId&title=${Uri.encode(title)}") },
+                )
+            }
+            page("u-home/{id}", listOf(navArgument("id") { type = NavType.StringType })) { entry ->
                 UserHomeScreen(
                     userId = entry.arguments!!.getString("id")!!,
                     onBack = { nav.popBackStack() },
                     onOpenChat = ::openChatWithUser,
                     onOpenMoment = { nav.navigate("moment/$it") },
+                    onNav = { nav.navigate(it) },
                 )
             }
         }
       }
+        // 互相喜欢的庆祝页：盖在所有页面上面（通话界面除外）
+        MatchCelebration(myAvatar = user?.avatar ?: "") { convId, targetId, title, draft ->
+            nav.navigate("chatroom/$convId?targetId=$targetId&title=${Uri.encode(title)}&draft=${Uri.encode(draft)}")
+        }
+        // 有新设备通过刷脸登录了这个账号：提醒一次；「不是我」→ 去登录设备页移除
+        if (user != null) NewDeviceDialog(onRemove = { nav.navigate(hnH5("/devices")) })
         CallOverlay()
         // 启动检查更新（后台配置；强制时弹框不可关闭）
         com.wh.hongniang.ui.UpdateChecker()

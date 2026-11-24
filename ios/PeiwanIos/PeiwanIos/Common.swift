@@ -1,7 +1,6 @@
 import Combine
+import CoreLocation
 import SwiftUI
-
-func toFen(_ points: String) -> Int { Int(((Double(points) ?? 0) * 100).rounded()) }
 
 func timeAgo(_ iso: String?) -> String {
     guard let iso, !iso.isEmpty else { return "" }
@@ -191,96 +190,45 @@ extension View {
 
 /// 导航路由（各 Tab 根部注册 navigationDestination）
 enum Route: Hashable {
+    /// 动态详情（评论）
     case moment(String)
-    case project
-    case people(String)
-    case taskPost, taskHall, taskMine
-    case task(String)
-    case wallet, transfer, editProfile, guideApply, giftsReceived, myMoments, followMoments
-    /// 积分转赠并填好对方 ID（扫一扫扫到收款码）
-    case transferTo(String)
-    case createGroup
-    /// 加入群聊（扫码/输邀请码），关联值为预填的邀请码
-    case joinGroup(String?)
+    /// 我的动态
+    case myMoments
+    case editProfile
     case realname
     /// 我的邀请名片（专属网页链接 + 二维码）
     case inviteCard
     case userHome(String)
     /// 关注/粉丝列表：type = following | fans
     case followList(String)
-    /// AI 助手（免费问答）
-    case aiChat
-    /// 花边新闻列表
-    case newsList
-    /// 花边新闻详情
-    case newsDetail(String)
-    /// 音乐频道（Telegram 频道同步，最近 3 天）
-    case music
-    /// 私密树洞详情（评论）
-    case treehole(String)
-    /// 私密树洞匿名发布
-    case treeholePublish
-    /// 评论 / 接单通知列表：kind = comment | task
-    case notices(String)
-    /// 频道：发现 / 创建 / 频道页（群 id）/ 帖子评论（帖子 id，是否频道主）
-    case channels
-    case createChannel
-    case channel(String)
-    case channelComments(String, Bool)
-    /// 我的机器人 / 机器人详情（机器人 id）
-    case bots
-    case bot(String)
-    /// 链上钱包（自托管网页钱包 + DApp 浏览器）
-    case chainWallet
-    /// 直接打开钱包里的某一页（/wallet 开头的站内路径，例如聊天里的转账）；结果见 ChainWallet.resultNotification
-    case chainWalletPath(String)
-    /// 打开一个会话（例如钱包代币页「讨论群」进群聊）：会话 id、类型、对方 / 群 id、标题
-    case chatRoom(String, Int, String, String)
-    /// 群信息（群 id）
-    case groupInfo(String)
+    /// AI 红娘资料收集（「编辑资料」进这里）
+    case interview
+    /// 从相亲画像网页点某一项过来改那一题（改完自动回画像网页）
+    case interviewEdit(String)
+    /// AI 深聊（原生）：真的大模型在问，按用量花模型费
+    case deep
+    /// AI 红娘的网页：相亲画像（/card/me、/u/用户id）、AI 费用（/ai-fee…）。参数是网页里 # 后面的路径
+    case web(String)
+    /// 原来的原生对方主页（动态、评分）；从画像网页里「看 TA 的动态」进
+    case userHomeNative(String)
 }
 
 @ViewBuilder
 func routeView(_ route: Route) -> some View {
     switch route {
     case .moment(let id): MomentDetailView(momentId: id)
-    case .project: GuideProjectView()
-    case .people(let mode): PeopleView(mode: mode)
-    case .taskPost: TaskPostView()
-    case .taskHall: TaskHallView()
-    case .taskMine: TaskMineView()
-    case .task(let id): TaskDetailView(taskId: id)
-    case .wallet: WalletView()
-    case .transfer: TransferView()
-    case .transferTo(let sid): TransferView(initialSid: sid)
-    case .editProfile: EditProfileView()
-    case .guideApply: GuideApplyView()
-    case .giftsReceived: GiftsReceivedView()
     case .myMoments: MyMomentsView()
-    case .followMoments: FollowMomentsView()
-    case .createGroup: CreateGroupView()
-    case .joinGroup(let code): JoinGroupView(initialCode: code)
+    case .editProfile: EditProfileView()
     case .realname: RealnameView()
     case .inviteCard: InviteCardView()
-    case .userHome(let id): UserHomeView(userId: id)
+    // 别人的主页 = 相亲画像网页（用户 2026-11-23 定的）
+    case .userHome(let id): HnWebPage(route: "/u/\(id.filter { $0.isNumber })")
+    case .userHomeNative(let id): UserHomeView(userId: id)
     case .followList(let type): FollowListView(type: type)
-    case .aiChat: AiChatView()
-    case .newsList: NewsListView()
-    case .newsDetail(let id): NewsDetailView(newsId: id)
-    case .music: MusicView()
-    case .treehole(let id): TreeholeDetailView(postId: id)
-    case .treeholePublish: TreeholePublishView()
-    case .notices(let kind): NoticesView(kind: kind)
-    case .channels: ChannelsView()
-    case .createChannel: CreateChannelView()
-    case .channel(let id): ChannelView(groupId: id)
-    case .channelComments(let msgId, let canAdmin): ChannelCommentsView(msgId: msgId, canAdmin: canAdmin)
-    case .bots: BotsView()
-    case .bot(let id): BotDetailView(botId: id)
-    case .chainWallet: ChainWalletView()
-    case .chainWalletPath(let path): ChainWalletView(startPath: path)
-    case .chatRoom(let convId, let convType, let targetId, let title): ChatRoomView(convId: convId, convType: convType, targetId: targetId, title: title)
-    case .groupInfo(let id): GroupInfoView(groupId: id)
+    case .interview: InterviewView()
+    case .interviewEdit(let key): InterviewView(editKey: key)
+    case .deep: DeepChatView()
+    case .web(let route): HnWebPage(route: route)
     }
 }
 
@@ -372,10 +320,88 @@ struct ChatTarget: Identifiable {
     let title: String
     /// 搜索结果进来时定位到的消息
     var focusMsgId: String? = nil
+    /// 先填进输入框的话（从互相喜欢的庆祝页点了一句开场白进来），可以改了再发
+    var draft: String? = nil
 }
 
 /// 打开与某用户的单聊会话
 func openChatWith(userId: String, nickname: String) async -> ChatTarget? {
     guard let r: OpenConvResp = try? await Api.request("/im/conversations/open/\(userId)", method: "POST") else { return nil }
     return ChatTarget(convId: r.conversationId, convType: 1, targetId: userId, title: nickname)
+}
+
+/// 一次性定位 + 反查城市名
+final class CityLocator: NSObject, CLLocationManagerDelegate {
+    static let shared = CityLocator()
+    private let manager = CLLocationManager()
+    private var handler: ((String?) -> Void)?
+
+    /// 最近一次定位结果（供距离计算）
+    private(set) var lastLocation: CLLocation?
+
+    func detect(_ completion: @escaping (String?) -> Void) {
+        handler = completion
+        manager.delegate = self
+        let status = manager.authorizationStatus
+        if status == .notDetermined {
+            manager.requestWhenInUseAuthorization()
+        } else if status == .authorizedWhenInUse || status == .authorizedAlways {
+            manager.requestLocation()
+        } else {
+            completion(nil); handler = nil
+        }
+    }
+
+    /// 定位城市 + 经纬度
+    func detectWithLocation(_ completion: @escaping (String?, CLLocation?) -> Void) {
+        detect { [weak self] name in
+            completion(name, self?.lastLocation)
+        }
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        let s = manager.authorizationStatus
+        if s == .authorizedWhenInUse || s == .authorizedAlways { manager.requestLocation() }
+        else if s == .denied || s == .restricted { handler?(nil); handler = nil }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let loc = locations.first else { handler?(nil); handler = nil; return }
+        lastLocation = loc
+        CLGeocoder().reverseGeocodeLocation(loc, preferredLocale: Locale(identifier: "zh_CN")) { [weak self] placemarks, _ in
+            let name = placemarks?.first?.locality ?? placemarks?.first?.administrativeArea
+            self?.handler?(name?.replacingOccurrences(of: "市", with: ""))
+            self?.handler = nil
+        }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        handler?(nil); handler = nil
+    }
+
+    /// 拿一次经纬度（发送位置消息用）
+    func currentLocation(_ completion: @escaping (CLLocation?, String?) -> Void) {
+        detectRaw { loc in
+            guard let loc else { completion(nil, nil); return }
+            CLGeocoder().reverseGeocodeLocation(loc, preferredLocale: Locale(identifier: "zh_CN")) { pms, _ in
+                let p = pms?.first
+                let addr = [p?.locality, p?.subLocality, p?.thoroughfare, p?.name]
+                    .compactMap { $0 }.joined(separator: "")
+                completion(loc, addr)
+            }
+        }
+    }
+
+    private var rawHandler: ((CLLocation?) -> Void)?
+    private func detectRaw(_ completion: @escaping (CLLocation?) -> Void) {
+        handler = { _ in }
+        rawHandler = completion
+        manager.delegate = self
+        let status = manager.authorizationStatus
+        if status == .notDetermined { manager.requestWhenInUseAuthorization() }
+        else if status == .authorizedWhenInUse || status == .authorizedAlways {
+            if let last = manager.location { completion(last); rawHandler = nil; handler = nil; return }
+            manager.requestLocation()
+        } else { completion(nil); rawHandler = nil; handler = nil }
+    }
 }

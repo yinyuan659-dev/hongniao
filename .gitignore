@@ -9,6 +9,13 @@ node_modules/
 .env
 .env.*
 *凭据*.md
+# 开发文档和进度文档只放在本机，不入库不推送（用户 2026-11-24 定的：里面有商业规则、服务器地址、测试号）
+AI进度文档.md
+AI红娘App-开发文档*.md
+# 带测试号设备号的测试文件（知道设备号就能登录测试号），只放在本机
+deploy/dev_*.json
+deploy/m1_test.sh
+deploy/m1_final.sh
 *.jks
 *.keystore
 *.p12

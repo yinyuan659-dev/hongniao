@@ -8,7 +8,7 @@ const SEARCH_H = 44;
 
 /**
  * 表情页：顶部 🕒 + 8 个分类图标，搜索行，内容 8 列按分类分区。
- * 搜索行整条是按钮：和贴纸页一样弹搜索 sheet（onSearch("") 聚焦输入框；点快捷 emoji 带着它去搜）。
+ * 搜索行整条是按钮：弹搜索 sheet（onSearch("") 聚焦输入框；点快捷 emoji 带着它去搜）。
  */
 export function EmojiPane({ hidden, onScroll, onEmoji, onSearch }: { hidden: boolean; onScroll: (el: HTMLElement) => void; onEmoji: (e: string) => void; onSearch: (q: string) => void }) {
   const { groups, recent } = useEmojis();

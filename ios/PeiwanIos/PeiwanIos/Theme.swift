@@ -33,13 +33,6 @@ enum Theme {
     static let bubbleMine = Color(red: 1.0, green: 0.882, blue: 0.906)
 }
 
-func fmtPoints(_ fen: String?) -> String {
-    let n = (Double(fen ?? "0") ?? 0) / 100.0
-    var s = String(format: "%.2f", n)
-    if s.contains(".") { while s.hasSuffix("0") { s.removeLast() }; if s.hasSuffix(".") { s.removeLast() } }
-    return s.isEmpty ? "0" : s
-}
-
 extension View {
     func fullBg() -> some View { ZStack { Theme.bg.ignoresSafeArea(); self } }
 }

@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { openNativeChat } from '../bridge';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { t } from '../i18n';
+import { LikePill, RelState } from '../match';
 
 interface PersonItem {
   id: string;
+  /** 我和 TA 的喜欢关系（遇见列表接口带的） */
+  like?: RelState;
   nickname: string;
   avatar: string;
   age: number;
@@ -15,42 +17,24 @@ interface PersonItem {
   albums?: { id: string; type: number; url: string; coverUrl: string }[];
 }
 
-/** 找地陪 / 找人：mode = guide | all */
+/** 找人 */
 export function PeoplePage() {
   const nav = useNavigate();
-  const { mode } = useParams<{ mode: string }>();
-  const [tab, setTab] = useState(mode === 'guide' ? 'guide' : 'all');
   const [items, setItems] = useState<PersonItem[]>([]);
-  const [city, setCity] = useState('');
 
   useEffect(() => {
-    const path = tab === 'guide' ? '/guide/list' : '/guide/discover';
-    api<PersonItem[]>(path).then(setItems).catch(() => {});
-  }, [tab]);
-
-  const greet = async (p: PersonItem) => {
-    try {
-      const r = await api<{ conversationId: string }>(`/im/conversations/open/${p.id}`, { method: 'POST' });
-      if (openNativeChat(r.conversationId, 1, p.id, p.nickname)) return;
-      nav(`/chatroom/${r.conversationId}`, { state: { title: p.nickname, convType: 1, targetId: p.id } });
-    } catch (e: any) {
-      alert(e.message);
-    }
-  };
+    api<PersonItem[]>('/user/meet/list').then(setItems).catch(() => {});
+  }, []);
 
   return (
     <div className="app">
       <div className="navbar">
         <span className="back" onClick={() => nav(-1)}>‹ {t('common.back')}</span>
-        <span className="title">{tab === 'guide' ? t('guide.findBuddy') : t('guide.findPeople')}</span>
+        <span className="title">{t('hall.findPeople')}</span>
         <span style={{ width: 40 }} />
       </div>
-      <div className="top-tabs">
-        <span className={`top-tab${tab === 'guide' ? ' active' : ''}`} onClick={() => setTab('guide')}>{t('me.verified')}</span>
-        <span className={`top-tab${tab === 'all' ? ' active' : ''}`} onClick={() => setTab('all')}>{t('guide.viewAll')}</span>
-      </div>
       <div className="page">
-        {items.length === 0 && <div className="empty">{tab === 'guide' ? t('guide.noBuddies') : t('people.noUsers')}</div>}
+        {items.length === 0 && <div className="empty">{t('people.noUsers')}</div>}
         {items.map((p) => (
           <div key={p.id} className="card" style={{ margin: '0 16px 8px' }}>
             <div className="row">
@@ -65,7 +49,8 @@ export function PeoplePage() {
                 <div className="muted ellipsis" style={{ marginTop: 4 }}>{p.signature || t('people.mysterious')}</div>
                 {p.cityName && <div className="small" style={{ marginTop: 2 }}>{p.cityName}</div>}
               </div>
-              <button className="btn-sm" onClick={() => greet(p)}>{t('people.sayHi')}</button>
+              {/* 原来是「打招呼」；现在要互相喜欢才能聊 */}
+              <LikePill peer={p} initial={p.like ?? 'none'} />
             </div>
             {p.albums && p.albums.length > 0 && (
               <div className="grid-photos">

@@ -17,9 +17,6 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
-        // 链上钱包入口只放在官网下载的安装包里；上应用商店的包用 `-PwalletAllowed=false` 构建，代码里整块不出现
-        buildConfigField("boolean", "WALLET_ALLOWED", (project.findProperty("walletAllowed")?.toString() ?: "true"))
     }
 
     buildTypes {
@@ -67,9 +64,8 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.coil.compose)
     implementation(libs.coil.video)
-    // 表情包：动态 WebP（视频贴纸转码产物）用 coil-gif 的 ImageDecoderDecoder；TGS 贴纸是 Lottie JSON
+    // 聊天里的动图（GIF / 动态 WebP）用 coil-gif 的 ImageDecoderDecoder / GifDecoder
     implementation(libs.coil.gif)
-    implementation(libs.lottie.compose)
     implementation(libs.stream.webrtc)
     implementation(libs.telephoto.zoomable.coil)
     implementation(libs.media3.exoplayer)
@@ -79,7 +75,6 @@ dependencies {
     implementation(libs.camerax.camera2)
     implementation(libs.camerax.lifecycle)
     implementation(libs.camerax.view)
-    implementation(libs.androidx.webkit)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

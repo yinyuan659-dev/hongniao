@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, getDeviceId, setToken, UserProfile } from '../api';
+import { api, getDeviceId, setDid, setToken, UserProfile } from '../api';
 import { useApp } from '../store';
 import { t } from '../i18n';
 
@@ -104,15 +104,17 @@ export function RegisterPage() {
       const uploadJson = await uploadRes.json();
       if (uploadJson.code !== 0) throw new Error(uploadJson.msg || t('register.avatarUploadFailed'));
 
-      const r = await api<{ token: string; user: UserProfile; inviter?: { id: string } | null }>('/auth/register', {
+      const r = await api<{ token: string; did?: string; user: UserProfile; inviter?: { id: string } | null }>('/auth/register', {
         method: 'POST',
         body: { deviceId: getDeviceId(), nickname: nickname.trim(), age, gender, avatar: uploadJson.data.url },
       });
       setToken(r.token);
+      setDid(r.did);
       setUser(r.user);
       nav('/plaza', { replace: true });
-      // 通过 TA 的专属邀请页来的：直接打开 TA 的主页
+      // 通过 TA 的专属邀请页来的：直接打开 TA 的主页；否则先去 AI 红娘那里做资料收集
       if (r.inviter?.id) nav(`/u/${r.inviter.id}`);
+      else nav('/interview');
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -171,6 +173,19 @@ export function RegisterPage() {
         {error && <p className="hint" style={{ color: 'var(--danger)' }}>{error}</p>}
 
         <button className="btn mt12" disabled={loading} onClick={submit}>{loading ? t('register.creating') : t('register.enter')}</button>
+
+        {/* 换了手机 / 换了浏览器：做过真人认证的，刷脸回到原来的号（样稿 design/05-recover.html） */}
+        <div
+          onClick={() => nav('/recover')}
+          style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, padding: '12px 14px', borderRadius: 16, border: '1px solid var(--line)', background: 'var(--bg-input)', cursor: 'pointer' }}
+        >
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 600 }}>换了手机？已有账号</div>
+            <div className="small" style={{ marginTop: 3 }}>做过真人认证的，刷脸就能回到原来的号</div>
+          </div>
+          <span style={{ flexShrink: 0, padding: '6px 14px', borderRadius: 15, fontSize: 13, fontWeight: 600, color: 'var(--accent)', border: '1px solid var(--accent)', whiteSpace: 'nowrap' }}>刷脸找回</span>
+        </div>
+
         <p className="hint">{t('register.deviceHint')}</p>
         <p className="hint" style={{ marginTop: 6 }}>
           {t('register.consent')}

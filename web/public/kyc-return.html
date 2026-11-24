@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>实人认证</title>
+  <style>html,body{height:100%;margin:0}body{display:flex;align-items:center;justify-content:center;background:#fff8f4;color:#8a7a80;font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}</style>
+</head>
+<body>
+  正在返回…
+  <script>
+    // 阿里云刷脸页刷完以后跳回这里，网址后面带 ?response={code, subCode, reason, extInfo:{certifyId}}（有时被多编码一层）。
+    // 这里只负责把这次认证的编号取出来，转进网页端的结果页 /#/kyc-result；最终结果由结果页去问我们自己的服务器，不信网址里带的。
+    (function () {
+      var c = '', code = '';
+      try {
+        var raw = new URL(location.href).searchParams.get('response') || '';
+        for (var i = 0; i < 3 && raw; i++) {
+          try {
+            var o = JSON.parse(raw);
+            c = String((o.extInfo && o.extInfo.certifyId) || '');
+            code = String(o.code || '');
+            break;
+          } catch (e) {
+            var d = decodeURIComponent(raw);
+            if (d === raw) break;
+            raw = d;
+          }
+        }
+      } catch (e) { /* 取不到就算了，结果页会用发起时记下的编号 */ }
+      var q = [];
+      if (/^[A-Za-z0-9_-]{1,64}$/.test(c)) q.push('c=' + c);
+      if (/^[0-9]{1,6}$/.test(code)) q.push('code=' + code);
+      location.replace('/#/kyc-result' + (q.length ? '?' + q.join('&') : ''));
+    })();
+  </script>
+</body>
+</html>

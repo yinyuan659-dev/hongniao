@@ -7,6 +7,7 @@ struct MainTabView: View {
     @State private var meKey = 0
     @State private var unreadTotal = 0
     @ObservedObject private var tabBarVis = TabBarVisibility.shared
+    @ObservedObject private var matchCenter = MatchCenter.shared
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,7 +26,7 @@ struct MainTabView: View {
             }
         }
         // 大厅是 WebView：H5 里聚焦输入框弹键盘时，SwiftUI 的键盘避让会把整个 VStack 压缩、底栏被顶到键盘上方。
-        // WKWebView 自己会滚动让输入框可见，所以大厅 tab 下不做键盘避让；其它 tab（树洞评论等原生输入）保持默认。
+        // WKWebView 自己会滚动让输入框可见，所以大厅 tab 下不做键盘避让；其它 tab 的原生输入保持默认。
         .ignoresSafeArea(.keyboard, edges: tab == 1 ? .bottom : [])
         .background(Theme.bg.ignoresSafeArea())
         .fullScreenCover(isPresented: $showPublish) {
@@ -35,32 +36,37 @@ struct MainTabView: View {
             await refreshUnread()
             _ = WsClient.shared.addListener { frame in
                 let op = frame["op"] as? String
-                if op == "msg" || op == "notify" {
+                if op == "msg" {
                     Task { await refreshUnread() }
                 }
             }
         }
         .onChange(of: tab) { _ in
-            // 切换页面停止列表内正在播放的视频
+            // 切换页面停止广场列表内正在播放的视频
             FeedVideoCenter.pauseCurrent()
             Task { await refreshUnread() }
         }
         .onChange(of: showPublish) { shown in
             if shown { FeedVideoCenter.pauseCurrent() }
         }
+        // 有人喜欢了我 / 互相喜欢了 / 看过喜欢列表：角标重新算
+        .onChange(of: matchCenter.version) { _ in
+            Task { await refreshUnread() }
+        }
     }
 
-    /// 未读总数（私聊+群聊+评论+接单）
+    /// 「消息」上的数字 = 没读的消息 + 新喜欢我的人
     private func refreshUnread() async {
         let convs: [ConversationItem] = (try? await Api.request("/im/conversations")) ?? []
-        let n: UnreadCounts = (try? await Api.request("/notifications/unread")) ?? UnreadCounts()
-        unreadTotal = convs.reduce(0) { $0 + ($1.muted == true ? 0 : ($1.unread ?? 0)) } + (n.comment ?? 0) + (n.task ?? 0)
+        let sum: MatchSummary? = try? await Api.request("/match/summary")
+        unreadTotal = convs.reduce(0) { $0 + ($1.unread ?? 0) } + (sum?.likedMeNew ?? 0)
     }
 
     private var bottomBar: some View {
         HStack(spacing: 0) {
             tabItem(t("tab.plaza"), 0)
             tabItem(t("tab.hall"), 1)
+            // 发布动态：玫红渐变 + 白色加号
             Button { showPublish = true } label: {
                 Text("+")
                     .font(.system(size: 24, weight: .semibold))

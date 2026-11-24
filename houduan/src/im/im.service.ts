@@ -1,20 +1,42 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CryptoService } from '../common/crypto.service';
-import { WalletService } from '../wallet/wallet.service';
+import { NeedProfileException, profileDone } from '../common/need-profile';
+import { assertCanChat } from '../common/chat-gate';
+import { assertKyc } from '../common/kyc-gate';
 import { ConnectionRegistry } from './connection.registry';
 import { IntimacyService } from '../intimacy/intimacy.service';
 import { MessagePayload, ReactionView, ReplyPreview, SendFrame } from './im.types';
 import { resolveInviteUser } from '../invite/invite.service';
-import { BotService } from './bot.service';
-import { sanitizeCallout, sanitizeFile, sanitizePayreq } from './card-content';
-import { COIN_GROUP_COLD_MS } from './coin-group.service';
-import { GROUP_HIDDEN } from './group-hidden';
+import { FILE_MAX_SIZE } from '../upload/upload.service';
 
-/** 需要扣费的消息类型（礼物走礼物模块自身计费） */
-const CHARGED_TYPES = new Set(['text', 'image', 'video', 'audio', 'file', 'location', 'sticker', 'callout', 'payreq']);
-/** 频道帖子允许的类型（callout = 喊单卡片，payreq = 收款） */
-const CHANNEL_TYPES = new Set(['text', 'image', 'video', 'audio', 'file', 'location', 'sticker', 'callout', 'payreq']);
+/** 客户端能发的消息类型（通话记录只由服务端写入） */
+const SEND_TYPES = new Set(['text', 'image', 'video', 'audio', 'file', 'location']);
+
+const CHAT_FILE_RE = /^\/res\/[\w.-]+\/file\/\d{4}-\d{2}-\d{2}\/[0-9a-f-]{36}\.[a-z0-9]{1,8}$/;
+
+/**
+ * 文件消息（msgType file）：{ url, name, size, mime }，url 只认 POST /upload/file 存进来的地址，
+ * 不能借文件消息发外链；文件名 / 大小 / 类型是客户端带的，只做清洗。
+ */
+export function sanitizeFile(content: string): string {
+  let o: Record<string, unknown>;
+  try {
+    o = JSON.parse(content);
+  } catch {
+    throw new BadRequestException('文件内容不对');
+  }
+  const url = String(o.url ?? '');
+  if (!CHAT_FILE_RE.test(url)) throw new BadRequestException('文件地址不对');
+  const size = Number(o.size);
+  const mime = String(o.mime ?? '');
+  return JSON.stringify({
+    url,
+    name: String(o.name ?? '').replace(/^.*[\\/]/, '').replace(/[\u0000-\u001f\u007f"]/g, '').trim().slice(0, 255) || 'file',
+    size: Number.isInteger(size) && size > 0 && size <= FILE_MAX_SIZE ? size : 0,
+    mime: /^[\w.+-]+\/[\w.+-]+$/.test(mime) ? mime.slice(0, 120) : 'application/octet-stream',
+  });
+}
 
 @Injectable()
 export class ImService {
@@ -22,44 +44,44 @@ export class ImService {
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
     private readonly registry: ConnectionRegistry,
-    private readonly wallets: WalletService,
     private readonly intimacy: IntimacyService,
-    private readonly bots: BotService,
   ) {}
 
   // ---------- 发送 ----------
 
   async sendMessage(senderId: bigint, frame: SendFrame): Promise<MessagePayload> {
+    if (Number(frame.convType) !== 1) throw new BadRequestException('参数不正确');
+    if (!SEND_TYPES.has(frame.msgType)) throw new BadRequestException('这种消息不能直接发送');
     const sender = await this.prisma.user.findUnique({ where: { id: senderId } });
     if (!sender || sender.status !== 0) throw new ForbiddenException('账号异常');
-    if (frame.msgType === 'callout') frame = { ...frame, content: sanitizeCallout(frame.content) };
-    if (frame.msgType === 'payreq') frame = { ...frame, content: sanitizePayreq(frame.content) };
     if (frame.msgType === 'file') frame = { ...frame, content: sanitizeFile(frame.content) };
 
-    if (frame.convType === 1) {
-      return this.sendSingle(sender, BigInt(frame.targetId), frame);
-    }
-    return this.sendGroup(sender, BigInt(frame.targetId), frame);
+    return this.sendSingle(sender, BigInt(frame.targetId), frame);
   }
 
   private async sendSingle(sender: any, peerId: bigint, frame: SendFrame): Promise<MessagePayload> {
     if (peerId === sender.id) throw new BadRequestException('不能给自己发消息');
     const peer = await this.prisma.user.findUnique({ where: { id: peerId } });
     if (!peer || peer.status !== 0) throw new NotFoundException('对方不存在');
-    // 不限性别：同性只能经扫邀请名片进来（遇见 / 搜索 / 主页仍只展示异性）
+    // 互相喜欢后才能聊天（规则上线前就聊过的有保留期），见 common/chat-gate.ts。
+    // 转发也是走这里发出去的，所以同样受限制。扫邀请名片只能打开聊天页，发不出消息。
+    await assertCanChat(this.prisma, sender.id, peerId);
+    // 做过实人认证才能聊天（后台开关控制，默认关），见 common/kyc-gate.ts
+    await assertKyc(this.prisma, sender.id);
 
     const conv = await this.getOrCreateSingleConversation(sender.id, peerId);
+    // 没完成资料收集的人不能主动发起聊天；对方先发过消息的，可以回复
+    if (!(await profileDone(this.prisma, sender.id))) {
+      const fromPeer = await this.prisma.message.findFirst({
+        where: { conversationId: conv.id, senderId: peerId },
+        select: { id: true },
+      });
+      if (!fromPeer) throw new NeedProfileException();
+    }
     const key = this.crypto.unwrapKey(conv.wrappedKey);
     const reply = await this.resolveReply(conv.id, key, frame.replyToId);
 
-    // 男→女消息按条扣费（后台设价，收入归女方）；同性之间免费
-    let msgFee = 0n;
-    if (sender.gender === 1 && peer.gender === 2 && CHARGED_TYPES.has(frame.msgType)) {
-      const price = await this.prisma.priceConfig.findFirst();
-      msgFee = BigInt(price?.msgPriceFen ?? 0);
-    }
-
-    const demoSender = msgFee > 0n && (await this.wallets.isDemoUser(sender.id));
+    // 聊天不收费（相亲全程 0 收费，开发文档 §1）
     const msg = await this.prisma.$transaction(async (tx) => {
       const created = await tx.message.create({
         data: {
@@ -72,52 +94,18 @@ export class ImService {
           fwdFrom: frame.fwdFrom || null,
         },
       });
-      if (msgFee > 0n) {
-        await this.wallets.applyTx(tx, sender.id, 'msg_fee', -msgFee, {
-          refKey: `msg_${created.id}`,
-          remark: '发送消息',
-        });
-        if (!demoSender) await this.wallets.applyTx(tx, peerId, 'msg_income', msgFee, {
-          refKey: `msg_${created.id}`,
-          remark: '收到消息',
-        });
-      }
       await tx.conversation.update({ where: { id: conv.id }, data: { lastMsgAt: created.createdAt } });
       return created;
     });
 
     const payload = this.toPayload(msg, conv, sender, frame.content, reply);
-    if (peer.isBot) {
-      void this.bots.onPrivateMessage(peer, sender, msg, frame.msgType, frame.content).catch(() => {});
-      return payload;
-    }
     await this.registry.deliver([peerId], { op: 'msg', data: payload });
     // 亲密度：发送方 +1，接收方 +0.5（异步不阻塞发送）
     void this.intimacy.bump(sender.id, peerId);
     return payload;
   }
 
-  /** 礼物消息：写入单聊会话并推送双方（计费已在礼物模块完成），双方聊天框都能看到 */
-  async sendGiftMessage(senderId: bigint, receiverId: bigint, content: string) {
-    const sender = await this.prisma.user.findUnique({ where: { id: senderId } });
-    if (!sender) return;
-    const conv = await this.getOrCreateSingleConversation(senderId, receiverId);
-    const key = this.crypto.unwrapKey(conv.wrappedKey);
-    const msg = await this.prisma.message.create({
-      data: {
-        conversationId: conv.id,
-        senderId,
-        receiverId,
-        type: 'gift',
-        cipherContent: this.crypto.encrypt(key, content),
-      },
-    });
-    await this.prisma.conversation.update({ where: { id: conv.id }, data: { lastMsgAt: msg.createdAt } });
-    const payload = this.toPayload(msg, conv, sender, content);
-    await this.registry.deliver([senderId, receiverId], { op: 'msg', data: payload });
-  }
-
-  /** 通话记录消息（微信式）：写入单聊会话并推送双方，免费不计扣费 */
+  /** 通话记录消息（微信式）：写入单聊会话并推送双方 */
   async sendCallMessage(callerId: bigint, calleeId: bigint, content: string) {
     const sender = await this.prisma.user.findUnique({ where: { id: callerId } });
     if (!sender) return;
@@ -135,47 +123,6 @@ export class ImService {
     await this.prisma.conversation.update({ where: { id: conv.id }, data: { lastMsgAt: msg.createdAt } });
     const payload = this.toPayload(msg, conv, sender, content);
     await this.registry.deliver([callerId, calleeId], { op: 'msg', data: payload });
-  }
-
-  private async sendGroup(sender: any, groupId: bigint, frame: SendFrame): Promise<MessagePayload> {
-    const member = await this.prisma.groupMember.findUnique({
-      where: { groupId_userId: { groupId, userId: sender.id } },
-    });
-    if (!member) throw new ForbiddenException('不在该群中');
-    const group = await this.prisma.chatGroup.findUnique({ where: { id: groupId }, select: { id: true, name: true, kind: true, status: true, visible: true, memberPost: true } });
-    if (!group || group.status !== 0) throw new NotFoundException('群不存在');
-    if (!group.visible) throw new ForbiddenException(GROUP_HIDDEN);
-    if (group.kind === 2) {
-      if (member.role !== 'owner' && member.role !== 'admin' && !group.memberPost) throw new ForbiddenException('频道只有频道主能发帖');
-      if (!CHANNEL_TYPES.has(frame.msgType)) throw new BadRequestException('频道不支持这种消息');
-    }
-    const conv = await this.prisma.conversation.findUnique({ where: { groupId } });
-    if (!conv) throw new NotFoundException('群会话不存在');
-
-    const key = this.crypto.unwrapKey(conv.wrappedKey);
-    const reply = await this.resolveReply(conv.id, key, frame.replyToId);
-    const msg = await this.prisma.message.create({
-      data: {
-        conversationId: conv.id,
-        senderId: sender.id,
-        receiverId: null,
-        type: frame.msgType,
-        cipherContent: this.crypto.encrypt(key, frame.content),
-        replyToId: reply ? BigInt(reply.id) : null,
-        fwdFrom: frame.fwdFrom || null,
-      },
-    });
-    await this.prisma.conversation.update({ where: { id: conv.id }, data: { lastMsgAt: msg.createdAt } });
-    // 频道阅读数按 lastReadMsgId 统计，发帖人自己算已读
-    await this.prisma.groupMember.update({ where: { groupId_userId: { groupId, userId: sender.id } }, data: { lastReadMsgId: msg.id } });
-
-    const payload = this.toPayload(msg, conv, sender, frame.content, reply);
-    if (group.kind === 2 && member.role !== 'owner' && member.role !== 'admin' && !sender.isBot) payload.memberMsg = true;
-    const members = await this.prisma.groupMember.findMany({ where: { groupId }, select: { userId: true } });
-    const targets = members.map((m) => m.userId).filter((id) => id !== sender.id);
-    await this.registry.deliver(targets, { op: 'msg', data: payload });
-    void this.bots.onGroupMessage(group, sender, msg, frame.msgType, frame.content).catch(() => {});
-    return payload;
   }
 
   /** 扫邀请名片（内容 SITE_BASE/t/?u=短号）：直接打开与名片主人的单聊，不需要对方同意 */
@@ -208,58 +155,50 @@ export class ImService {
   async markRead(userId: bigint, conversationId: bigint, msgId: bigint) {
     const conv = await this.prisma.conversation.findUnique({ where: { id: conversationId } });
     if (!conv) return;
-    if (conv.type === 1) {
-      if (conv.userAId !== userId && conv.userBId !== userId) return;
-      await this.prisma.message.updateMany({
-        where: { conversationId, receiverId: userId, isRead: false, id: { lte: msgId } },
-        data: { isRead: true, readAt: new Date() },
-      });
-      const peer = conv.userAId === userId ? conv.userBId : conv.userAId;
-      await this.registry.deliver([peer!], {
-        op: 'read',
-        conversationId: conversationId.toString(),
-        msgId: msgId.toString(),
-        userId: userId.toString(),
-      });
-    } else if (conv.groupId) {
-      await this.prisma.groupMember.updateMany({
-        where: { groupId: conv.groupId, userId },
-        data: { lastReadMsgId: msgId },
-      });
-    }
+    if (conv.userAId !== userId && conv.userBId !== userId) return;
+    await this.prisma.message.updateMany({
+      where: { conversationId, receiverId: userId, isRead: false, id: { lte: msgId } },
+      data: { isRead: true, readAt: new Date() },
+    });
+    const peer = conv.userAId === userId ? conv.userBId : conv.userAId;
+    await this.registry.deliver([peer!], {
+      op: 'read',
+      conversationId: conversationId.toString(),
+      msgId: msgId.toString(),
+      userId: userId.toString(),
+    });
   }
 
   // ---------- 查询（REST） ----------
 
   async listConversations(userId: bigint) {
-    const memberships = await this.prisma.groupMember.findMany({ where: { userId }, select: { groupId: true, lastReadMsgId: true, muted: true } });
-    const groupIds = memberships.map((m) => m.groupId);
-    const lastReadByGroup = new Map(memberships.map((m) => [m.groupId.toString(), m.lastReadMsgId]));
-    const mutedGroups = new Set(memberships.filter((m) => m.muted).map((m) => m.groupId.toString()));
-
     const convs = await this.prisma.conversation.findMany({
-      where: {
-        OR: [
-          { userAId: userId },
-          { userBId: userId },
-          ...(groupIds.length ? [{ groupId: { in: groupIds } }] : []),
-        ],
-      },
+      where: { OR: [{ userAId: userId }, { userBId: userId }] },
       orderBy: { lastMsgAt: 'desc' },
       take: 100,
     });
-
-    // 币的讨论群 7 天没人说话就不显示（从钱包代币页还能进；有人发言就回来）
-    const coinGroups = groupIds.length ? new Set((await this.prisma.coinGroup.findMany({ where: { groupId: { in: groupIds } }, select: { groupId: true } })).map((g) => g.groupId.toString())) : new Set<string>();
-    const coldBefore = Date.now() - COIN_GROUP_COLD_MS;
 
     // 「只删自己这边」的消息不当会话预览
     const hiddenRows = await this.prisma.messageHide.findMany({ where: { userId }, select: { messageId: true }, orderBy: { createdAt: 'desc' }, take: 2000 });
     const hidden = new Set(hiddenRows.map((h) => h.messageId.toString()));
 
+    // 我和每个聊天对象的喜欢关系：决定这个聊天要不要出现在列表里
+    const peerIds = convs.map((c) => (c.userAId === userId ? c.userBId! : c.userAId!));
+    const actions = peerIds.length
+      ? await this.prisma.matchAction.findMany({
+          where: { OR: [{ userId, targetId: { in: peerIds } }, { targetId: userId, userId: { in: peerIds } }] },
+          select: { userId: true, targetId: true, kind: true, matchedAt: true },
+        })
+      : [];
+    const mine = new Map(actions.filter((a) => a.userId === userId).map((a) => [a.targetId.toString(), a]));
+    const theirs = new Map(actions.filter((a) => a.userId !== userId).map((a) => [a.userId.toString(), a]));
+
     const result = [] as any[];
     for (const conv of convs) {
-      if (conv.groupId && coinGroups.has(conv.groupId.toString()) && conv.lastMsgAt.getTime() < coldBefore) continue;
+      const pid = (conv.userAId === userId ? conv.userBId! : conv.userAId!).toString();
+      // 我点过「不合适，不再联系」的：从列表里收起
+      if (mine.get(pid)?.kind === 'end') continue;
+      const mutual = mine.get(pid)?.kind === 'like' && theirs.get(pid)?.kind === 'like';
       const key = this.crypto.unwrapKey(conv.wrappedKey);
       const recent = await this.prisma.message.findMany({
         where: { conversationId: conv.id },
@@ -267,47 +206,26 @@ export class ImService {
         take: hidden.size ? 10 : 1,
       });
       const lastMsg = recent.find((m) => !hidden.has(m.id.toString())) ?? null;
+      // 没互相喜欢、也没聊过的空聊天（只是点开过聊天页）不显示。聊过的老聊天一直显示，记录还能看
+      if (!mutual && recent.length === 0) continue;
 
-      if (conv.type === 1) {
-        const peerId = conv.userAId === userId ? conv.userBId! : conv.userAId!;
-        const peer = await this.prisma.user.findUnique({ where: { id: peerId } });
-        // 机器人被删除 / 封禁：会话不再显示
-        if (peer?.isBot && peer.status !== 0) continue;
-        const unread = await this.prisma.message.count({
-          where: { conversationId: conv.id, receiverId: userId, isRead: false },
-        });
-        result.push({
-          id: conv.id,
-          type: 1,
-          peer: peer && { id: peer.id, nickname: peer.nickname, avatar: peer.avatar, gender: peer.gender, isBot: peer.isBot },
-          lastMsg: lastMsg && this.preview(lastMsg, key),
-          unread,
-          lastMsgAt: conv.lastMsgAt,
-        });
-      } else if (conv.groupId) {
-        const group = await this.prisma.chatGroup.findUnique({ where: { id: conv.groupId } });
-        if (!group || group.status !== 0 || !group.visible) continue;
-        const lastRead = lastReadByGroup.get(conv.groupId.toString()) ?? 0n;
-        const unread = await this.prisma.message.count({
-          where: { conversationId: conv.id, id: { gt: lastRead }, senderId: { not: userId } },
-        });
-        // 没设置群头像时默认显示群主头像
-        let groupAvatar = group.avatar;
-        if (!groupAvatar) {
-          const owner = await this.prisma.user.findUnique({ where: { id: group.ownerId }, select: { avatar: true } });
-          groupAvatar = owner?.avatar ?? '';
-        }
-        result.push({
-          id: conv.id,
-          type: 2,
-          // kind 2 = 频道（老客户端忽略 kind，按群聊显示）
-          group: { id: group.id, name: group.name, avatar: groupAvatar, kind: group.kind },
-          lastMsg: lastMsg && this.preview(lastMsg, key),
-          unread,
-          muted: mutedGroups.has(conv.groupId.toString()),
-          lastMsgAt: conv.lastMsgAt,
-        });
-      }
+      const peerId = conv.userAId === userId ? conv.userBId! : conv.userAId!;
+      const peer = await this.prisma.user.findUnique({ where: { id: peerId } });
+      const unread = await this.prisma.message.count({
+        where: { conversationId: conv.id, receiverId: userId, isRead: false },
+      });
+      result.push({
+        id: conv.id,
+        type: 1,
+        peer: peer && { id: peer.id, nickname: peer.nickname, avatar: peer.avatar, gender: peer.gender },
+        lastMsg: lastMsg && this.preview(lastMsg, key),
+        unread,
+        lastMsgAt: conv.lastMsgAt,
+        /** 互相喜欢的才有：at 哪天配上的；fresh = 刚配上还没说过话（列表里带「刚配上」） */
+        match: mutual ? { at: mine.get(pid)?.matchedAt ?? null, fresh: recent.length === 0 } : null,
+        /** 对方点了「不合适，不再联系」 */
+        ended: theirs.get(pid)?.kind === 'end',
+      });
     }
     return result;
   }
@@ -325,25 +243,11 @@ export class ImService {
     const me = await this.prisma.user.findUnique({ where: { id: userId }, select: { gender: true } });
     if (!me) return { messages: [], users: [] };
 
-    const memberships = await this.prisma.groupMember.findMany({ where: { userId }, select: { groupId: true } });
-    const groupIds = memberships.map((m) => m.groupId);
     const convs = await this.prisma.conversation.findMany({
-      where: {
-        OR: [
-          { userAId: userId },
-          { userBId: userId },
-          ...(groupIds.length ? [{ groupId: { in: groupIds } }] : []),
-        ],
-      },
-      select: { id: true, type: true, groupId: true, userAId: true, userBId: true, wrappedKey: true },
+      where: { OR: [{ userAId: userId }, { userBId: userId }] },
+      select: { id: true, type: true, userAId: true, userBId: true, wrappedKey: true },
     });
-    const groups = groupIds.length
-      ? await this.prisma.chatGroup.findMany({ where: { id: { in: groupIds }, status: 0, visible: true } })
-      : [];
-    const groupMap = new Map(groups.map((g) => [g.id.toString(), g]));
-    const convMap = new Map(
-      convs.filter((c) => c.type === 1 || (c.groupId && groupMap.has(c.groupId.toString()))).map((c) => [c.id.toString(), c]),
-    );
+    const convMap = new Map(convs.map((c) => [c.id.toString(), c]));
 
     const SEARCH_SCAN = 5000;
     const MAX_HITS = 60;
@@ -376,14 +280,13 @@ export class ImService {
       if (hits.length >= MAX_HITS) break;
     }
 
-    // 发送者 + 单聊对方 + 群主（群没头像时回退群主头像）一次查完
+    // 发送者 + 单聊对方一次查完
     const userIds = new Set<string>();
     for (const h of hits) {
       userIds.add(h.row.senderId.toString());
       const c = convMap.get(h.row.conversationId.toString())!;
-      if (c.type === 1) userIds.add((c.userAId === userId ? c.userBId! : c.userAId!).toString());
+      userIds.add((c.userAId === userId ? c.userBId! : c.userAId!).toString());
     }
-    for (const g of groups) if (!g.avatar) userIds.add(g.ownerId.toString());
     const people = userIds.size
       ? await this.prisma.user.findMany({
           where: { id: { in: [...userIds].map(BigInt) } },
@@ -394,21 +297,10 @@ export class ImService {
 
     const messages = hits.map(({ row, content, idx }) => {
       const c = convMap.get(row.conversationId.toString())!;
-      let title = '';
-      let avatar = '';
-      let targetId = '';
-      if (c.type === 1) {
-        const peerId = (c.userAId === userId ? c.userBId! : c.userAId!).toString();
-        const peer = personMap.get(peerId);
-        title = peer?.nickname ?? '';
-        avatar = peer?.avatar ?? '';
-        targetId = peerId;
-      } else {
-        const g = groupMap.get(c.groupId!.toString())!;
-        title = g.name;
-        avatar = g.avatar || personMap.get(g.ownerId.toString())?.avatar || '';
-        targetId = g.id.toString();
-      }
+      const targetId = (c.userAId === userId ? c.userBId! : c.userAId!).toString();
+      const peer = personMap.get(targetId);
+      const title = peer?.nickname ?? '';
+      const avatar = peer?.avatar ?? '';
       const start = Math.max(0, idx - 16);
       const snippet = (start > 0 ? '…' : '') + content.slice(start, start + 120).replace(/\s+/g, ' ');
       const sender = personMap.get(row.senderId.toString());
@@ -430,7 +322,6 @@ export class ImService {
     const users = await this.prisma.user.findMany({
       where: {
         status: 0,
-        isBot: false,
         hidden: false,
         id: { not: userId },
         OR: [{ shortId: q }, { nickname: { contains: q }, gender: me.gender === 1 ? 2 : 1 }],
@@ -440,54 +331,20 @@ export class ImService {
       select: { id: true, nickname: true, avatar: true, gender: true, age: true, cityName: true },
     });
 
-    // 机器人按用户名找（@xxx_bot 或 xxx_bot 都行）
-    const uname = q.replace(/^@/, '');
-    const bots = /^[A-Za-z0-9_]{2,40}$/.test(uname)
-      ? await this.prisma.bot.findMany({ where: { username: { contains: uname } }, take: 10 })
-      : [];
-    const botUsers = bots.length
-      ? await this.prisma.user.findMany({ where: { id: { in: bots.map((b) => b.id) }, status: 0 }, select: { id: true, nickname: true, avatar: true } })
-      : [];
-    const botMap = new Map(bots.map((b) => [b.id.toString(), b]));
-    const botHits = botUsers.map((u) => ({ ...u, gender: 0, age: 0, cityName: '', isBot: true, username: botMap.get(u.id.toString())?.username ?? '' }));
-
-    return { messages, users: [...botHits, ...users] };
+    return { messages, users };
   }
 
-  /**
-   * 清空聊天记录：
-   * 单聊 = 双向物理删除全部消息，并实时推送双方在线端同步清空；
-   * 群聊 = 物理删除本人发送的全部消息，并实时推送所有群成员刷新消息列表。
-   */
+  /** 清空聊天记录：双向物理删除全部消息，并实时推送双方在线端同步清空 */
   async clearMessages(userId: bigint, conversationId: bigint) {
     const conv = await this.prisma.conversation.findUnique({ where: { id: conversationId } });
     if (!conv) throw new NotFoundException('会话不存在');
     await this.assertMember(userId, conv);
 
-    if (conv.type === 1) {
-      await this.prisma.messagePin.deleteMany({ where: { conversationId } });
-      await this.prisma.messageHide.deleteMany({ where: { conversationId } });
-      await this.prisma.message.deleteMany({ where: { conversationId } });
-      const peers = [conv.userAId, conv.userBId].filter((id): id is bigint => id != null);
-      await this.registry.deliver(peers, { op: 'conv_cleared', data: { conversationId: conversationId.toString() } });
-    } else if (conv.groupId) {
-      const own = await this.prisma.message.findMany({ where: { conversationId, senderId: userId }, select: { id: true } });
-      const ids = own.map((m) => m.id);
-      if (ids.length) {
-        await this.prisma.messagePin.deleteMany({ where: { messageId: { in: ids } } });
-        await this.prisma.messageHide.deleteMany({ where: { messageId: { in: ids } } });
-        await this.prisma.channelReaction.deleteMany({ where: { messageId: { in: ids } } });
-      }
-      await this.prisma.message.deleteMany({ where: { conversationId, senderId: userId } });
-      const members = await this.prisma.groupMember.findMany({
-        where: { groupId: conv.groupId },
-        select: { userId: true },
-      });
-      await this.registry.deliver(
-        members.map((m) => m.userId),
-        { op: 'conv_cleared', data: { conversationId: conversationId.toString() } },
-      );
-    }
+    await this.prisma.messagePin.deleteMany({ where: { conversationId } });
+    await this.prisma.messageHide.deleteMany({ where: { conversationId } });
+    await this.prisma.message.deleteMany({ where: { conversationId } });
+    const peers = [conv.userAId, conv.userBId].filter((id): id is bigint => id != null);
+    await this.registry.deliver(peers, { op: 'conv_cleared', data: { conversationId: conversationId.toString() } });
     return { ok: true };
   }
 
@@ -530,8 +387,7 @@ export class ImService {
     const senders = await this.prisma.user.findMany({ where: { id: { in: senderIds.map(BigInt) } } });
     const senderMap = new Map(senders.map((s) => [s.id.toString(), s]));
     const ids = messages.map((m) => m.id);
-    const [markups, replies, reactions] = await Promise.all([
-      this.markupsOf(messages.filter((m) => senderMap.get(m.senderId.toString())?.isBot).map((m) => m.id)),
+    const [replies, reactions] = await Promise.all([
       this.replyPreviewsOf(key, messages.map((m) => m.replyToId).filter((x): x is bigint => x != null)),
       this.reactionsOf(ids),
     ]);
@@ -544,7 +400,6 @@ export class ImService {
         senderId: m.senderId,
         senderNickname: sender?.nickname ?? '',
         senderAvatar: sender?.avatar ?? '',
-        ...(sender?.isBot ? { senderIsBot: true, markup: markups.get(m.id.toString()) ?? null } : {}),
         receiverId: m.receiverId,
         type: m.type,
         content: this.crypto.decrypt(key, m.cipherContent),
@@ -623,32 +478,8 @@ export class ImService {
     return map;
   }
 
-  /** 机器人消息的按钮（inline_keyboard），messageId → markup */
-  async markupsOf(ids: bigint[]) {
-    const map = new Map<string, unknown>();
-    if (!ids.length) return map;
-    const rows = await this.prisma.botMessageMarkup.findMany({ where: { messageId: { in: ids } } });
-    for (const r of rows) {
-      try {
-        map.set(r.messageId.toString(), JSON.parse(r.markup));
-      } catch {
-        /* ignore */
-      }
-    }
-    return map;
-  }
-
-  async assertMember(userId: bigint, conv: any) {
-    if (conv.type === 1) {
-      if (conv.userAId !== userId && conv.userBId !== userId) throw new ForbiddenException('无权访问该会话');
-    } else if (conv.groupId) {
-      const member = await this.prisma.groupMember.findUnique({
-        where: { groupId_userId: { groupId: conv.groupId, userId } },
-      });
-      if (!member) throw new ForbiddenException('不在该群中');
-      const group = await this.prisma.chatGroup.findUnique({ where: { id: conv.groupId }, select: { visible: true } });
-      if (group && !group.visible) throw new ForbiddenException(GROUP_HIDDEN);
-    }
+  async assertMember(userId: bigint, conv: { userAId: bigint | null; userBId: bigint | null }) {
+    if (conv.userAId !== userId && conv.userBId !== userId) throw new ForbiddenException('无权访问该会话');
   }
 
   private preview(msg: any, key: Buffer) {
@@ -668,7 +499,6 @@ export class ImService {
       id: msg.id.toString(),
       conversationId: conv.id.toString(),
       convType: conv.type,
-      groupId: conv.groupId?.toString() ?? null,
       senderId: sender.id.toString(),
       senderNickname: sender.nickname,
       senderAvatar: sender.avatar,

@@ -1,64 +1,27 @@
-import { ReactNode, useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { openNativeChat } from '../bridge';
-import { chainCardPreview } from '../components/ChainCards';
 import { fileSnippet } from '../components/ChatMedia';
-import { api, uploadFile } from '../api';
+import { api } from '../api';
 import { wsManager } from '../ws';
-import { MusicSheet, NowPlayingBar } from './Music';
-import { ChatSearch, SearchExtra } from '../components/ChatSearch';
-import { looksLikeWalletPayment, parseGroupCode, parseInviteCode, QrScanner, ScanIcon } from '../components/QrScanner';
-import { CreateChannelSheet } from './Channel';
+import { ChatSearch } from '../components/ChatSearch';
+import { parseInviteCode, QrScanner, ScanIcon } from '../components/QrScanner';
 import { t } from '../i18n';
+import { MatchSummary } from '../match';
+import '../hn.css';
 
 interface ConversationItem {
   id: string;
-  type: number;
-  peer?: { id: string; nickname: string; avatar: string; gender: number; isBot?: boolean };
-  /** kind 2 = 频道 */
-  group?: { id: string; name: string; avatar: string; kind?: number };
+  peer?: { id: string; nickname: string; avatar: string; gender: number };
   lastMsg?: { type: string; content: string; createdAt: string } | null;
   unread: number;
   muted?: boolean;
   lastMsgAt: string;
+  /** 互相喜欢的才有：fresh = 刚配上还没说过话 */
+  match?: { at: string | null; fresh: boolean } | null;
+  /** 对方点了「不合适，不再联系」 */
+  ended?: boolean;
 }
-
-interface NotificationItem {
-  id: string;
-  kind: string;
-  title: string;
-  body: string;
-  refId: string;
-  isRead: boolean;
-  createdAt: string;
-}
-
-type NoticeKind = 'comment' | 'task';
-
-interface NoticeSummary {
-  unread: number;
-  last: { title: string; body: string; createdAt: string } | null;
-}
-
-const NOTICE_META: Record<NoticeKind, { title: string; grad: string; icon: ReactNode }> = {
-  comment: {
-    title: t('chat.notice.comment'),
-    grad: 'linear-gradient(135deg, #ff9a3c, #fe2c55)',
-    icon: <svg width={26} height={26} viewBox="0 0 24 24" fill="#fff"><path d="M12 3C6.5 3 2 6.6 2 11c0 2.4 1.3 4.6 3.4 6.1L4.6 21l4.3-2.3c1 .2 2 .3 3.1.3 5.5 0 10-3.6 10-8s-4.5-8-10-8z" /></svg>,
-  },
-  task: {
-    title: t('chat.notice.task'),
-    grad: 'linear-gradient(135deg, #2fb5ff, #4c6fff)',
-    icon: <svg width={24} height={24} viewBox="0 0 24 24" fill="#fff"><path d="M9 3h6a2 2 0 0 1 2 2v1h3a2 2 0 0 1 2 2v4H2V8a2 2 0 0 1 2-2h3V5a2 2 0 0 1 2-2zm0 3h6V5H9v1zM2 14h8v1a2 2 0 0 0 4 0v-1h8v5a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-5z" /></svg>,
-  },
-};
-
-const AI_ICON = <div className="cl-icon" style={{ background: 'var(--accent-grad)', fontSize: 17, fontWeight: 800, letterSpacing: 1 }}>AI</div>;
-const MUSIC_ICON = (
-  <div className="cl-icon" style={{ background: 'linear-gradient(135deg, #7b5cff, #fe2c55)' }}>
-    <svg width={26} height={26} viewBox="0 0 24 24" fill="#fff"><path d="M9 3v10.55A4 4 0 1 0 11 17V7h5a3 3 0 0 0 3-3V3H9z" /></svg>
-  </div>
-);
 
 function previewText(msg?: ConversationItem['lastMsg']): string {
   if (!msg) return '';
@@ -66,16 +29,9 @@ function previewText(msg?: ConversationItem['lastMsg']): string {
     case 'text': return msg.content.slice(0, 30);
     case 'image': return t('msg.preview.image');
     case 'video': return t('msg.preview.video');
-    case 'sticker': return msg.content.includes('"mp4"') ? '[GIF]' : t('msg.preview.sticker');
-    case 'gift': return t('msg.preview.gift');
     case 'audio': return t('msg.preview.voice');
     case 'file': return fileSnippet(msg.content);
     case 'location': return t('msg.preview.location');
-    case 'transfer':
-    case 'callout':
-    case 'perp':
-    case 'card':
-    case 'payreq': return chainCardPreview(msg.type, msg.content) ?? '';
     default: return msg.type.startsWith('call') ? t('msg.preview.call') : '';
   }
 }
@@ -88,220 +44,14 @@ function timeText(iso: string): string {
     : `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-/** 建群弹层 */
-function CreateGroupSheet({ onClose, onCreated }: { onClose: () => void; onCreated: (convId: string, name: string, groupId: string) => void }) {
-  const [name, setName] = useState('');
-  const [avatar, setAvatar] = useState('');
-  const [uploading, setUploading] = useState(false);
-  const [people, setPeople] = useState<any[]>([]);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    api<any[]>('/guide/discover').then(setPeople).catch(() => {});
-  }, []);
-
-  const pickAvatar = async (file: File | undefined) => {
-    if (!file) return;
-    setUploading(true);
-    try {
-      setAvatar(await uploadFile('image', file));
-    } catch (e: any) {
-      alert(e.message || t('common.uploadFailed'));
-    }
-    setUploading(false);
-  };
-
-  const create = async () => {
-    if (!name.trim()) {
-      alert(t('group.create.nameRequired'));
-      return;
-    }
-    try {
-      const g = await api<any>('/im/group', { method: 'POST', body: { name: name.trim(), memberIds: [...selected], avatar } });
-      onCreated(g.conversationId, g.name, g.id);
-    } catch (e: any) {
-      alert(e.message);
-    }
-  };
-
-  return (
-    <div className="mask bottom" onClick={onClose}>
-      <div className="sheet no-scrollbar" onClick={(e) => e.stopPropagation()}>
-        <div style={{ textAlign: 'center', marginBottom: 12, fontWeight: 600 }}>{t('group.create.title')}</div>
-        <div className="row" style={{ gap: 12 }}>
-          {/* 群头像（可选，不设置默认用群主头像） */}
-          <div
-            className="avatar"
-            onClick={() => fileRef.current?.click()}
-            style={{ width: 56, height: 56, flexShrink: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-input)', fontSize: 11, color: 'var(--text-3)' }}
-          >
-            {avatar ? <img src={avatar} alt="" /> : uploading ? '…' : t('group.create.avatar')}
-          </div>
-          <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => pickAvatar(e.target.files?.[0])} />
-          <input className="input grow" style={{ marginBottom: 0 }} placeholder={t('group.create.namePlaceholder')} value={name} maxLength={50} onChange={(e) => setName(e.target.value)} />
-        </div>
-        <div className="muted" style={{ margin: '8px 0 10px' }}>{t('group.create.hint')}</div>
-        {people.map((p) => (
-          <div key={p.id} className="row" style={{ padding: '8px 0', cursor: 'pointer' }} onClick={() => {
-            const next = new Set(selected);
-            next.has(p.id) ? next.delete(p.id) : next.add(p.id);
-            setSelected(next);
-          }}>
-            <div className="avatar" style={{ width: 36, height: 36 }}>
-              {p.avatar && <img src={p.avatar} alt="" />}
-            </div>
-            <div className="grow">{p.nickname}</div>
-            <span style={{ color: selected.has(p.id) ? 'var(--accent)' : 'var(--text-3)' }}>
-              {selected.has(p.id) ? t('common.selected') : t('common.select')}
-            </span>
-          </div>
-        ))}
-        <button className="btn mt12" onClick={create}>{t('group.create.submit', { n: selected.size })}</button>
-      </div>
-    </div>
-  );
-}
-
-/** 加入群聊弹层：群列表可直接加入，也可输邀请码；有密码的群需输密码；initialCode 由「扫一扫」预填并自动查询。
- *  邀请码是频道的（kind=2）直接跳频道页，在那里订阅。 */
-export function JoinGroupSheet({ onClose, onJoined, initialCode }: { onClose: () => void; onJoined: (convId: string, name: string, groupId: string) => void; initialCode?: string }) {
-  const nav = useNavigate();
-  const [code, setCode] = useState(initialCode ?? '');
-  const [info, setInfo] = useState<any>(null);
-  const [pwd, setPwd] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [groups, setGroups] = useState<any[]>([]);
-
-  useEffect(() => {
-    if (initialCode) check(initialCode);
-    api<any[]>('/im/group/list').then(setGroups).catch(() => {});
-  }, []);
-
-  /** 按群 id 加入（群列表入口），有密码的群先 prompt */
-  const joinById = async (g: any) => {
-    if (g.isMember && g.conversationId) {
-      onJoined(g.conversationId, g.name, g.id);
-      return;
-    }
-    let password = '';
-    if (g.hasPassword) {
-      const input = prompt(t('group.join.pwdPrompt', { name: g.name }));
-      if (input == null) return;
-      password = input.trim();
-    }
-    setBusy(true);
-    try {
-      const r = await api<any>(`/im/group/${g.id}/join`, { method: 'POST', body: { password } });
-      onJoined(r.conversationId, r.name, r.id);
-    } catch (e: any) {
-      alert(e.message || t('group.join.failed'));
-    }
-    setBusy(false);
-  };
-
-  const check = async (raw?: string) => {
-    const c = (raw ?? code).trim().toUpperCase();
-    if (c.length < 6) { alert(t('group.join.codeIncomplete')); return; }
-    setBusy(true);
-    try {
-      const g = await api<any>(`/im/group/code/${c}`);
-      if (g.kind === 2) {
-        onClose();
-        nav(`/channel/${g.groupId}`);
-        return;
-      }
-      setInfo(g);
-      setPwd('');
-    } catch (e: any) {
-      alert(e.message || t('group.join.codeInvalid'));
-    }
-    setBusy(false);
-  };
-
-  const join = async () => {
-    if (info.isMember && info.conversationId) {
-      onJoined(info.conversationId, info.name, info.groupId);
-      return;
-    }
-    if (info.hasPassword && !pwd.trim()) { alert(t('group.join.pwdRequired')); return; }
-    setBusy(true);
-    try {
-      const g = await api<any>('/im/group/join-by-code', { method: 'POST', body: { code: code.trim().toUpperCase(), password: pwd.trim() } });
-      onJoined(g.conversationId, g.name, g.id);
-    } catch (e: any) {
-      alert(e.message || t('group.join.failed'));
-    }
-    setBusy(false);
-  };
-
-  return (
-    <div className="mask bottom" onClick={onClose}>
-      <div className="sheet no-scrollbar" onClick={(e) => e.stopPropagation()}>
-        <div style={{ textAlign: 'center', marginBottom: 12, fontWeight: 600 }}>{t('group.join.title')}</div>
-        <input
-          className="input"
-          placeholder={t('group.join.codePlaceholder')}
-          value={code}
-          maxLength={12}
-          style={{ textTransform: 'uppercase', letterSpacing: 2 }}
-          onChange={(e) => { setCode(e.target.value.toUpperCase()); setInfo(null); }}
-        />
-        {!info ? (
-          code.trim() && <button className="btn mt12" disabled={busy} onClick={() => check()}>{busy ? t('group.join.searching') : t('group.join.find')}</button>
-        ) : (
-          <>
-            <div className="card" style={{ marginTop: 12, textAlign: 'center' }}>
-              <div style={{ fontSize: 16, fontWeight: 600 }}>{info.name}</div>
-              <div className="small" style={{ marginTop: 4 }}>{t('group.memberCount', { n: info.memberCount })}{info.hasPassword ? ` · ${t('group.needPwd')}` : ''}</div>
-              {info.isMember && <div className="small" style={{ color: 'var(--success, #0bd07d)', marginTop: 6 }}>{t('group.join.alreadyIn')}</div>}
-              {!info.isMember && info.hasPassword && (
-                <input className="input" type="password" placeholder={t('group.join.pwdPlaceholder')} value={pwd} maxLength={20} style={{ marginTop: 10 }} onChange={(e) => setPwd(e.target.value)} />
-              )}
-            </div>
-            <button className="btn mt12" disabled={busy} onClick={join}>
-              {info.isMember ? t('group.join.enter') : busy ? t('group.join.joining') : t('group.join.title')}
-            </button>
-          </>
-        )}
-
-        {/* 群列表：直接浏览加入 */}
-        <div className="small" style={{ margin: '14px 0 4px' }}>{t('group.join.list')}</div>
-        {groups.length === 0 && <div className="empty" style={{ padding: 16 }}>{t('group.join.empty')}</div>}
-        {groups.map((g) => (
-          <div key={g.id} className="row" style={{ padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
-            <div className="avatar" style={{ width: 44, height: 44 }}>
-              {g.avatar && <img src={g.avatar} alt="" />}
-            </div>
-            <div className="grow" style={{ minWidth: 0 }}>
-              <div className="ellipsis" style={{ fontSize: 15 }}>{g.name}</div>
-              <div className="small" style={{ marginTop: 2 }}>{t('group.memberCount', { n: g.memberCount })}{g.hasPassword ? ` · ${t('group.needPwd')}` : ''}</div>
-            </div>
-            <span
-              onClick={() => !busy && joinById(g)}
-              style={{
-                padding: '6px 16px', borderRadius: 14, fontSize: 12, cursor: 'pointer', flexShrink: 0,
-                background: g.isMember ? 'var(--bg-input)' : 'var(--accent-grad)',
-                color: g.isMember ? 'var(--text-2)' : '#fff',
-              }}
-            >{g.isMember ? t('group.join.open') : t('group.join.join')}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 /**
  * 扫到的二维码统一在这里处理（消息页搜索 / 我的页的扫一扫、聊天图片「识别二维码」共用）：
- * 邀请名片 → 直接打开与对方的私聊；收款码 → 积分转赠页并填好；群邀请码 → 加入群聊；
- * 钱包地址 / 收款链接 → 网页版没有钱包，提示去 App 里转账（地址复制到剪贴板）。
+ * 邀请名片 → 直接打开与对方的私聊；其它内容提示无法识别。
  * 传了 text 就不开相机，直接处理这段内容。
  */
 export function ScanFlow({ onClose, text: given }: { onClose: () => void; text?: string }) {
   const nav = useNavigate();
   const [scanning, setScanning] = useState(given == null);
-  const [joinCode, setJoinCode] = useState<string | null>(null);
   const started = useRef(false);
   useEffect(() => {
     if (given == null || started.current) return;
@@ -321,154 +71,55 @@ export function ScanFlow({ onClose, text: given }: { onClose: () => void; text?:
         );
         onClose();
         if (openNativeChat(r.conversationId, 1, r.peer.id, r.peer.nickname)) return;
-        nav(`/chatroom/${r.conversationId}`, { state: { title: r.peer.nickname, convType: 1, targetId: r.peer.id } });
+        nav(`/chatroom/${r.conversationId}`, { state: { title: r.peer.nickname, targetId: r.peer.id } });
       } catch (e: any) {
         alert(e.message);
         onClose();
       }
       return;
     }
-    const sid = text.match(/pay\?sid=(\d{6})/)?.[1];
-    if (sid) {
-      onClose();
-      nav(`/transfer?sid=${sid}`);
-      return;
-    }
-    const wallet = looksLikeWalletPayment(text);
-    const g = wallet ? null : parseGroupCode(text);
-    if (g) return setJoinCode(g);
-    if (wallet) {
-      await navigator.clipboard?.writeText(text).catch(() => {});
-      alert(t('scan.walletAddress', { text, app: t('app.name') }));
-    } else alert(t('scan.unknownQr'));
+    alert(t('scan.unknownQr'));
     onClose();
   };
 
-  return (
-    <>
-      {scanning && <QrScanner hint={t('scan.hintInviteOrGroup')} onResult={handle} onClose={onClose} />}
-      {joinCode && (
-        <JoinGroupSheet
-          initialCode={joinCode}
-          onClose={onClose}
-          onJoined={(convId, name, groupId) => {
-            onClose();
-            if (openNativeChat(convId, 2, groupId, t('chat.groupTitle', { name }))) return;
-            nav(`/chatroom/${convId}`, { state: { title: t('chat.groupTitle', { name }), convType: 2, targetId: groupId } });
-          }}
-        />
-      )}
-    </>
-  );
+  return scanning ? <QrScanner hint={t('scan.hintInvite')} onResult={handle} onClose={onClose} /> : null;
 }
 
 export function ChatListPage() {
   const nav = useNavigate();
   const [convs, setConvs] = useState<ConversationItem[]>([]);
-  const [summary, setSummary] = useState<Record<NoticeKind, NoticeSummary> | null>(null);
-  const [showCreate, setShowCreate] = useState(false);
-  const [showJoin, setShowJoin] = useState(false);
-  const [showPlusMenu, setShowPlusMenu] = useState(false);
-  const [showMusic, setShowMusic] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [showScan, setShowScan] = useState(false);
-  const [showCreateChannel, setShowCreateChannel] = useState(false);
+
+  /** 顶上三个数字：喜欢我的 / 我喜欢的 / 互相喜欢 */
+  const [sum, setSum] = useState<MatchSummary | null>(null);
 
   const loadConvs = () => api<ConversationItem[]>('/im/conversations').then(setConvs).catch(() => {});
-  const loadSummary = () => api<Record<NoticeKind, NoticeSummary>>('/notifications/summary').then(setSummary).catch(() => {});
+  const loadSum = () => api<MatchSummary>('/match/summary').then(setSum).catch(() => {});
 
   useEffect(() => {
     loadConvs();
-    loadSummary();
+    loadSum();
     wsManager.connect();
     return wsManager.on((frame) => {
       if (frame.op === 'msg' || frame.op === 'conv_cleared' || frame.op === 'conv_refresh') loadConvs();
-      if (frame.op === 'notify') loadSummary();
+      // 有人喜欢了我 / 互相喜欢了 / 对方结束了聊天：数字和列表都刷新
+      if (frame.op === 'match') { loadSum(); loadConvs(); }
     });
   }, []);
 
-  const openConv = (c: { id: string; type: number; targetId: string; title: string; focusMsgId?: string; isBot?: boolean }) => {
-    const conv = convs.find((x) => x.id === c.id);
-    if (conv?.group?.kind === 2) {
-      nav(`/channel/${c.targetId}`);
-      return;
-    }
-    const title = c.type === 2 ? t('chat.groupTitle', { name: c.title }) : c.title;
-    if (openNativeChat(c.id, c.type, c.targetId, title)) return;
-    const isBot = c.isBot ?? !!conv?.peer?.isBot;
-    nav(`/chatroom/${c.id}`, { state: { title, convType: c.type, targetId: c.targetId, focusMsgId: c.focusMsgId, isBot } });
+  const openConv = (c: { id: string; targetId: string; title: string; focusMsgId?: string }) => {
+    if (openNativeChat(c.id, 1, c.targetId, c.title)) return;
+    nav(`/chatroom/${c.id}`, { state: { title: c.title, targetId: c.targetId, focusMsgId: c.focusMsgId } });
   };
 
-  // 会话 + 评论 / 接单两个系统会话混排，最新的在上；AI 助手、音乐固定置顶
-  type Entry = { at: string } & ({ kind: 'conv'; conv: ConversationItem } | { kind: 'notice'; key: NoticeKind; s: NoticeSummary });
-  const entries: Entry[] = [
-    ...convs.map((conv): Entry => ({ kind: 'conv', conv, at: conv.lastMsgAt })),
-    ...(['comment', 'task'] as NoticeKind[])
-      .filter((k) => summary?.[k]?.last)
-      .map((k): Entry => ({ kind: 'notice', key: k, s: summary![k], at: summary![k].last!.createdAt })),
-  ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
-
-  const searchExtras: SearchExtra[] = [
-    { key: 'ai', title: t('ai.title'), subtitle: t('ai.subtitle'), icon: AI_ICON, onOpen: () => nav('/ai-chat') },
-    { key: 'music', title: t('music.title'), subtitle: t('chat.music.subtitle'), icon: MUSIC_ICON, onOpen: () => { setShowSearch(false); setShowMusic(true); } },
-    ...(['comment', 'task'] as NoticeKind[]).filter((k) => summary?.[k]?.last).map((k) => ({
-      key: k,
-      title: NOTICE_META[k].title,
-      subtitle: summary![k].last!.title,
-      unread: summary![k].unread,
-      icon: <div className="cl-icon" style={{ width: 44, height: 44, background: NOTICE_META[k].grad }}>{NOTICE_META[k].icon}</div>,
-      onOpen: () => nav(`/notices/${k}`),
-    })),
-  ];
-
-  const pinIcon = (
-    <span className="cl-pin">
-      <svg width={13} height={13} viewBox="0 0 24 24" fill="currentColor"><path d="M16 3l5 5-3 1-4 4 1 5-2 2-4-4-5 5-1-1 5-5-4-4 2-2 5 1 4-4z" /></svg>
-    </span>
-  );
-
-  const fixedRow = (icon: ReactNode, title: string, sub: string, tag: string, onClick: () => void) => (
-    <div className="cl-row" onClick={onClick}>
-      {icon}
-      <div className="cl-row-main">
-        <div className="cl-row-top">
-          <span className="cl-row-title ellipsis">{title}</span>
-          <span style={{ fontSize: 10, color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 4, padding: '1px 5px' }}>{tag}</span>
-        </div>
-        <div className="cl-row-sub">
-          <span className="ellipsis">{sub}</span>
-          {pinIcon}
-        </div>
-      </div>
-    </div>
-  );
+  // 会话按最新消息时间排，最新的在上
+  const entries = [...convs].sort((a, b) => new Date(b.lastMsgAt).getTime() - new Date(a.lastMsgAt).getTime());
 
   return (
     <>
-      {/* 播放中：顶部固定「正在播放」栏，点中间打开播放弹层 */}
-      <NowPlayingBar onOpen={() => setShowMusic(true)} />
-      {/* 头部：标题 + 建群按钮 */}
       <div className="cl-head">
         <span className="cl-title">{t('tab.messages')}</span>
-        <span style={{ position: 'relative', flexShrink: 0 }}>
-          <span className="cl-plus" onClick={() => setShowPlusMenu((v) => !v)} title={t('chat.groupChat')}>+</span>
-          {showPlusMenu && (
-            <>
-              <div style={{ position: 'fixed', inset: 0, zIndex: 30 }} onClick={() => setShowPlusMenu(false)} />
-              <div style={{
-                position: 'absolute', top: 40, right: 0, zIndex: 31,
-                background: 'var(--bg-card)', border: '1px solid var(--line)', borderRadius: 10,
-                boxShadow: '0 8px 24px rgba(0,0,0,0.4)', overflow: 'hidden', width: 120,
-              }}>
-                <div style={{ padding: '11px 16px', fontSize: 14, cursor: 'pointer' }} onClick={() => { setShowPlusMenu(false); setShowCreate(true); }}>{t('group.create.title')}</div>
-                <div style={{ padding: '11px 16px', fontSize: 14, cursor: 'pointer', borderTop: '1px solid var(--line)' }} onClick={() => { setShowPlusMenu(false); setShowJoin(true); }}>{t('group.join.title')}</div>
-                <div style={{ padding: '11px 16px', fontSize: 14, cursor: 'pointer', borderTop: '1px solid var(--line)' }} onClick={() => { setShowPlusMenu(false); setShowCreateChannel(true); }}>{t('chat.plus.createChannel')}</div>
-                <div style={{ padding: '11px 16px', fontSize: 14, cursor: 'pointer', borderTop: '1px solid var(--line)' }} onClick={() => { setShowPlusMenu(false); nav('/channels'); }}>{t('chat.plus.discoverChannels')}</div>
-                <div style={{ padding: '11px 16px', fontSize: 14, cursor: 'pointer', borderTop: '1px solid var(--line)' }} onClick={() => { setShowPlusMenu(false); nav('/bots'); }}>{t('me.bots')}</div>
-              </div>
-            </>
-          )}
-        </span>
       </div>
 
       {/* 搜索：点了弹全屏搜索框 */}
@@ -480,68 +131,54 @@ export function ChatListPage() {
         </span>
       </div>
 
-      {/* AI 助手 / 音乐固定置顶，其余按最新消息时间排 */}
-      {fixedRow(AI_ICON, t('ai.title'), t('ai.subtitle'), t('ai.free'), () => nav('/ai-chat'))}
-      {fixedRow(MUSIC_ICON, t('music.title'), t('chat.music.subtitle'), t('chat.music.tag'), () => setShowMusic(true))}
+      {/* 喜欢我的 / 我喜欢的 / 互相喜欢：点哪个进喜欢列表对应的分类 */}
+      <div className="hn-ents" style={{ paddingTop: 8 }}>
+        {([['likedMe', '喜欢我的', sum?.likedMe], ['liked', '我喜欢的', sum?.liked], ['mutual', '互相喜欢', sum?.mutual]] as const).map(([k, label, n]) => (
+          <div key={k} className="hn-ent hn-glass" onClick={() => nav(`/likes?tab=${k}`)}>
+            <div className="num" style={k === 'likedMe' && n ? { color: 'var(--hn-rose)' } : undefined}>{n ?? '-'}</div>
+            <div className="hn-t2" style={{ fontSize: 12, marginTop: 2 }}>{label}</div>
+            {k === 'likedMe' && !!sum?.likedMeNew && <span className="new" />}
+          </div>
+        ))}
+      </div>
 
-      {entries.map((e) => {
-        if (e.kind === 'notice') {
-          const meta = NOTICE_META[e.key];
-          return (
-            <div key={`n-${e.key}`} className="cl-row" onClick={() => nav(`/notices/${e.key}`)}>
-              <div className="cl-icon" style={{ background: meta.grad }}>{meta.icon}</div>
-              <div className="cl-row-main">
-                <div className="cl-row-top">
-                  <span className="cl-row-title ellipsis">{meta.title}</span>
-                  <span className="small">{timeText(e.at)}</span>
-                </div>
-                <div className="cl-row-sub">
-                  <span className="ellipsis">{e.s.last?.title}</span>
-                  {e.s.unread > 0 && <span className="cs-badge">{e.s.unread > 99 ? '99+' : e.s.unread}</span>}
-                </div>
-              </div>
-            </div>
-          );
-        }
-        const c = e.conv;
-        const title = (c.type === 1 ? c.peer?.nickname : c.group?.name) ?? '';
-        const avatar = c.type === 1 ? c.peer?.avatar : c.group?.avatar;
-        const targetId = (c.type === 1 ? c.peer?.id : c.group?.id) ?? '';
+      {entries.map((c) => {
+        const title = c.peer?.nickname ?? '';
+        const avatar = c.peer?.avatar;
+        const targetId = c.peer?.id ?? '';
         return (
-          <div key={c.id} className="cl-row" onClick={() => openConv({ id: c.id, type: c.type, targetId, title })}>
+          <div key={c.id} className="cl-row" onClick={() => openConv({ id: c.id, targetId, title })}>
             <div className="avatar" style={{ width: 54, height: 54 }}>
               {avatar && <img src={avatar} alt="" />}
             </div>
             <div className="cl-row-main">
               <div className="cl-row-top">
-                <span className="cl-row-title ellipsis">
-                  {title}
-                  {c.type === 2 && <span className="cs-tag">{c.group?.kind === 2 ? t('chat.tagChannel') : t('chat.tagGroup')}</span>}
-                  {c.peer?.isBot && <span className="bot-tag">{t('chat.bot')}</span>}
-                </span>
-                <span className="small">{timeText(c.lastMsgAt)}</span>
+                <span className="cl-row-title ellipsis" style={c.match?.fresh ? { flex: '0 1 auto' } : undefined}>{title}</span>
+                {c.match?.fresh && <span className="hn-tag" style={{ height: 20, fontSize: 10.5, padding: '0 8px', marginLeft: 6, flexShrink: 0 }}>刚配上</span>}
+                <span className="small" style={{ marginLeft: 'auto' }}>{timeText(c.lastMsgAt)}</span>
               </div>
               <div className="cl-row-sub">
-                <span className="ellipsis">{previewText(c.lastMsg)}</span>
+                <span className="ellipsis">{c.match?.fresh ? '你们互相喜欢了，打个招呼吧' : c.ended && !c.lastMsg ? '对方已结束聊天' : previewText(c.lastMsg)}</span>
+                {c.match?.fresh && c.unread === 0 && <span className="cs-badge">新</span>}
                 {c.unread > 0 && <span className={`cs-badge${c.muted ? ' muted' : ''}`}>{c.unread > 99 ? '99+' : c.unread}</span>}
               </div>
             </div>
           </div>
         );
       })}
-      {entries.length === 0 && <div className="empty">{t('chat.emptyWeb')}</div>}
+      {entries.length === 0 && <div className="empty">还没有聊天。互相喜欢以后，对方会出现在这里。</div>}
 
       {showSearch && (
         <ChatSearch
           convs={convs}
-          extras={searchExtras}
+          extras={[]}
           onClose={() => setShowSearch(false)}
           onOpenConv={(c) => { setShowSearch(false); openConv(c); }}
-          onOpenUser={async (id, nickname, isBot) => {
+          onOpenUser={async (id, nickname) => {
             setShowSearch(false);
             try {
               const r = await api<{ conversationId: string }>(`/im/conversations/open/${id}`, { method: 'POST' });
-              openConv({ id: r.conversationId, type: 1, targetId: id, title: nickname, isBot });
+              openConv({ id: r.conversationId, targetId: id, title: nickname });
             } catch (e: any) {
               alert(e.message);
             }
@@ -550,75 +187,6 @@ export function ChatListPage() {
         />
       )}
       {showScan && <ScanFlow onClose={() => setShowScan(false)} />}
-
-      {showCreate && (
-        <CreateGroupSheet
-          onClose={() => setShowCreate(false)}
-          onCreated={(convId, name, groupId) => {
-            setShowCreate(false);
-            if (openNativeChat(convId, 2, groupId, t('chat.groupTitle', { name }))) return;
-            nav(`/chatroom/${convId}`, { state: { title: t('chat.groupTitle', { name }), convType: 2, targetId: groupId } });
-          }}
-        />
-      )}
-
-      {showMusic && <MusicSheet onClose={() => setShowMusic(false)} />}
-
-      {showCreateChannel && (
-        <CreateChannelSheet
-          onClose={() => setShowCreateChannel(false)}
-          onCreated={(c) => { setShowCreateChannel(false); nav(`/channel/${c.id}`); }}
-        />
-      )}
-
-      {showJoin && (
-        <JoinGroupSheet
-          onClose={() => setShowJoin(false)}
-          onJoined={(convId, name, groupId) => {
-            setShowJoin(false);
-            if (openNativeChat(convId, 2, groupId, t('chat.groupTitle', { name }))) return;
-            nav(`/chatroom/${convId}`, { state: { title: t('chat.groupTitle', { name }), convType: 2, targetId: groupId } });
-          }}
-        />
-      )}
     </>
-  );
-}
-
-/** 评论 / 接单通知列表（消息页里的系统会话点进来），拉取即已读 */
-export function NoticesPage() {
-  const nav = useNavigate();
-  const kind: NoticeKind = useParams().kind === 'task' ? 'task' : 'comment';
-  const [list, setList] = useState<NotificationItem[] | null>(null);
-
-  useEffect(() => {
-    api<NotificationItem[]>(`/notifications?kind=${kind}`).then(setList).catch(() => setList([]));
-  }, [kind]);
-
-  return (
-    <div className="app">
-      <div className="navbar">
-        <span className="back" onClick={() => nav(-1)}>‹ {t('common.back')}</span>
-        <span className="title">{NOTICE_META[kind].title}</span>
-        <span style={{ width: 40 }} />
-      </div>
-      <div className="page no-scrollbar">
-        {list === null && <div className="empty">{t('common.loading')}</div>}
-        {list?.length === 0 && <div className="empty">{kind === 'comment' ? t('chat.notice.commentEmpty') : t('chat.notice.taskEmpty')}</div>}
-        {(list ?? []).map((n) => (
-          <div
-            key={n.id}
-            style={{ padding: '12px 16px', borderBottom: '1px solid var(--line)', cursor: 'pointer' }}
-            onClick={() => nav(kind === 'comment' ? `/moment/${n.refId}` : `/task/${n.refId}`)}
-          >
-            <div className="row">
-              <span className="grow" style={{ fontSize: 15, fontWeight: n.isRead ? 400 : 600 }}>{n.title}</span>
-              <span className="small">{timeText(n.createdAt)}</span>
-            </div>
-            {n.body && <div className="muted ellipsis" style={{ marginTop: 3 }}>{n.body}</div>}
-          </div>
-        ))}
-      </div>
-    </div>
   );
 }

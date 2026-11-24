@@ -1,6 +1,5 @@
 package com.wh.hongniang.ui.sticker
 
-import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -8,18 +7,17 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -40,16 +38,18 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -60,55 +60,41 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 import com.wh.hongniang.i18n.t
-import com.wh.hongniang.net.Api
 import com.wh.hongniang.ui.noRippleClick
 import com.wh.hongniang.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-/** 面板三个模式 */
-enum class PanelMode { GIF, STICKER, EMOJI }
-
-/** 搜索行右侧的快捷 emoji（Telegram 同款）：贴纸按 emoji 过滤，GIF 当搜索词 */
+/** 搜索行右侧的快捷 emoji（Telegram 同款）：点了带着它去搜 */
 private val QUICK_EMOJIS = listOf("❤️", "👍", "👎", "🎉", "👋", "😀", "😢", "😠")
 private const val BOTTOM_PAD = 64
 
 /**
- * 表情面板（Telegram 式，三端同一套）：底部悬浮胶囊切 GIF / 贴纸 / 表情，内容往下滚时胶囊和顶部条一起收起。
- * - 表情：点了插进输入框（onEmoji），左 🌐 切回键盘（onKeyboard），右 ⌫ 删一个字（onDelete）
- * - 贴纸 / GIF：点了回调 onPick（聊天里即发送，评论里挂到待发区），右 ⚙ 管理我的贴纸
+ * 表情面板（Telegram 式，三端同一套）：内容往下滚时底部按钮和顶部条一起收起。
+ * 点了插进输入框（onEmoji），左 🌐 切回键盘（onKeyboard），右 ⌫ 删一个字（onDelete）
  */
 @Composable
 fun EmojiPanel(
-    onPick: (StickerPayload) -> Unit,
-    onEmoji: ((String) -> Unit)? = null,
+    onEmoji: (String) -> Unit,
     onDelete: (() -> Unit)? = null,
     onKeyboard: (() -> Unit)? = null,
 ) {
     val ctx = LocalContext.current
     val cfg = LocalConfiguration.current
-    // 跟键盘差不多高，且收起顶部后能完整放 5 行贴纸
+    // 跟键盘差不多高
     val height = (cfg.screenWidthDp * 0.92f).dp.coerceIn(320.dp, 420.dp)
-    var mode by remember { mutableStateOf(PanelPrefs.lastMode(ctx)) }
     val density = LocalDensity.current.density
     val chrome = remember { PanelChrome(density) }
-    // 底部 sheet：商店 / 管理 / GIF 搜索 / 表情搜索。query 非 null = 从搜索行进来（"" 只聚焦搜索框，emoji 直接带着搜）
-    var sheet by remember { mutableStateOf<SheetReq?>(null) }
-    LaunchedEffect(mode) { chrome.show(); PanelPrefs.saveMode(ctx, mode) }
-    val pickGif: (StickerPayload) -> Unit = { onPick(it); StickerStore.addRecent(ctx, it) }
-    val pickEmoji: (String) -> Unit = { onEmoji?.invoke(it); EmojiStore.addRecent(ctx, it) }
+    // 表情搜索 sheet：非 null = 从搜索行进来（"" 只聚焦搜索框，emoji 直接带着搜）
+    var searchQuery by remember { mutableStateOf<String?>(null) }
+    val pickEmoji: (String) -> Unit = { onEmoji(it); EmojiStore.addRecent(ctx, it) }
 
-    // 面板本身挂个空 pointerInput：空白处的点击到此为止，不穿到下层页面（主页底栏「+」）
+    // 面板本身挂个空 pointerInput：空白处的点击到此为止，不穿到下层页面
     Box(Modifier.fillMaxWidth().height(height).background(Bg2).pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }) {
-        when (mode) {
-            PanelMode.STICKER -> StickerPane(chrome, onPick = pickGif, onStore = { q -> sheet = SheetReq(SheetKind.STORE, q) })
-            PanelMode.GIF -> GifPane(chrome, onPick = pickGif, onSearch = { q -> sheet = SheetReq(SheetKind.GIF, q) })
-            PanelMode.EMOJI -> EmojiPane(chrome, onEmoji = pickEmoji, onSearch = { q -> sheet = SheetReq(SheetKind.EMOJI, q) })
-        }
+        EmojiPane(chrome, onEmoji = pickEmoji, onSearch = { searchQuery = it })
 
-        // 底部悬浮：左 🌐（表情）/ 胶囊 / 右 ⌫（表情）或 ⚙（贴纸）
+        // 底部悬浮：左 🌐 / 右 ⌫
         AnimatedVisibility(
             visible = !chrome.hidden,
             modifier = Modifier.align(Alignment.BottomCenter),
@@ -116,50 +102,23 @@ fun EmojiPanel(
             exit = fadeOut() + slideOutVertically { it },
         ) {
             Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
-                if (mode == PanelMode.EMOJI && onKeyboard != null) SideBtn(Modifier.align(Alignment.CenterStart), onKeyboard) { GlobeIcon(TextMain, 22.dp) }
-                Row(
-                    Modifier.align(Alignment.Center).shadow(6.dp, RoundedCornerShape(20.dp)).clip(RoundedCornerShape(20.dp)).background(Bg).padding(3.dp),
-                ) {
-                    listOf(PanelMode.GIF to "GIF", PanelMode.STICKER to t("emoji.tabStickers"), PanelMode.EMOJI to t("emoji.tabEmoji")).forEach { (m, label) ->
-                        val on = mode == m
-                        Text(
-                            label, color = if (on) TextMain else TextSub, fontSize = 14.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
-                            modifier = Modifier.clip(RoundedCornerShape(16.dp)).background(if (on) Bg3 else Color.Transparent).noRippleClick { mode = m }.padding(horizontal = 12.dp, vertical = 6.dp),
-                        )
-                    }
-                }
-                if (mode == PanelMode.EMOJI && onDelete != null) SideBtn(Modifier.align(Alignment.CenterEnd), onDelete) { BackspaceIcon(TextMain, 22.dp) }
-                if (mode == PanelMode.STICKER) SideBtn(Modifier.align(Alignment.CenterEnd), { sheet = SheetReq(SheetKind.MANAGE) }) { GearIcon(TextMain, 20.dp) }
+                if (onKeyboard != null) SideBtn(Modifier.align(Alignment.CenterStart), onKeyboard) { GlobeIcon(TextMain, 22.dp) }
+                if (onDelete != null) SideBtn(Modifier.align(Alignment.CenterEnd), onDelete) { BackspaceIcon(TextMain, 22.dp) }
             }
         }
     }
 
-    sheet?.let { r ->
-        when (r.kind) {
-            SheetKind.STORE, SheetKind.MANAGE -> StickerStoreSheet(manage = r.kind == SheetKind.MANAGE, initialQuery = r.query ?: "", focusSearch = r.query != null) { sheet = null }
-            SheetKind.GIF -> GifSearchSheet(initialQuery = r.query ?: "", onPick = pickGif) { sheet = null }
-            SheetKind.EMOJI -> EmojiSearchSheet(initialQuery = r.query ?: "", onEmoji = pickEmoji) { sheet = null }
-        }
-    }
+    searchQuery?.let { q -> EmojiSearchSheet(initialQuery = q, onEmoji = pickEmoji) { searchQuery = null } }
 }
-
-private enum class SheetKind { STORE, MANAGE, GIF, EMOJI }
-private data class SheetReq(val kind: SheetKind, val query: String? = null)
 
 @Composable
 private fun SideBtn(modifier: Modifier, onClick: () -> Unit, content: @Composable () -> Unit) {
     Box(modifier.size(40.dp).shadow(6.dp, CircleShape).clip(CircleShape).background(Bg).noRippleClick(onClick), contentAlignment = Alignment.Center) { content() }
 }
 
-private object PanelPrefs {
-    fun lastMode(ctx: Context): PanelMode =
-        runCatching { PanelMode.valueOf(ctx.getSharedPreferences("peiwan_stickers", Context.MODE_PRIVATE).getString("panel_mode", "STICKER")!!) }.getOrDefault(PanelMode.STICKER)
-    fun saveMode(ctx: Context, m: PanelMode) = ctx.getSharedPreferences("peiwan_stickers", Context.MODE_PRIVATE).edit().putString("panel_mode", m.name).apply()
-}
-
-/** 内容区滚动方向 → 顶部条 / 底部胶囊收起或展开（往下滚收起，往上滚或回到顶部展开） */
+/** 内容区滚动方向 → 顶部条 / 底部按钮收起或展开（往下滚收起，往上滚或回到顶部展开） */
 /**
- * 内容区滚动方向 → 顶部条 / 底部胶囊收起或展开（Telegram 手感）。
+ * 内容区滚动方向 → 顶部条 / 底部按钮收起或展开（Telegram 手感）。
  * 用「锚点」而不是逐帧方向：pos 是累计滚过的距离（往下为正），展开状态下锚点跟着最低点走、比锚点再往下 24dp 就收；
  * 收起状态下锚点跟着最高点走、比锚点往上 40dp 才展开（收比展容易，手指抖一下不会闪）。
  * 切换后 300ms 内忽略（顶部条高度变了网格会重排、滚动量抖一下）；回到顶部由 ShowAtTop 兜底展开。
@@ -218,19 +177,14 @@ private fun rememberBarExpanded(row: LazyListState): Boolean {
     return expanded
 }
 
-/** 顶部条上的一个格子（图标 / 封面），expanded 时下面带名字 */
+/** 顶部条上的一个格子（图标），expanded 时下面带名字 */
 @Composable
-private fun BarCell(active: Boolean, expanded: Boolean, title: String, badge: Boolean = false, onClick: () -> Unit, content: @Composable () -> Unit) {
+private fun BarCell(active: Boolean, expanded: Boolean, title: String, onClick: () -> Unit, content: @Composable () -> Unit) {
     Column(
         Modifier.width(if (expanded) 56.dp else 40.dp).height(if (expanded) 64.dp else 40.dp).clip(RoundedCornerShape(10.dp)).background(if (active) Bg3 else Color.Transparent).noRippleClick(onClick),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
     ) {
-        Box(Modifier.size(30.dp), contentAlignment = Alignment.Center) {
-            content()
-            if (badge) Box(Modifier.align(Alignment.TopEnd).offset(4.dp, (-3).dp).size(14.dp).clip(CircleShape).background(Accent), contentAlignment = Alignment.Center) {
-                Text("+", color = Color.White, fontSize = 10.sp, lineHeight = 10.sp)
-            }
-        }
+        Box(Modifier.size(30.dp), contentAlignment = Alignment.Center) { content() }
         if (expanded) Text(title, color = TextSub, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 3.dp, start = 2.dp, end = 2.dp))
     }
 }
@@ -240,8 +194,8 @@ private val GRAYSCALE = ColorFilter.colorMatrix(ColorMatrix().apply { setToSatur
 
 /**
  * 搜索行（Telegram 图）：一整条圆角胶囊，左边 🔍「搜索」，右边一排**虚化**的快捷 emoji。
- * - 贴纸页传 onTap：整条胶囊是个按钮（和「+」一样弹表情商店 sheet 并聚焦搜索框），点快捷 emoji 直接带着它去搜；
- * - 表情 / GIF 页不传：点胶囊变成输入框就地搜，快捷 emoji 点亮一个当过滤词。
+ * - 传 onTap：整条胶囊是个按钮（弹搜索 sheet 并聚焦搜索框），点快捷 emoji 直接带着它去搜；
+ * - 不传：点胶囊变成输入框就地搜，快捷 emoji 点亮一个当过滤词。
  */
 @Composable
 private fun SearchRow(value: String, onChange: (String) -> Unit, chip: String, onChip: (String) -> Unit, placeholder: String, onTap: (() -> Unit)? = null) {
@@ -322,119 +276,11 @@ private fun EmptyText(text: String) {
 
 private fun baseEmoji(e: String) = e.replace("\uFE0F", "")
 
-// ---------- 贴纸页 ----------
-
-private data class Section(val key: String, val title: String, val items: List<StickerPayload>)
-
-/**
- * 贴纸页：顶部条（⊕ 商店 / 🕒 最近 / 我的包封面… / 库里没加的带 +）+ 搜索行，
- * 内容是所有包连续滚动、每包一个标题分区；滚到哪个包顶部封面跟着亮。
- * 搜索行整条是按钮：和「+」一样弹表情商店 sheet（onStore("") 聚焦搜索框）；点快捷 emoji 带着它去搜（onStore(emoji)）。
- */
-@Composable
-private fun StickerPane(chrome: PanelChrome, onPick: (StickerPayload) -> Unit, onStore: (String?) -> Unit) {
-    val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
-    LaunchedEffect(Unit) { StickerStore.ensureLoaded(ctx); StickerStore.loadMine(ctx) }
-    val mine = StickerStore.mineSets
-    val others = StickerStore.otherSets
-    val recent = StickerStore.recent
-    var adding by remember { mutableStateOf<Int?>(null) }
-    val grid = rememberLazyGridState()
-    val row = rememberLazyListState()
-    val expanded = rememberBarExpanded(row)
-    ShowAtTop(chrome, grid)
-
-    val recentTitle = t("emoji.recent")
-    val sections = remember(mine, recent, recentTitle) {
-        buildList {
-            if (recent.isNotEmpty()) add(Section("recent", recentTitle, recent))
-            mine.forEach { add(Section("s${it.id}", it.title, it.items)) }
-        }
-    }
-    // 每个分区 = 1 个标题 + N 张；算每个分区的起始 index 用来定位当前分区 / 跳转
-    val starts = remember(sections) { sections.runningFold(0) { acc, s -> acc + 1 + s.items.size } }
-    val activeKey by remember(sections) {
-        derivedStateOf {
-            val idx = grid.firstVisibleItemIndex + 1
-            var cur = sections.firstOrNull()?.key ?: "recent"
-            sections.forEachIndexed { i, s -> if (starts[i] <= idx) cur = s.key }
-            cur
-        }
-    }
-    // 当前封面滚到可见（bar：0 商店，1 最近，2.. 我的包）
-    LaunchedEffect(activeKey) {
-        val i = if (activeKey == "recent") 1 else mine.indexOfFirst { "s${it.id}" == activeKey }.let { if (it < 0) -1 else it + 2 }
-        if (i >= 0) row.animateScrollToItem((i - 2).coerceAtLeast(0))
-    }
-    fun jump(key: String) {
-        val i = sections.indexOfFirst { it.key == key }
-        scope.launch { grid.animateScrollToItem(if (i < 0) 0 else starts[i]) }
-    }
-    fun add(id: Int) {
-        adding = id
-        scope.launch { runCatching { StickerStore.addMine(ctx, id) }; adding = null }
-    }
-
-    Column(Modifier.fillMaxSize()) {
-        AnimatedVisibility(visible = !chrome.hidden, enter = expandVertically(), exit = shrinkVertically()) {
-            Column {
-                LazyRow(state = row, modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
-                    item("store") { BarCell(false, expanded, t("emoji.store"), onClick = { onStore(null) }) { PlusCircleIcon(TextSub, 26.dp) } }
-                    item("recent") { BarCell(activeKey == "recent", expanded, t("emoji.recent"), onClick = { jump("recent") }) { ClockIcon(TextSub, 20.dp) } }
-                    items(mine, key = { "m${it.id}" }) { s ->
-                        BarCell(activeKey == "s${s.id}", expanded, s.title, onClick = { jump("s${s.id}") }) { Cover(s) }
-                    }
-                    items(others.take(12), key = { "o${it.id}" }) { s ->
-                        BarCell(false, expanded, s.title, badge = true, onClick = { add(s.id) }) { Box(Modifier.alpha(if (adding == s.id) 0.4f else 1f)) { Cover(s) } }
-                    }
-                }
-                SearchRow("", {}, "", { onStore(it) }, t("common.search"), onTap = { onStore("") })
-            }
-        }
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(5), state = grid,
-            modifier = Modifier.fillMaxSize().nestedScroll(chrome.connection),
-            contentPadding = PaddingValues(8.dp, 0.dp, 8.dp, BOTTOM_PAD.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            sections.forEach { s ->
-                item(key = "h${s.key}", span = { GridItemSpan(maxLineSpan) }) { SectionHeader(s.title) }
-                items(s.items, key = { "${s.key}-${it.id}" }) { p ->
-                    Box(Modifier.aspectRatio(1f).clip(RoundedCornerShape(10.dp)).noRippleClick { onPick(p) }, contentAlignment = Alignment.Center) { StickerThumb(p, 62.dp) }
-                }
-            }
-            if (sections.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
-                Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(if (mine.isEmpty()) t("emoji.noPacks") else t("emoji.noRecentStickers"), color = TextDim, fontSize = 13.sp)
-                    if (mine.isEmpty()) {
-                        Spacer(Modifier.height(10.dp))
-                        Box(Modifier.clip(RoundedCornerShape(15.dp)).background(Accent).noRippleClick { onStore(null) }.padding(horizontal = 16.dp, vertical = 7.dp)) { Text(t("emoji.goStore"), color = Color.White, fontSize = 13.sp) }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun Cover(s: StickerSetItem) {
-    if (s.thumb.isNotEmpty()) AsyncImage(model = Api.fullUrl(s.thumb), contentDescription = s.title, contentScale = ContentScale.Fit, modifier = Modifier.size(28.dp))
-    else Text(s.title.take(2), color = TextSub, fontSize = 11.sp)
-}
-
-@Composable
-private fun AddBtn(busy: Boolean, primary: Boolean = true, label: String = t("emoji.add"), onClick: () -> Unit) {
-    Box(
-        Modifier.clip(RoundedCornerShape(14.dp)).background(if (primary) Accent else Bg3).alpha(if (busy) 0.5f else 1f).noRippleClick { if (!busy) onClick() }.padding(horizontal = 14.dp, vertical = 5.dp),
-    ) { Text(label, color = if (primary) Color.White else TextMain, fontSize = 13.sp) }
-}
-
 // ---------- 表情页 ----------
 
 /**
  * 表情页：顶部 🕒 + 8 个分类图标，搜索行，内容 8 列按分类分区。
- * 搜索行整条是按钮：和贴纸页一样弹搜索 sheet（onSearch("") 聚焦输入框；点快捷 emoji 带着它去搜）。
+ * 搜索行整条是按钮：弹搜索 sheet（onSearch("") 聚焦输入框；点快捷 emoji 带着它去搜）。
  */
 @Composable
 private fun EmojiPane(chrome: PanelChrome, onEmoji: (String) -> Unit, onSearch: (String) -> Unit) {
@@ -514,103 +360,7 @@ private fun EmojiCell(e: String, onEmoji: (String) -> Unit) {
     }
 }
 
-// ---------- GIF 页 ----------
-
-/**
- * GIF 页：没有顶部封面条，只有搜索行；内容 3 列瓦片（最近使用 + 热门），滚到底自动翻页。
- * 搜索行整条是按钮：和贴纸页一样弹搜索 sheet。
- */
-@Composable
-private fun GifPane(chrome: PanelChrome, onPick: (StickerPayload) -> Unit, onSearch: (String) -> Unit) {
-    val feed = rememberGifFeed("")
-    val grid = rememberLazyGridState()
-    val recent = StickerStore.recentGifs
-    ShowAtTop(chrome, grid)
-    GifPaging(grid, feed)
-
-    Column(Modifier.fillMaxSize()) {
-        AnimatedVisibility(visible = !chrome.hidden, enter = expandVertically(), exit = shrinkVertically()) {
-            SearchRow("", {}, "", { onSearch(it) }, t("emoji.searchGif"), onTap = { onSearch("") })
-        }
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(3), state = grid,
-            modifier = Modifier.fillMaxSize().nestedScroll(chrome.connection),
-            contentPadding = PaddingValues(0.dp, 0.dp, 0.dp, BOTTOM_PAD.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            if (recent.isNotEmpty()) {
-                item(key = "hr", span = { GridItemSpan(maxLineSpan) }) { SectionHeader(t("emoji.recent")) }
-                items(recent, key = { "r${it.id}" }) { p -> GifTile(p) { onPick(p) } }
-            }
-            item(key = "ht", span = { GridItemSpan(maxLineSpan) }) { SectionHeader(t("emoji.trending")) }
-            items(feed.items, key = { it.id }) { p -> GifTile(p) { onPick(p) } }
-            item(span = { GridItemSpan(maxLineSpan) }) { GifFooter(feed, t("emoji.noGif")) }
-        }
-    }
-}
-
-/** 一路 GIF 结果（热门或某个搜索词）：首页 + 翻页 + 首次搜索 3 秒后补拉 */
-private class GifFeed(val query: String) {
-    var items by mutableStateOf<List<StickerPayload>>(emptyList())
-    var next by mutableStateOf("")
-    var loading by mutableStateOf(false)
-    var error by mutableStateOf("")
-}
-
-@Composable
-private fun rememberGifFeed(query: String): GifFeed {
-    val feed = remember(query) { GifFeed(query) }
-    LaunchedEffect(query) {
-        feed.loading = true; feed.error = ""
-        runCatching { StickerStore.searchGifs(query, "") }
-            .onSuccess { (list, n) ->
-                feed.items = list; feed.next = n
-                // 首次搜索后端还在后台补齐时结果会少，3 秒后再拉一次
-                if (list.size < 10 && n.isNotEmpty()) {
-                    delay(3000)
-                    runCatching { StickerStore.searchGifs(query, "") }.onSuccess { (l2, n2) -> if (l2.size > list.size) { feed.items = l2; feed.next = n2 } }
-                }
-            }
-            .onFailure { feed.error = it.message ?: t("common.loadFailed") }
-        feed.loading = false
-    }
-    return feed
-}
-
-/** 翻页：最后可见项接近末尾就拉下一页 */
-@Composable
-private fun GifPaging(grid: LazyGridState, feed: GifFeed) {
-    val nearEnd by remember { derivedStateOf { val last = grid.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0; last >= grid.layoutInfo.totalItemsCount - 9 } }
-    LaunchedEffect(nearEnd, feed.next, feed.loading, feed) {
-        if (nearEnd && feed.next.isNotEmpty() && !feed.loading && feed.items.isNotEmpty()) {
-            feed.loading = true
-            runCatching { StickerStore.searchGifs(feed.query, feed.next) }.onSuccess { (list, n) ->
-                val seen = feed.items.map { it.id }.toHashSet()
-                feed.items = feed.items + list.filter { it.id !in seen }; feed.next = n
-            }
-            feed.loading = false
-        }
-    }
-}
-
-@Composable
-private fun GifFooter(feed: GifFeed, emptyHint: String) {
-    when {
-        feed.loading -> EmptyText(if (feed.items.isEmpty()) t("emoji.gifFirstLoad") else t("emoji.loadingMore"))
-        feed.error.isNotEmpty() -> EmptyText(feed.error)
-        feed.items.isEmpty() -> EmptyText(emptyHint)
-    }
-}
-
-@Composable
-private fun GifTile(p: StickerPayload, onClick: () -> Unit) {
-    AsyncImage(
-        model = Api.fullUrl(p.thumb.ifEmpty { p.url }), contentDescription = null, contentScale = ContentScale.Crop,
-        modifier = Modifier.aspectRatio(1f).background(Bg3).noRippleClick(onClick),
-    )
-}
-
-// ---------- 搜索 sheet（GIF / 表情，和贴纸「点搜索弹框」一致） ----------
+// ---------- 表情搜索 sheet ----------
 
 /** 搜索 sheet 外壳：顶部搜索框（自动聚焦）+「完成」，一行快捷 emoji（点了当搜索词），下面放结果 */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -648,34 +398,6 @@ private fun SearchSheetShell(placeholder: String, query: String, onQuery: (Strin
     }
 }
 
-/** GIF 搜索 sheet：输入防抖 400ms，快捷 emoji 立即；3 列瓦片，滚到底翻页；点了 GIF 回调并关闭 */
-@Composable
-fun GifSearchSheet(initialQuery: String, onPick: (StickerPayload) -> Unit, onClose: () -> Unit) {
-    var q by remember { mutableStateOf(initialQuery) }
-    // 防抖：打字 400ms 后才真正搜；空 / 快捷 emoji 立即
-    var query by remember { mutableStateOf(initialQuery.trim()) }
-    LaunchedEffect(q) {
-        val t = q.trim()
-        if (t.isNotEmpty() && t !in QUICK_EMOJIS) delay(400)
-        query = t
-    }
-    val feed = rememberGifFeed(query)
-    val grid = rememberLazyGridState()
-    GifPaging(grid, feed)
-
-    SearchSheetShell(t("emoji.searchGif"), q, { q = it }, onClose) {
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(3), state = grid, modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(0.dp, 0.dp, 0.dp, 30.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp), verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            if (query.isEmpty()) item(key = "ht", span = { GridItemSpan(maxLineSpan) }) { SectionHeader(t("emoji.trending")) }
-            items(feed.items, key = { it.id }) { p -> GifTile(p) { onPick(p); onClose() } }
-            item(span = { GridItemSpan(maxLineSpan) }) { GifFooter(feed, if (query.isEmpty()) t("emoji.noGif") else t("emoji.noGifFound")) }
-        }
-    }
-}
-
 /** 表情搜索 sheet：按中英文关键词 / emoji 本身搜；点了插进输入框，sheet 不关（可连续点几个），「完成」收起。打开时不自动弹键盘 */
 @Composable
 fun EmojiSearchSheet(initialQuery: String, onEmoji: (String) -> Unit, onClose: () -> Unit) {
@@ -697,109 +419,68 @@ fun EmojiSearchSheet(initialQuery: String, onEmoji: (String) -> Unit, onClose: (
     }
 }
 
-// ---------- 表情商店 / 我的贴纸（底部 sheet） ----------
+// ---------- 图标 ----------
 
-/**
- * 表情商店（manage=false）：搜索 + 全部包，每行前几张预览 + 添加 / 已添加（图 7）；
- * 我的贴纸（manage=true）：置顶 / 移除。库里的包由后台维护，用户只决定自己面板里有哪些、什么顺序。
- */
-@OptIn(ExperimentalMaterial3Api::class)
+/** 笑脸（表情按钮） */
 @Composable
-fun StickerStoreSheet(manage: Boolean, initialQuery: String = "", focusSearch: Boolean = false, onClose: () -> Unit) {
-    val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    LaunchedEffect(Unit) { StickerStore.ensureLoaded(ctx); StickerStore.loadMine(ctx) }
-    val all = StickerStore.sets
-    val mineIds = StickerStore.mineIds
-    val mine = StickerStore.mineSets
-    var q by remember { mutableStateOf(initialQuery) }
-    val focus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { if (focusSearch) { delay(120); runCatching { focus.requestFocus() } } }
-    var busy by remember { mutableStateOf<Int?>(null) }
-    var toast by remember { mutableStateOf("") }
-    LaunchedEffect(toast) { if (toast.isNotEmpty()) { delay(1600); toast = "" } }
-    val kindName = mapOf("static" to t("emoji.kindStatic"), "animated" to t("emoji.kindAnimated"), "video" to t("emoji.kindAnimated"))
-    // 搜索：按包名，或按贴纸 emoji（面板搜索行的快捷 emoji 直接带进来）；搜 emoji 时预览只放命中的贴纸
-    val list = remember(all, mine, q, manage) {
-        val src = if (manage) mine else all
-        val w = q.trim().lowercase()
-        if (w.isEmpty()) src.map { it to it.items.take(6) }
-        else {
-            val wb = baseEmoji(w)
-            src.mapNotNull { s ->
-                val hit = s.items.filter { baseEmoji(it.emoji).contains(wb) }
-                when {
-                    hit.isNotEmpty() -> s to hit.take(6)
-                    s.title.lowercase().contains(w) -> s to s.items.take(6)
-                    else -> null
-                }
-            }
-        }
-    }
-    fun run(id: Int, block: suspend () -> Unit) {
-        busy = id
-        scope.launch { runCatching { block() }.onFailure { toast = it.message ?: t("common.failed") }; busy = null }
-    }
-
-    ModalBottomSheet(onDismissRequest = onClose, sheetState = state, containerColor = Bg, dragHandle = null, shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)) {
-        Box(Modifier.fillMaxWidth().fillMaxHeight(0.9f)) {
-            Column(Modifier.fillMaxSize()) {
-                Row(Modifier.fillMaxWidth().padding(12.dp, 12.dp, 12.dp, 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Row(Modifier.weight(1f).height(36.dp).clip(RoundedCornerShape(10.dp)).background(Bg3).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        SearchIcon(TextDim, 15.dp)
-                        Spacer(Modifier.width(6.dp))
-                        Box(Modifier.weight(1f)) {
-                            if (q.isEmpty()) Text(if (manage) t("emoji.searchMine") else t("emoji.searchStickers"), color = TextDim, fontSize = 15.sp)
-                            BasicTextField(q, { q = it }, singleLine = true, textStyle = TextStyle(color = TextMain, fontSize = 15.sp), cursorBrush = SolidColor(Accent), modifier = Modifier.fillMaxWidth().focusRequester(focus))
-                        }
-                        if (q.isNotEmpty()) Text("✕", color = TextDim, fontSize = 13.sp, modifier = Modifier.noRippleClick { q = "" }.padding(start = 6.dp))
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Text(t("common.done"), color = Accent, fontSize = 16.sp, modifier = Modifier.noRippleClick(onClose))
-                }
-                LazyColumn(Modifier.fillMaxSize()) {
-                    if (manage) item { Text(t("emoji.myStickersN", "n" to mine.size), color = TextSub, fontSize = 12.sp, modifier = Modifier.padding(16.dp, 4.dp, 16.dp, 0.dp)) }
-                    items(list, key = { it.first.id }) { (s, preview) ->
-                        val idx = mineIds.indexOf(s.id)
-                        StoreRow(s, preview, kindName[s.kind] ?: "") {
-                            if (manage) {
-                                if (idx > 0 && q.isEmpty()) AddBtn(busy == s.id, primary = false, label = t("emoji.pin")) { run(s.id) { StickerStore.reorderMine(ctx, listOf(s.id) + mineIds.filter { it != s.id }) } }
-                                Spacer(Modifier.width(6.dp))
-                                AddBtn(busy == s.id, primary = false, label = t("emoji.remove")) { run(s.id) { StickerStore.removeMine(ctx, s.id) } }
-                            } else if (s.id in mineIds) {
-                                AddBtn(busy == s.id, primary = false, label = t("emoji.added")) { run(s.id) { StickerStore.removeMine(ctx, s.id) } }
-                            } else {
-                                AddBtn(busy == s.id) { run(s.id) { StickerStore.addMine(ctx, s.id) } }
-                            }
-                        }
-                    }
-                    if (list.isEmpty()) item { EmptyText(if (all.isEmpty()) t("emoji.packsComing") else t("emoji.noPackMatch")) }
-                    item { Spacer(Modifier.height(30.dp)) }
-                }
-            }
-            if (toast.isNotEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(toast, color = Color.White, fontSize = 14.sp, modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Color.Black.copy(alpha = 0.85f)).padding(horizontal = 22.dp, vertical = 10.dp))
-                }
-            }
-        }
+fun SmileIcon(tint: Color, size: Dp = 22.dp) {
+    Canvas(Modifier.size(size)) {
+        val w = this.size.width
+        val stroke = w * 0.075f
+        drawCircle(tint, radius = w * 0.42f, style = Stroke(stroke))
+        drawCircle(tint, radius = w * 0.055f, center = Offset(w * 0.36f, w * 0.4f))
+        drawCircle(tint, radius = w * 0.055f, center = Offset(w * 0.64f, w * 0.4f))
+        drawArc(tint, startAngle = 20f, sweepAngle = 140f, useCenter = false, topLeft = Offset(w * 0.27f, w * 0.3f), size = Size(w * 0.46f, w * 0.42f), style = Stroke(stroke, cap = StrokeCap.Round))
     }
 }
 
+/** 时钟（最近使用 tab） */
 @Composable
-private fun StoreRow(s: StickerSetItem, preview: List<StickerPayload>, kind: String, actions: @Composable RowScope.() -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(s.title, color = TextMain, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(t("emoji.packInfo", "n" to s.items.size, "kind" to kind), color = TextSub, fontSize = 12.sp)
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) { actions() }
-        }
-        LazyRow(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(preview, key = { it.id }) { p -> StickerImage(p, 64.dp, autoplay = false) }
-        }
+fun ClockIcon(tint: Color, size: Dp = 20.dp) {
+    Canvas(Modifier.size(size)) {
+        val w = this.size.width
+        val stroke = w * 0.08f
+        drawCircle(tint, radius = w * 0.42f, style = Stroke(stroke))
+        drawLine(tint, Offset(w * 0.5f, w * 0.26f), Offset(w * 0.5f, w * 0.52f), strokeWidth = stroke, cap = StrokeCap.Round)
+        drawLine(tint, Offset(w * 0.5f, w * 0.52f), Offset(w * 0.68f, w * 0.62f), strokeWidth = stroke, cap = StrokeCap.Round)
     }
-    Box(Modifier.fillMaxWidth().height(1.dp).background(Line))
+}
+
+/** 放大镜（搜索行） */
+@Composable
+fun SearchIcon(tint: Color, size: Dp = 16.dp) {
+    Canvas(Modifier.size(size)) {
+        val w = this.size.width
+        val stroke = w * 0.1f
+        drawCircle(tint, radius = w * 0.3f, center = Offset(w * 0.42f, w * 0.42f), style = Stroke(stroke))
+        drawLine(tint, Offset(w * 0.64f, w * 0.64f), Offset(w * 0.88f, w * 0.88f), strokeWidth = stroke, cap = StrokeCap.Round)
+    }
+}
+
+/** 地球（切回键盘） */
+@Composable
+fun GlobeIcon(tint: Color, size: Dp = 22.dp) {
+    Canvas(Modifier.size(size)) {
+        val w = this.size.width
+        val stroke = w * 0.07f
+        drawCircle(tint, radius = w * 0.42f, style = Stroke(stroke))
+        drawOval(tint, topLeft = Offset(w * 0.3f, w * 0.08f), size = Size(w * 0.4f, w * 0.84f), style = Stroke(stroke))
+        drawLine(tint, Offset(w * 0.08f, w * 0.5f), Offset(w * 0.92f, w * 0.5f), strokeWidth = stroke)
+        drawLine(tint, Offset(w * 0.5f, w * 0.08f), Offset(w * 0.5f, w * 0.92f), strokeWidth = stroke)
+    }
+}
+
+/** 退格（删一个字） */
+@Composable
+fun BackspaceIcon(tint: Color, size: Dp = 22.dp) {
+    Canvas(Modifier.size(size)) {
+        val w = this.size.width
+        val stroke = w * 0.07f
+        val path = androidx.compose.ui.graphics.Path().apply {
+            moveTo(w * 0.34f, w * 0.22f); lineTo(w * 0.88f, w * 0.22f); lineTo(w * 0.88f, w * 0.78f); lineTo(w * 0.34f, w * 0.78f); lineTo(w * 0.1f, w * 0.5f); close()
+        }
+        drawPath(path, tint, style = Stroke(stroke, join = androidx.compose.ui.graphics.StrokeJoin.Round))
+        drawLine(tint, Offset(w * 0.5f, w * 0.38f), Offset(w * 0.72f, w * 0.62f), strokeWidth = stroke, cap = StrokeCap.Round)
+        drawLine(tint, Offset(w * 0.72f, w * 0.38f), Offset(w * 0.5f, w * 0.62f), strokeWidth = stroke, cap = StrokeCap.Round)
+    }
 }

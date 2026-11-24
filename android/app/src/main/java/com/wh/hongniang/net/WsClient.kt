@@ -17,8 +17,6 @@ import java.util.concurrent.TimeUnit
 data class MessagePayload(
     val id: String,
     val conversationId: String,
-    val convType: Int,
-    val groupId: String? = null,
     val senderId: String,
     val senderNickname: String = "",
     val senderAvatar: String = "",
@@ -26,14 +24,9 @@ data class MessagePayload(
     val type: String,
     val content: String,
     val createdAt: String,
-    /** 机器人发的消息才有 */
-    val senderIsBot: Boolean = false,
-    val markup: InlineMarkup? = null,
     val replyTo: ReplyPreview? = null,
     val fwdFrom: String? = null,
     val reactions: List<MsgReaction> = emptyList(),
-    /** 频道里订阅者发的：当普通聊天消息显示 */
-    val memberMsg: Boolean = false,
 )
 
 /** 被回复的消息预览：文字取前 100 字、图片是 url；deleted=原消息已删除 */
@@ -72,12 +65,6 @@ object WsClient {
         ws = client.newWebSocket(
             Request.Builder().url(url).build(),
             object : WebSocketListener() {
-                override fun onOpen(webSocket: WebSocket, response: Response) {
-                    // 合约喊单卡片：重连后服务端不记得在看哪些卡片，重新告诉它
-                    perpWatching?.let { webSocket.send(it.toString()) }
-                    cardWatching?.let { webSocket.send(it.toString()) }
-                }
-
                 override fun onMessage(webSocket: WebSocket, text: String) {
                     val frame = try {
                         json.parseToJsonElement(text) as? JsonObject
@@ -118,13 +105,13 @@ object WsClient {
         return { listeners.remove(listener) }
     }
 
-    /** 发送消息，返回 tempId */
-    fun send(convType: Int, targetId: String, msgType: String, content: String, replyToId: String? = null): String {
+    /** 发送单聊消息（convType 固定 1），返回 tempId */
+    fun send(targetId: String, msgType: String, content: String, replyToId: String? = null): String {
         val tempId = "t_${System.currentTimeMillis()}_${(1000..9999).random()}"
         val frame = buildJsonObject {
             put("op", "send")
             put("tempId", tempId)
-            put("convType", convType)
+            put("convType", 1)
             put("targetId", targetId)
             put("msgType", msgType)
             put("content", content)
@@ -132,42 +119,6 @@ object WsClient {
         }
         ws?.send(frame.toString())
         return tempId
-    }
-
-    /** 正在看的会话里的合约喊单卡片（服务端据此每 3 秒推 perpTick，见后端 perp-watch.service.ts） */
-    @Volatile private var perpWatching: JsonObject? = null
-
-    fun perpWatch(conversationId: String, ids: List<String>) {
-        val frame = buildJsonObject {
-            put("op", "perpWatch")
-            put("conversationId", conversationId)
-            put("ids", kotlinx.serialization.json.JsonArray(ids.takeLast(100).map { kotlinx.serialization.json.JsonPrimitive(it) }))
-        }
-        perpWatching = frame
-        ws?.send(frame.toString())
-    }
-
-    fun perpUnwatch(conversationId: String) {
-        if (perpWatching?.get("conversationId")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content } == conversationId) perpWatching = null
-        ws?.send(buildJsonObject { put("op", "perpUnwatch"); put("conversationId", conversationId) }.toString())
-    }
-
-    /** 正在看的会话里的通用卡片（服务端统一拉实时数据、推 cardTick，见后端 card-watch.service.ts） */
-    @Volatile private var cardWatching: JsonObject? = null
-
-    fun cardWatch(conversationId: String, ids: List<String>) {
-        val frame = buildJsonObject {
-            put("op", "cardWatch")
-            put("conversationId", conversationId)
-            put("ids", kotlinx.serialization.json.JsonArray(ids.takeLast(100).map { kotlinx.serialization.json.JsonPrimitive(it) }))
-        }
-        cardWatching = frame
-        ws?.send(frame.toString())
-    }
-
-    fun cardUnwatch(conversationId: String) {
-        if (cardWatching?.get("conversationId")?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content } == conversationId) cardWatching = null
-        ws?.send(buildJsonObject { put("op", "cardUnwatch"); put("conversationId", conversationId) }.toString())
     }
 
     fun markRead(conversationId: String, msgId: String) {

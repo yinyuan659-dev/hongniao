@@ -16,7 +16,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -30,15 +29,32 @@ import com.wh.hongniang.i18n.t
 @Composable
 fun MeScreen(modifier: Modifier = Modifier, initialUser: UserProfile?, onNav: (String) -> Unit) {
     var me by remember { mutableStateOf(initialUser) }
-    LaunchedEffect(Unit) { me = runCatching { Api.getObj<UserProfile>("/user/me") }.getOrNull() ?: me }
-    val ctx = androidx.compose.ui.platform.LocalContext.current
-    val meScope = rememberCoroutineScope()
-
-    // 扫一扫（统一处理见 QrScan.kt rememberScanHandler）：名片、语音房、群码、收款码、钱包地址
+    // 资料收集有变化（答题 / 确认）时重新拉一次，回到这页能马上看到「已完成」
+    /** AI 余额（元）；null = 还没取到 */
+    var aiBalance by remember { mutableStateOf<String?>(null) }
+    /** 后台要求先做实人认证、而我还没做：显示一行「完成实人认证」（做过才能聊天 / 发动态 / 评论） */
+    var needKyc by remember { mutableStateOf(false) }
+    /** 能登录这个账号的设备有几台；null = 还没取到 */
+    var deviceCount by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(HnEvents.version) {
+        me = runCatching { Api.getObj<UserProfile>("/user/me") }.getOrNull() ?: me
+        aiBalance = runCatching {
+            ((Api.request("/ai-wallet") as? kotlinx.serialization.json.JsonObject)?.get("balance") as? kotlinx.serialization.json.JsonPrimitive)?.content
+        }.getOrNull() ?: aiBalance
+        runCatching { Api.request("/kyc/status") as? kotlinx.serialization.json.JsonObject }.getOrNull()?.let { s ->
+            fun flag(k: String) = (s[k] as? kotlinx.serialization.json.JsonPrimitive)?.content == "true"
+            needKyc = flag("required") && !flag("realname")
+        }
+        runCatching { Api.request("/devices") as? kotlinx.serialization.json.JsonObject }.getOrNull()?.let { d ->
+            deviceCount = (d["devices"] as? kotlinx.serialization.json.JsonArray)?.size ?: deviceCount
+        }
+    }
+    val scope = rememberCoroutineScope()
+    // 扫一扫（统一处理见 QrScan.kt rememberScanHandler）：邀请名片
     val startScan = rememberQrScan(onNav)
     val u = me ?: return
 
-    // 头部（头像到积分余额）固定不动，下面的功能分组单独滚动
+    // 头部（头像到相亲资料卡）固定不动，下面的功能分组单独滚动
     Column(modifier = modifier.fillMaxSize()) {
         run {
             Column(modifier = Modifier.background(Brush.verticalGradient(listOf(Accent.copy(alpha = 0.14f), Bg))).padding(20.dp, 28.dp, 20.dp, 16.dp)) {
@@ -52,11 +68,10 @@ fun MeScreen(modifier: Modifier = Modifier, initialUser: UserProfile?, onNav: (S
                                 color = if (u.gender == 1) Color(0xFF6DB3FF) else Color(0xFFFF7A95), fontSize = 11.sp,
                                 modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(Bg3).padding(horizontal = 10.dp, vertical = 2.dp),
                             )
-                            if (u.isGuide) Text(t("me.verified"), color = Accent, fontSize = 11.sp, modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Bg3).padding(horizontal = 8.dp, vertical = 2.dp))
                         }
                         if (u.shortId != null) Text(t("me.id", "id" to u.shortId), color = TextSub, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
                     }
-                    // 扫一扫（邀请名片 / 群二维码）
+                    // 扫一扫（邀请名片）
                     Box(
                         Modifier.padding(top = 4.dp).size(38.dp).clip(CircleShape).background(Bg3)
                             .noRippleClick(startScan),
@@ -75,25 +90,8 @@ fun MeScreen(modifier: Modifier = Modifier, initialUser: UserProfile?, onNav: (S
                         Text(" " + t("me.fans"), color = TextSub, fontSize = 13.sp)
                     }
                 }
-                // 积分余额：融合进头部（玻璃质感行，点击进钱包）
-                Row(
-                    Modifier.padding(top = 16.dp).fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(Color.Black.copy(alpha = 0.04f))
-                        .border(1.dp, Accent.copy(alpha = 0.25f), RoundedCornerShape(14.dp))
-                        .clickable { onNav("wallet") }
-                        .padding(16.dp, 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(t("me.balance"), color = TextSub, fontSize = 11.sp)
-                        Text(fmtPoints(u.balance), color = Accent, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text(t("me.frozen", "n" to fmtPoints(u.frozen)), color = TextSub, fontSize = 11.sp)
-                        Text(t("me.details"), color = TextSub, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
-                    }
-                }
+                // 我的相亲画像：基本情况（点选问答，必做）+ AI 深聊（可选）。没做完基本情况不能主动找人聊天
+                MePortraitCard(u, Modifier.padding(top = 16.dp), onNav)
             }
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(Line))
@@ -101,34 +99,56 @@ fun MeScreen(modifier: Modifier = Modifier, initialUser: UserProfile?, onNav: (S
         var picking by remember { mutableStateOf(false) }
         if (picking) LanguageDialog { picking = false }
         val langName = if (I18n.choice == I18n.SYSTEM) t("lang.system") else I18n.languages.firstOrNull { it.first == I18n.choice }?.second.orEmpty()
-        val walletOk = chainWalletVisible(ctx, u)
         LazyColumn(Modifier.weight(1f).fillMaxWidth().background(Bg2), contentPadding = PaddingValues(bottom = 24.dp)) {
             item {
                 MeGroup(t("me.group.content")) {
-                    MeRow(t("me.myMoments")) { onNav("my-moments") }
-                    // 关注的人动态（原主页「关注」tab 移到这里）
-                    MeRow(t("me.followMoments")) { onNav("follow-moments") }
-                    MeRow(t("me.gifts"), last = true) { onNav("gifts-received") }
+                    MeRow(t("me.myMoments"), last = true) { onNav("my-moments") }
                 }
             }
+            // AI 费用：深聊这类 AI 功能按用量花模型费（平台余额或自己的 Key）；点进去是网页
             item {
-                MeGroup(t("me.group.buddy")) {
-                    MeRow(if (u.gender == 2) t("me.myTasksGuide") else t("me.myTasks"), last = u.isGuide) { onNav("task/mine") }
-                    // 搭子认证已合并实名认证（申请时提交姓名+身份证，审核通过即实名）
-                    if (!u.isGuide) MeRow(t("me.guideApply"), last = true) { onNav("guide-apply") }
+                MeGroup("AI 费用") {
+                    MeRow("AI 余额", value = aiBalance?.let { "¥$it" }, last = true) { onNav(hnH5("/ai-fee")) }
                 }
             }
+            // 账号与安全：实人认证（后台要求且还没做时才出现）、登录设备（换手机刷脸找回后会多出来，可以移除）；点进去都是网页
             item {
-                MeGroup(t("me.group.tools")) {
-                    if (walletOk) MeRow(t("me.chainWallet")) { onNav("chain-wallet") }
-                    MeRow(t("me.bots")) { onNav("bots") }
-                    // 专属邀请网页（链接 + 二维码）：女生发给男生 / 男生发给女生，下载后自动归因到我
-                    MeRow(t("me.inviteCard"), last = true) { onNav("invite-card") }
+                MeGroup("账号与安全") {
+                    if (needKyc) {
+                        MeRow("完成实人认证", value = "做过才能聊天 · ¥1") { onNav(hnH5("/kyc?next=/me")) }
+                        Box(Modifier.fillMaxWidth().padding(start = 16.dp).height(0.5.dp).background(Line))
+                    }
+                    MeRow("登录设备", value = deviceCount?.let { "$it 台" }, last = true) { onNav(hnH5("/devices")) }
                 }
             }
             item {
                 MeGroup(t("me.group.settings")) {
-                    MeRow(t("me.editProfile")) { onNav("edit-profile") }
+                    // 编辑资料 = 进 AI 红娘的资料收集；头像 / 昵称 / 照片墙单独一行
+                    MeRow(t("me.editProfile")) { onNav("interview") }
+                    MeRow(t("hn.basic")) { onNav("edit-profile") }
+                    // 视频见面：默认关，自己和对方都打开才能互相发起视频通话
+                    Row(modifier = Modifier.fillMaxWidth().padding(16.dp, 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(t("me.videoMeet"), color = TextMain, fontSize = 15.sp)
+                            Text(t("me.videoMeetSub"), color = TextDim, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp))
+                        }
+                        androidx.compose.material3.Switch(
+                            checked = u.allowVideo,
+                            onCheckedChange = { on ->
+                                val before = u
+                                me = u.copy(allowVideo = on)
+                                scope.launch {
+                                    runCatching {
+                                        Api.request("/user/me", "PUT", kotlinx.serialization.json.buildJsonObject {
+                                            put("allowVideo", kotlinx.serialization.json.JsonPrimitive(on))
+                                        })
+                                    }.onFailure { me = before }
+                                }
+                            },
+                            colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = Accent),
+                        )
+                    }
+                    Box(Modifier.fillMaxWidth().padding(start = 16.dp).height(0.5.dp).background(Line))
                     MeRow(t("lang.title"), value = langName, last = u.gender != 1) { picking = true }
                     // 男方专属：视频通话默认是否开启自己画面（默认关闭；女方无此设置）
                     if (u.gender == 1) {
@@ -215,18 +235,7 @@ fun FollowListScreen(type: String, onBack: () -> Unit, onOpenUser: (String) -> U
                     ) {
                         Avatar(u.avatar, 46)
                         Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(u.nickname, color = TextMain, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                                if (u.isGuide) {
-                                    Text(
-                                        t("me.verified"), color = Accent, fontSize = 10.sp,
-                                        modifier = Modifier.padding(start = 6.dp)
-                                            .clip(RoundedCornerShape(3.dp))
-                                            .background(Accent.copy(alpha = 0.12f))
-                                            .padding(horizontal = 5.dp, vertical = 1.dp),
-                                    )
-                                }
-                            }
+                            Text(u.nickname, color = TextMain, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                             val sub = u.signature.ifEmpty { u.cityName }
                             if (sub.isNotEmpty()) {
                                 Text(sub, color = TextSub, fontSize = 12.sp, maxLines = 1, modifier = Modifier.padding(top = 3.dp))
@@ -237,126 +246,6 @@ fun FollowListScreen(type: String, onBack: () -> Unit, onOpenUser: (String) -> U
                     Box(Modifier.fillMaxWidth().padding(start = 74.dp).height(0.5.dp).background(Line))
                 }
             }
-        }
-    }
-}
-
-private val txLabels: Map<String, String> get() = mapOf(
-    "admin_grant" to t("wallet.tx.adminGrant"), "gift_send" to t("wallet.tx.giftSend"), "gift_recv" to t("wallet.tx.giftRecv"),
-    "task_freeze" to t("wallet.tx.taskFreeze"), "task_settle" to t("wallet.tx.taskSettle"), "task_refund" to t("wallet.tx.taskRefund"),
-    "msg_fee" to t("wallet.tx.msgFee"), "msg_income" to t("wallet.tx.msgIncome"), "call_fee" to t("wallet.tx.callFee"), "call_income" to t("wallet.tx.callIncome"),
-    "transfer_out" to t("wallet.tx.transferOut"), "transfer_in" to t("wallet.tx.transferIn"), "adjust" to t("wallet.tx.adjust"),
-)
-
-@Composable
-fun WalletScreen(onBack: () -> Unit, onNav: (String) -> Unit) {
-    var wallet by remember { mutableStateOf<WalletData?>(null) }
-    var txs by remember { mutableStateOf<List<WalletTx>>(emptyList()) }
-    var hasMore by remember { mutableStateOf(false) }
-    var loadingMore by remember { mutableStateOf(false) }
-    var tab by remember { mutableStateOf(0) } // 0=明细 1=榜单
-    var rank by remember { mutableStateOf<ContribRankResp?>(null) }
-
-    suspend fun loadMore() {
-        if (loadingMore) return
-        loadingMore = true
-        val last = txs.lastOrNull()
-        val list = runCatching {
-            Api.getList<WalletTx>("/wallet/transactions${if (last != null) "?beforeId=${last.id}" else ""}")
-        }.getOrDefault(emptyList())
-        txs = txs + list
-        hasMore = list.size >= 30
-        loadingMore = false
-    }
-
-    LaunchedEffect(Unit) {
-        wallet = runCatching { Api.getObj<WalletData>("/wallet") }.getOrNull()
-        loadMore()
-        rank = runCatching { Api.getObj<ContribRankResp>("/wallet/contrib-rank") }.getOrNull()
-    }
-    Column(modifier = Modifier.fillMaxSize()) {
-        NavBar(t("wallet.title"), onBack) { Text(t("wallet.transfer"), color = Accent, fontSize = 14.sp, modifier = Modifier.clickable { onNav("transfer") }) }
-        Column(modifier = Modifier.padding(16.dp)) {
-            Column(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Bg2).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(t("wallet.available"), color = TextSub, fontSize = 13.sp)
-                Text(fmtPoints(wallet?.balance), color = TextMain, fontSize = 38.sp, fontWeight = FontWeight.Bold)
-                Text(t("wallet.frozenN", "n" to fmtPoints(wallet?.frozen)), color = TextDim, fontSize = 12.sp)
-            }
-        }
-        // 明细 / 榜单切换
-        Row(modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            listOf(t("wallet.tabTxs"), rank?.title ?: t("wallet.rankContrib")).forEachIndexed { idx, label ->
-                Text(
-                    label,
-                    color = if (tab == idx) Color.White else TextSub,
-                    fontSize = 13.sp,
-                    fontWeight = if (tab == idx) FontWeight.SemiBold else FontWeight.Normal,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(if (tab == idx) Accent else Bg3)
-                        .noRippleClick { tab = idx }
-                        .padding(horizontal = 18.dp, vertical = 6.dp),
-                )
-            }
-        }
-        if (tab == 1) {
-            LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp)) {
-                val list = rank?.list ?: emptyList()
-                if (list.isEmpty()) {
-                    item {
-                        Box(Modifier.fillMaxWidth().padding(30.dp), contentAlignment = Alignment.Center) {
-                            Text(t("wallet.noData"), color = TextDim, fontSize = 13.sp)
-                        }
-                    }
-                }
-                itemsIndexed(list, key = { _, r -> r.userId }) { idx, r ->
-                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(
-                            "${idx + 1}",
-                            color = if (idx < 3) Accent else TextDim,
-                            fontSize = if (idx < 3) 17.sp else 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.width(24.dp),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        )
-                        Avatar(r.avatar, 40)
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(r.nickname, color = TextMain, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                            Text(
-                                t("wallet.rankBreakdown", "gift" to fmtPoints(r.giftFen), "call" to fmtPoints(r.callFen), "msg" to fmtPoints(r.msgFen)),
-                                color = TextDim, fontSize = 11.sp,
-                            )
-                        }
-                        Text(fmtPoints(r.totalFen), color = Accent, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Line))
-                }
-            }
-        } else {
-        LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp)) {
-            itemsIndexed(txs, key = { _, tx -> tx.id }) { idx, tx ->
-                // 滚动到最后一条时自动加载下一页
-                if (idx == txs.lastIndex && hasMore) {
-                    LaunchedEffect(tx.id) { loadMore() }
-                }
-                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(txLabels[tx.type] ?: tx.type, color = TextMain, fontSize = 14.sp)
-                        Text(tx.remark, color = TextDim, fontSize = 11.sp)
-                    }
-                    val neg = tx.amount.startsWith("-")
-                    Text((if (neg) "-" else "+") + fmtPoints(tx.amount.removePrefix("-")), color = if (neg) TextMain else Success, fontWeight = FontWeight.SemiBold)
-                }
-                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Line))
-            }
-            if (loadingMore) {
-                item {
-                    Box(Modifier.fillMaxWidth().padding(14.dp), contentAlignment = Alignment.Center) {
-                        androidx.compose.material3.CircularProgressIndicator(color = Accent, modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-                    }
-                }
-            }
-        }
         }
     }
 }
@@ -437,198 +326,6 @@ fun RealnameScreen(onBack: () -> Unit) {
                 }
             }
             if (toast.isNotEmpty()) Text(toast, color = Accent, fontSize = 13.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
-        }
-    }
-}
-
-@Composable
-fun TransferScreen(myShortId: String?, initialSid: String = "", onBack: () -> Unit) {
-    var sid by remember { mutableStateOf("") }
-    var target by remember { mutableStateOf<LookupUser?>(null) }
-    var amount by remember { mutableStateOf("") }
-    var balance by remember { mutableStateOf("0") }
-    var toast by remember { mutableStateOf("") }
-    var showMyQr by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    LaunchedEffect(Unit) { balance = runCatching { Api.getObj<WalletData>("/wallet").balance }.getOrDefault("0") }
-
-    fun applySid(s: String) {
-        sid = s
-        target = null
-        scope.launch { target = runCatching { Api.getObj<LookupUser>("/wallet/lookup/$s") }.getOrNull() }
-    }
-    // 从扫一扫进来（扫到收款码）：直接填好
-    LaunchedEffect(initialSid) { if (Regex("^\\d{6}$").matches(initialSid)) applySid(initialSid) }
-
-    val scanLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        com.journeyapps.barcodescanner.ScanContract(),
-    ) { result ->
-        result.contents?.let { text ->
-            parsePaySid(text)?.let { applySid(it) } ?: run { toast = t("transfer.badQr") }
-        }
-    }
-
-    fun startScan() {
-        scanLauncher.launch(
-            com.journeyapps.barcodescanner.ScanOptions()
-                .setDesiredBarcodeFormats(com.journeyapps.barcodescanner.ScanOptions.QR_CODE)
-                .setPrompt(t("transfer.scanHint"))
-                .setBeepEnabled(false)
-                .setOrientationLocked(true)
-                .setCaptureActivity(PortraitCaptureActivity::class.java),
-        )
-    }
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        NavBar(t("transfer.title"), onBack)
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            // 收款人卡：大号居中输入 6 位 ID
-            Column(
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Bg2).padding(18.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(t("transfer.targetId"), color = TextSub, fontSize = 13.sp)
-                androidx.compose.foundation.text.BasicTextField(
-                    value = sid,
-                    onValueChange = {
-                        sid = it.filter { c -> c.isDigit() }.take(6)
-                        if (sid.length == 6) scope.launch { target = runCatching { Api.getObj<LookupUser>("/wallet/lookup/$sid") }.getOrNull() }
-                        else target = null
-                    },
-                    textStyle = androidx.compose.ui.text.TextStyle(
-                        color = TextMain, fontSize = 30.sp, fontWeight = FontWeight.SemiBold,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        letterSpacing = 6.sp,
-                    ),
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
-                    cursorBrush = androidx.compose.ui.graphics.SolidColor(Accent),
-                    singleLine = true,
-                    decorationBox = { inner ->
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
-                            if (sid.isEmpty()) Text(t("transfer.idPlaceholder"), color = TextDim, fontSize = 22.sp)
-                            inner()
-                        }
-                    },
-                )
-                Box(Modifier.fillMaxWidth().padding(horizontal = 40.dp).height(1.dp).background(Line))
-                Spacer(Modifier.height(12.dp))
-                when {
-                    target != null -> Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                        Avatar(target!!.avatar, 40)
-                        Text("  ${target!!.nickname}", color = TextMain, fontSize = 15.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                        Box(Modifier.size(6.dp).clip(RoundedCornerShape(3.dp)).background(Success))
-                        Text(" " + t("transfer.confirmed"), color = Success, fontSize = 12.sp)
-                    }
-                    sid.length == 6 -> Text(t("transfer.lookingUp"), color = TextDim, fontSize = 12.sp)
-                    else -> Text(t("transfer.idHint"), color = TextDim, fontSize = 12.sp)
-                }
-                Spacer(Modifier.height(14.dp))
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        t("me.scan"), color = Accent, fontSize = 13.sp,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        modifier = Modifier.weight(1f).noRippleClick { startScan() },
-                    )
-                    Box(Modifier.width(1.dp).height(18.dp).background(Line))
-                    Text(
-                        t("transfer.myQr"), color = Accent, fontSize = 13.sp,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        modifier = Modifier.weight(1f).noRippleClick { showMyQr = true },
-                    )
-                }
-            }
-
-            // 金额卡：大号居中金额
-            Column(
-                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Bg2).padding(18.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(t("transfer.amountLabel"), color = TextSub, fontSize = 13.sp)
-                androidx.compose.foundation.text.BasicTextField(
-                    value = amount,
-                    onValueChange = { amount = it.filter { c -> c.isDigit() || c == '.' } },
-                    textStyle = androidx.compose.ui.text.TextStyle(
-                        color = Accent, fontSize = 40.sp, fontWeight = FontWeight.Bold,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    ),
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal),
-                    cursorBrush = androidx.compose.ui.graphics.SolidColor(Accent),
-                    singleLine = true,
-                    decorationBox = { inner ->
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                            if (amount.isEmpty()) Text("0", color = TextDim, fontSize = 40.sp, fontWeight = FontWeight.Bold)
-                            inner()
-                        }
-                    },
-                )
-                Box(Modifier.fillMaxWidth().padding(horizontal = 40.dp).height(1.dp).background(Line))
-                Spacer(Modifier.height(10.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(t("transfer.available", "n" to fmtPoints(balance)), color = TextSub, fontSize = 12.sp)
-                    Text("  " + t("transfer.all"), color = Accent, fontSize = 12.sp, modifier = Modifier.noRippleClick { amount = fmtPoints(balance) })
-                }
-            }
-
-            AccentButton(t("transfer.submit"), enabled = target != null && ((amount.toDoubleOrNull() ?: 0.0) > 0)) {
-                scope.launch {
-                    val fen = ((amount.toDoubleOrNull() ?: 0.0) * 100).toInt()
-                    val body = kotlinx.serialization.json.buildJsonObject {
-                        put("toShortId", kotlinx.serialization.json.JsonPrimitive(target!!.shortId))
-                        put("amountFen", kotlinx.serialization.json.JsonPrimitive(fen.toString()))
-                    }
-                    runCatching { Api.request("/wallet/transfer", "POST", body) }
-                        .onSuccess { toast = t("transfer.success"); onBack() }
-                        .onFailure { toast = it.message ?: t("common.fail") }
-                }
-            }
-            if (toast.isNotEmpty()) Text(toast, color = Accent, fontSize = 13.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
-            if (myShortId != null) {
-                Text(t("transfer.myIdHint", "id" to myShortId), color = TextDim, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
-            }
-        }
-    }
-
-    if (showMyQr && myShortId != null) {
-        androidx.compose.ui.window.Dialog(onDismissRequest = { showMyQr = false }) {
-            Column(
-                modifier = Modifier.clip(RoundedCornerShape(16.dp)).background(Bg2).padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(t("transfer.myQr"), color = TextMain, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                Text(t("me.id", "id" to myShortId), color = TextSub, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
-                Spacer(Modifier.height(16.dp))
-                val qr = remember(myShortId) { makeQrBitmap(payQrContent(myShortId)) }
-                androidx.compose.foundation.Image(
-                    bitmap = qr.asImageBitmap(),
-                    contentDescription = t("transfer.qrAlt"),
-                    modifier = Modifier.size(230.dp).clip(RoundedCornerShape(10.dp)).background(Color.White).padding(10.dp),
-                )
-                Spacer(Modifier.height(14.dp))
-                Text(t("transfer.qrHint"), color = TextDim, fontSize = 12.sp)
-                Spacer(Modifier.height(14.dp))
-                val ctx = androidx.compose.ui.platform.LocalContext.current
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        t("common.save"), color = TextMain, fontSize = 14.sp, fontWeight = FontWeight.Medium,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        modifier = Modifier.width(100.dp).clip(RoundedCornerShape(percent = 50)).background(Bg3)
-                            .noRippleClick {
-                                val ok = saveQrToGallery(ctx, qr)
-                                android.widget.Toast.makeText(ctx, if (ok) t("wallet.savedToAlbum") else t("common.saveFailed"), android.widget.Toast.LENGTH_SHORT).show()
-                            }
-                            .padding(vertical = 10.dp),
-                    )
-                    Text(
-                        t("common.share"), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        modifier = Modifier.width(100.dp).clip(RoundedCornerShape(percent = 50)).background(Accent)
-                            .noRippleClick { shareQr(ctx, qr) }
-                            .padding(vertical = 10.dp),
-                    )
-                }
-                Spacer(Modifier.height(10.dp))
-                Text(t("common.close"), color = TextSub, fontSize = 14.sp, modifier = Modifier.noRippleClick { showMyQr = false }.padding(6.dp))
-            }
         }
     }
 }

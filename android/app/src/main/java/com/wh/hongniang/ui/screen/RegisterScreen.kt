@@ -6,6 +6,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -48,9 +50,9 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/** 一机一号注册：头像+昵称+年纪+性别，账号(BNB地址)自动生成 */
+/** 一机一号注册：头像+昵称+年纪+性别，账号自动生成 */
 @Composable
-fun RegisterScreen(onDone: (UserProfile) -> Unit) {
+fun RegisterScreen(onDone: (UserProfile) -> Unit, onRecover: () -> Unit = {}) {
     var nickname by rememberSaveable { mutableStateOf("") }
     // 0 = 未选择；年纪用滚轮选择而不是输入（与网页一致）
     var age by rememberSaveable { mutableStateOf(0) }
@@ -70,6 +72,8 @@ fun RegisterScreen(onDone: (UserProfile) -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            // 小屏手机上内容比一屏高（多了「刷脸找回」那一行）：能滚；放得下时照样居中
+            .verticalScroll(rememberScrollState())
             .padding(24.dp),
         verticalArrangement = Arrangement.Center,
     ) {
@@ -182,6 +186,7 @@ fun RegisterScreen(onDone: (UserProfile) -> Unit) {
                         )
                         val resp = Api.json.decodeFromJsonElement(EnterResp.serializer(), data!!)
                         Api.token = resp.token
+                        Api.did = resp.did
                         onDone(resp.user!!)
                         // 通过 TA 的专属邀请页装的：进主页后直接打开 TA 的个人主页（MainActivity 监听 openUserHome）
                         resp.inviter?.let { com.wh.hongniang.rtc.CallManager.openUserHome.value = it.id }
@@ -196,6 +201,28 @@ fun RegisterScreen(onDone: (UserProfile) -> Unit) {
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(if (loading) t("register.creating") else t("register.enter"))
+        }
+
+        // 换了手机：做过真人认证的，刷脸回到原来的号（网页，内嵌打开；样稿 design/05-recover.html）
+        Spacer(Modifier.height(14.dp))
+        Row(
+            Modifier.fillMaxWidth()
+                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(14.dp))
+                .noRippleClick(onRecover)
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("换了手机？已有账号", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                Spacer(Modifier.height(2.dp))
+                Text("做过真人认证的，刷脸就能回到原来的号", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text(
+                "刷脸找回", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge, maxLines = 1,
+                modifier = Modifier.padding(start = 10.dp)
+                    .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(15.dp))
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+            )
         }
 
         Spacer(Modifier.height(16.dp))

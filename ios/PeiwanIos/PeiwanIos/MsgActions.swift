@@ -4,8 +4,11 @@ import Photos
 /// 与后端 MSG_REACTIONS 一致；前 7 个是菜单顶上那一排
 let MSG_REACTIONS = ["❤️", "👍", "👎", "🔥", "🥰", "👏", "😁", "😂", "😮", "😢", "🎉", "🙏"]
 
-/// 能转发的类型（礼物、通话记录、转账卡片不行；喊单卡片可以），和后端 message.service FORWARDABLE 一致
-let FORWARDABLE: Set<String> = ["text", "image", "video", "audio", "file", "location", "sticker", "callout", "card"]
+/// 能转发的类型（通话记录不行），和后端 message.service FORWARDABLE 一致
+let FORWARDABLE: Set<String> = ["text", "image", "video", "audio", "file", "location"]
+
+/// 聊天里链接 / 引用 / 选中态用的蓝色
+let linkBlue = Color(red: 0.184, green: 0.486, blue: 0.965)
 
 func msgSnippet(_ type: String, _ content: String) -> String {
     switch type {
@@ -14,10 +17,7 @@ func msgSnippet(_ type: String, _ content: String) -> String {
     case "video": return t("msg.snippet.video")
     case "audio": return t("msg.snippet.audio")
     case "file": return fileSnippet(content, label: t("msg.snippet.file"))
-    case "sticker": return t("msg.snippet.sticker")
     case "location": return t("msg.snippet.location")
-    case "gift": return t("msg.snippet.gift")
-    case "transfer", "callout", "payreq", "perp", "card": return ChainCards.preview(type, content) ?? t("msg.snippet.message")
     default: return type.hasPrefix("call") ? t("msg.snippet.call") : t("msg.snippet.message")
     }
 }
@@ -75,7 +75,7 @@ struct LinkText: View {
         if text.range(of: "http", options: .caseInsensitive) == nil && text.range(of: "www.", options: .caseInsensitive) == nil {
             Text(text)
         } else {
-            Text(linkified(text)).tint(botBlue)
+            Text(linkified(text)).tint(linkBlue)
         }
     }
 }
@@ -116,17 +116,9 @@ struct MenuActions {
     var onSelect: (() -> Void)?
 }
 
-struct ReaderUser: Codable, Identifiable {
-    var id: String
-    var nickname: String? = ""
-    var avatar: String? = ""
-}
-
 struct ReadInfo: Codable {
     var read: Bool? = nil
     var readAt: String? = nil
-    var count: Int? = nil
-    var users: [ReaderUser]? = nil
 }
 
 private func fmtReadAt(_ iso: String?) -> String {
@@ -147,7 +139,6 @@ private struct MenuEntry {
 struct MsgMenuOverlay: View {
     let msgId: String
     let mine: Bool
-    let convType: Int
     let myReaction: String?
     let pinned: Bool
     let actions: MenuActions
@@ -155,7 +146,6 @@ struct MsgMenuOverlay: View {
 
     @State private var expand = false
     @State private var info: ReadInfo?
-    @State private var showReaders = false
 
     var body: some View {
         ZStack {
@@ -220,7 +210,7 @@ struct MsgMenuOverlay: View {
                     ForEach(rows[i], id: \.self) { e in
                         Text(e).font(.system(size: 21))
                             .frame(width: 32, height: 32)
-                            .background(Circle().fill(myReaction == e ? botBlue.opacity(0.15) : Color.clear))
+                            .background(Circle().fill(myReaction == e ? linkBlue.opacity(0.15) : Color.clear))
                             .contentShape(Circle())
                             .onTapGesture { run { actions.onReact(e) } }
                     }
@@ -241,35 +231,13 @@ struct MsgMenuOverlay: View {
     @ViewBuilder
     private var readLine: some View {
         if let r = info {
-            let n = r.count ?? 0
             let readAt = fmtReadAt(r.readAt)
             let readText = readAt.isEmpty ? t("msg.read") : t("msg.readAt", ["time": readAt])
-            let groupText = n > 0 ? "\(t("msg.readByN", ["n": n])) \(showReaders ? "⌃" : "›")" : t("msg.readByNone")
-            let line: String = convType == 1
-                ? (r.read == true ? "✓✓ \(readText)" : "✓ \(t("msg.unread"))")
-                : "✓✓ \(groupText)"
+            let line: String = r.read == true ? "✓✓ \(readText)" : "✓ \(t("msg.unread"))"
             Text(line).font(.system(size: 13)).foregroundStyle(Theme.textSub)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16).padding(.vertical, 9)
                 .background(Theme.bg2)
-                .contentShape(Rectangle())
-                .onTapGesture { if n > 0 { showReaders.toggle() } }
-            if showReaders {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(r.users ?? []) { u in
-                            HStack(spacing: 8) {
-                                AvatarView(url: u.avatar ?? "", size: 22)
-                                Text(u.nickname ?? "").font(.system(size: 13)).foregroundStyle(Theme.text).lineLimit(1)
-                                Spacer(minLength: 0)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 16).padding(.vertical, 6)
-                }
-                .frame(maxHeight: 160)
-                .background(Theme.bg2)
-            }
         }
     }
 }
@@ -289,9 +257,9 @@ struct ReactionChips: View {
                     ForEach(rows[i], id: \.emoji) { r in
                         let on = r.userIds.contains(myId)
                         Text("\(r.emoji) \(r.count)").font(.system(size: 13))
-                            .foregroundStyle(on ? botBlue : Theme.text)
+                            .foregroundStyle(on ? linkBlue : Theme.text)
                             .padding(.horizontal, 8).padding(.vertical, 2)
-                            .background(Capsule().fill(on ? botBlue.opacity(0.16) : Theme.bg3))
+                            .background(Capsule().fill(on ? linkBlue.opacity(0.16) : Theme.bg3))
                             .onTapGesture { onToggle(r.emoji) }
                     }
                 }
@@ -308,7 +276,7 @@ struct ReplyQuote: View {
     var body: some View {
         let deleted = r.deleted == true
         HStack(spacing: 0) {
-            Rectangle().fill(botBlue).frame(width: 3, height: 36)
+            Rectangle().fill(linkBlue).frame(width: 3, height: 36)
             if r.type == "image", !deleted, let c = r.content, !c.isEmpty {
                 RemoteImage(url: c).frame(width: 28, height: 28)
                     .clipShape(RoundedRectangle(cornerRadius: 3)).padding(.leading, 6)
@@ -317,7 +285,7 @@ struct ReplyQuote: View {
                 if deleted {
                     Text(t("msg.originalDeleted")).font(.system(size: 12)).foregroundStyle(Theme.textSub)
                 } else {
-                    Text(r.senderNickname ?? "").font(.system(size: 12, weight: .semibold)).foregroundStyle(botBlue).lineLimit(1)
+                    Text(r.senderNickname ?? "").font(.system(size: 12, weight: .semibold)).foregroundStyle(linkBlue).lineLimit(1)
                     Text(r.type == "text" ? (r.content ?? "") : msgSnippet(r.type ?? "", ""))
                         .font(.system(size: 13)).foregroundStyle(Theme.text).lineLimit(1)
                 }
@@ -325,7 +293,7 @@ struct ReplyQuote: View {
             .padding(.horizontal, 8).padding(.vertical, 3)
         }
         .frame(maxWidth: 220, alignment: .leading)
-        .background(botBlue.opacity(0.08))
+        .background(linkBlue.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 4))
         .contentShape(Rectangle())
         .onTapGesture { if !deleted { onTap() } }
@@ -341,9 +309,9 @@ struct ReplyBar: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "arrowshape.turn.up.left.fill").font(.system(size: 15)).foregroundStyle(botBlue)
+            Image(systemName: "arrowshape.turn.up.left.fill").font(.system(size: 15)).foregroundStyle(linkBlue)
             VStack(alignment: .leading, spacing: 1) {
-                Text(t("msg.replyTo", ["name": nickname])).font(.system(size: 13, weight: .semibold)).foregroundStyle(botBlue).lineLimit(1)
+                Text(t("msg.replyTo", ["name": nickname])).font(.system(size: 13, weight: .semibold)).foregroundStyle(linkBlue).lineLimit(1)
                 Text(snippet).font(.system(size: 12)).foregroundStyle(Theme.textSub).lineLimit(1)
             }
             Spacer(minLength: 0)
@@ -381,13 +349,13 @@ struct PinBar: View {
             HStack(spacing: 10) {
                 VStack(spacing: 2) {
                     ForEach(0 ..< min(pins.count, 5), id: \.self) { i in
-                        Capsule().fill(i == cur ? botBlue : botBlue.opacity(0.3)).frame(width: 2)
+                        Capsule().fill(i == cur ? linkBlue : linkBlue.opacity(0.3)).frame(width: 2)
                     }
                 }
                 .frame(height: 32)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(t("msg.pinnedMessage") + (pins.count > 1 ? " #\(cur + 1)" : ""))
-                        .font(.system(size: 13, weight: .semibold)).foregroundStyle(botBlue)
+                        .font(.system(size: 13, weight: .semibold)).foregroundStyle(linkBlue)
                     Text(p.type == "text" ? (p.content ?? "") : msgSnippet(p.type ?? "", ""))
                         .font(.system(size: 12)).foregroundStyle(Theme.textSub).lineLimit(1)
                 }
@@ -510,8 +478,8 @@ struct ForwardSheet: View {
     @State private var picked: [String] = []
     @State private var busy = false
 
-    private func name(_ c: ConversationItem) -> String { c.peer?.nickname ?? c.group?.name ?? "" }
-    private func avatar(_ c: ConversationItem) -> String { c.peer?.avatar ?? c.group?.avatar ?? "" }
+    private func name(_ c: ConversationItem) -> String { c.peer?.nickname ?? "" }
+    private func avatar(_ c: ConversationItem) -> String { c.peer?.avatar ?? "" }
 
     private var shown: [ConversationItem] {
         let k = q.trimmingCharacters(in: .whitespaces)
@@ -544,7 +512,7 @@ struct ForwardSheet: View {
                         let on = picked.contains(c.id)
                         HStack(spacing: 12) {
                             Image(systemName: on ? "checkmark.circle.fill" : "circle")
-                                .font(.system(size: 20)).foregroundStyle(on ? botBlue : Theme.textDim)
+                                .font(.system(size: 20)).foregroundStyle(on ? linkBlue : Theme.textDim)
                             AvatarView(url: avatar(c), size: 40)
                             Text(name(c)).font(.system(size: 15)).foregroundStyle(Theme.text).lineLimit(1)
                             Spacer(minLength: 0)
@@ -562,7 +530,7 @@ struct ForwardSheet: View {
         .background(Theme.bg2)
         .task {
             let list: [ConversationItem] = (try? await Api.request("/im/conversations")) ?? []
-            convs = list.filter { $0.peer != nil || $0.group != nil }
+            convs = list.filter { $0.peer != nil }
         }
     }
 
@@ -570,7 +538,6 @@ struct ForwardSheet: View {
         let targets: [[String: Any]] = picked.compactMap { id in
             guard let c = convs.first(where: { $0.id == id }) else { return nil }
             if c.type == 1, let p = c.peer { return ["convType": 1, "targetId": p.id] }
-            if let g = c.group { return ["convType": 2, "targetId": g.id] }
             return nil
         }
         busy = true

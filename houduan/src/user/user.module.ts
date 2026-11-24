@@ -3,9 +3,10 @@ import { UserController } from './user.controller';
 import { UserService } from './user.service';
 import { AuthModule } from '../auth/auth.module';
 import { ImModule } from '../im/im.module';
+import { HnModule } from '../hn/hn.module';
 
 @Module({
-  imports: [AuthModule, ImModule],
+  imports: [AuthModule, ImModule, HnModule],
   controllers: [UserController],
   providers: [UserService],
   exports: [UserService],

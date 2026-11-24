@@ -39,8 +39,7 @@ export class InviteService {
     if (!u || u.status !== 0) throw new NotFoundException('用户不存在');
     const id = u.id;
 
-    const [priceCfg, albums, moments, online, fans, invited] = await Promise.all([
-      this.prisma.priceConfig.findFirst(),
+    const [albums, moments, online, fans, invited] = await Promise.all([
       this.prisma.userAlbum.findMany({ where: { userId: id }, orderBy: { sort: 'asc' }, take: 9 }),
       this.prisma.moment.findMany({
         where: { userId: id, status: 0 },
@@ -63,7 +62,7 @@ export class InviteService {
       cityName: u.cityName,
       signature: u.signature,
       isGuide: u.isGuide,
-      realnameVerified: !!u.idCard,
+      realnameVerified: u.realStatus === 1,
       online,
       fans,
       invited,
@@ -74,13 +73,10 @@ export class InviteService {
         try { images = JSON.parse(m.images || '[]'); } catch { /* ignore */ }
         return { id: m.id, content: m.content, type: m.type, cover: m.type === 2 ? m.coverUrl : images[0] ?? '', likeCount: m.likeCount, createdAt: m.createdAt };
       }),
-      msgPriceFen: priceCfg?.msgPriceFen ?? 10,
       link: `${SITE_BASE}/t/?u=${u.shortId ?? u.id.toString()}`,
     };
 
     if (u.gender === 2) {
-      const cost = priceCfg?.videoBaseFenPerMin ?? 2;
-      const cut = cost * (priceCfg?.videoPlatformX ?? 2);
       const [chatPeers, callAgg, dims] = await Promise.all([
         // 和她聊过的人数：单聊会话数
         this.prisma.conversation.count({ where: { type: 1, OR: [{ userAId: id }, { userBId: id }] } }),
@@ -96,7 +92,6 @@ export class InviteService {
       ]);
       return {
         ...base,
-        videoPriceFen: u.videoPriceFen > cut ? u.videoPriceFen : cost * 5,
         ratingAvg: u.ratingAvg,
         ratingCount: u.ratingCount,
         ratingDims: {
@@ -112,21 +107,9 @@ export class InviteService {
       };
     }
 
-    // 男生：累计送出（消息 / 视频 / 礼物 / 约单结算）与投诉数
-    const [spendRows, reports] = await Promise.all([
-      this.prisma.walletTransaction.findMany({
-        // call_fee 是 amount=0 / frozenDelta<0 的冻结清算行，用 amount+frozenDelta 统一算净支出
-        where: { userId: id, type: { in: ['msg_fee', 'call_fee', 'gift_send', 'task_settle'] } },
-        select: { amount: true, frozenDelta: true },
-      }),
-      this.prisma.report.count({ where: { targetUserId: id } }),
-    ]);
-    let spentFen = 0n;
-    for (const r of spendRows) {
-      const net = r.amount + r.frozenDelta;
-      if (net < 0n) spentFen -= net;
-    }
-    return { ...base, spentFen, reports };
+    // 男生：投诉数
+    const reports = await this.prisma.report.count({ where: { targetUserId: id } });
+    return { ...base, reports };
   }
 
   async click(code: string, ip: string, ua: string) {

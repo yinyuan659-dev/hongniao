@@ -1,7 +1,7 @@
 import PhotosUI
 import SwiftUI
 
-/// 一机一号注册：头像+昵称+年纪+性别，账号(BNB地址)自动生成，无密码
+/// 一机一号注册：头像+昵称+年纪+性别，账号自动生成，无密码
 struct RegisterView: View {
     @EnvironmentObject var state: AppState
     @State private var nickname = ""
@@ -15,6 +15,8 @@ struct RegisterView: View {
     @State private var avatarData: Data?
     @State private var showAgreement = false
     @State private var agreementIsPrivacy = false
+    /// 刷脸找回（网页）
+    @State private var showRecover = false
 
     var body: some View {
         VStack(spacing: 16) {
@@ -98,6 +100,27 @@ struct RegisterView: View {
             .disabled(loading)
             .padding(.top, 8)
 
+            // 换了手机：做过真人认证的，刷脸回到原来的号（网页，内嵌打开；样稿 design/05-recover.html）
+            Button { showRecover = true } label: {
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("换了手机？已有账号").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.text)
+                        Text("做过真人认证的，刷脸就能回到原来的号").font(.caption2).foregroundStyle(Theme.textSub)
+                    }
+                    Spacer(minLength: 6)
+                    Text("刷脸找回")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .padding(.horizontal, 14).padding(.vertical, 6)
+                        .overlay(Capsule().stroke(Theme.accent, lineWidth: 1))
+                }
+                .padding(.horizontal, 14).padding(.vertical, 12)
+                .background(RoundedRectangle(cornerRadius: 14).fill(Theme.bg3))
+            }
+            .buttonStyle(.plain)
+
             Text(t("register.noPasswordIos"))
                 .font(.caption)
                 .foregroundStyle(Theme.textSub)
@@ -133,6 +156,13 @@ struct RegisterView: View {
         .padding(24)
         .sheet(isPresented: $showAgreement) {
             AgreementSheet(isPrivacy: agreementIsPrivacy)
+        }
+        // 刷脸找回：网页。?dev= 把本机的设备号带给网页，找回成功后挂到账号上的是这台手机
+        .fullScreenCover(isPresented: $showRecover) {
+            NavStack {
+                HnWebPage(route: "/recover?dev=\(Api.deviceId)")
+            }
+            .environmentObject(state)
         }
         // 年纪滚轮：底部弹层，取消/确定（与编辑资料一致）
         .sheet(isPresented: $showAgeSheet) {
@@ -205,12 +235,17 @@ struct RegisterView: View {
                     "avatar": avatarUrl,
                 ])
                 Api.token = resp.token
+                Api.did = resp.did
                 state.user = resp.user
                 state.stage = .main
                 // 通过 TA 的专属邀请页装的：主页出现后直接打开 TA 的个人主页（RootView 监听 openUserHome）
                 if let inviter = resp.inviter {
                     try? await Task.sleep(nanoseconds: 600_000_000)
                     CallManager.shared.openUserHome = inviter.id
+                } else {
+                    // 否则先去 AI 红娘那里做资料收集
+                    try? await Task.sleep(nanoseconds: 600_000_000)
+                    state.openInterview = true
                 }
             } catch {
                 self.error = error.localizedDescription

@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { addRecentEmoji, searchEmojis, useEmojis } from '../../emojis';
-import { searchGifs, StickerPayload } from '../../stickers';
 import { baseEmoji, QUICK_EMOJIS, SearchIcon } from './shared';
 import { t } from '../../i18n';
 
 /**
- * 搜索 sheet 外壳（和表情商店 sheet 同一套）：顶部搜索框（自动聚焦）+「完成」，
- * 下面一行快捷 emoji（点了当搜索词），再下面是各自的结果区。GIF / 表情两个搜索都从这里走，和贴纸「点搜索弹框」一致。
+ * 搜索 sheet 外壳：顶部搜索框（自动聚焦）+「完成」，
+ * 下面一行快捷 emoji（点了当搜索词），再下面是结果区。
  */
 function SheetShell({ placeholder, query, onQuery, onClose, autoFocus = true, children }: { placeholder: string; query: string; onQuery: (q: string) => void; onClose: () => void; autoFocus?: boolean; children: React.ReactNode }) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -37,76 +36,6 @@ function SheetShell({ placeholder, query, onQuery, onClose, autoFocus = true, ch
         <div className="no-scrollbar" style={{ flex: 1, overflowY: 'auto' }}>{children}</div>
       </div>
     </div>
-  );
-}
-
-/** GIF 搜索 sheet：输入防抖 400ms，快捷 emoji 立即；3 列瓦片，滚到底翻页；点了 GIF 回调并关闭 */
-export function GifSearchSheet({ initialQuery, onPick, onClose }: { initialQuery: string; onPick: (p: StickerPayload) => void; onClose: () => void }) {
-  const [q, setQ] = useState(initialQuery);
-  const [items, setItems] = useState<StickerPayload[]>([]);
-  const [next, setNext] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const seq = useRef(0);
-  const query = q.trim();
-
-  useEffect(() => {
-    const id = ++seq.current;
-    const timer = window.setTimeout(async () => {
-      setLoading(true); setError('');
-      try {
-        const r = await searchGifs(query, '');
-        if (id !== seq.current) return;
-        setItems(r.items); setNext(r.next);
-        // 首次搜索后端还在后台补齐时结果会少，3 秒后再拉一次
-        if (r.items.length < 10 && r.next !== '') {
-          window.setTimeout(async () => {
-            if (id !== seq.current) return;
-            const r2 = await searchGifs(query, '').catch(() => r);
-            if (id === seq.current && r2.items.length > r.items.length) { setItems(r2.items); setNext(r2.next); }
-          }, 3000);
-        }
-      } catch (e: any) {
-        if (id === seq.current) setError(e.message || t('common.loadFailed'));
-      } finally {
-        if (id === seq.current) setLoading(false);
-      }
-    }, QUICK_EMOJIS.includes(query) || !query ? 0 : 400);
-    return () => window.clearTimeout(timer);
-  }, [query]);
-
-  const more = async () => {
-    if (loading || !next) return;
-    const id = seq.current;
-    setLoading(true);
-    try {
-      const r = await searchGifs(query, next);
-      if (id !== seq.current) return;
-      const seen = new Set(items.map((p) => p.id));
-      setItems([...items, ...r.items.filter((p) => !seen.has(p.id))]);
-      setNext(r.next);
-    } catch { /* 下次滚动再试 */ } finally {
-      if (id === seq.current) setLoading(false);
-    }
-  };
-
-  return (
-    <SheetShell placeholder={t('emoji.searchGif')} query={q} onQuery={setQ} onClose={onClose}>
-      <div onScroll={(e) => { const el = e.currentTarget; if (el.scrollHeight - el.scrollTop - el.clientHeight < 300) void more(); }} style={{ height: '100%', overflowY: 'auto' }} className="no-scrollbar">
-        {!query && <div className="small" style={{ padding: '2px 12px 6px' }}>{t('emoji.trending')}</div>}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2 }}>
-          {items.map((p) => (
-            <div key={p.id} onClick={() => { onPick(p); onClose(); }} style={{ aspectRatio: '1', overflow: 'hidden', background: 'var(--bg-input)', cursor: 'pointer' }}>
-              <img src={p.thumb || p.url} alt="" loading="lazy" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-            </div>
-          ))}
-        </div>
-        {loading && <div className="empty" style={{ padding: 16, fontSize: 12 }}>{items.length ? t('emoji.loadingMore') : t('emoji.gifFirstLoad')}</div>}
-        {!loading && !items.length && !error && <div className="empty" style={{ padding: 30, fontSize: 13 }}>{query ? t('emoji.noGifFound') : t('emoji.noGif')}</div>}
-        {error && <div className="empty" style={{ padding: 30, fontSize: 13 }}>{error}</div>}
-        <div style={{ height: 30 }} />
-      </div>
-    </SheetShell>
   );
 }
 

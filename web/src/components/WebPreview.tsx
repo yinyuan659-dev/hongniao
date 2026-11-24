@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { t } from '../i18n';
 
-/** 内部网页全屏预览：传 html（AI 生成的页面，沙箱渲染）或 url（新闻原文、聊天里的链接等外链） */
+/** 内部网页全屏预览：传 html（AI 生成的页面，沙箱渲染）或 url（聊天里的链接等外链） */
 export function WebPreview({ html, url, title = t('web.preview'), onClose }: { html?: string; url?: string; title?: string; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {

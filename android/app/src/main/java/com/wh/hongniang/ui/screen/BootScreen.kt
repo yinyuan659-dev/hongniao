@@ -71,6 +71,9 @@ fun BootScreen(onRegistered: (UserProfile) -> Unit, onNeedRegister: () -> Unit) 
         minShow.join()
         if (resp != null && resp.registered && resp.token != null && resp.user != null) {
             Api.token = resp.token
+            Api.did = resp.did
+            // 不在的时候有新设备通过刷脸登录了这个账号：进去以后提醒一次
+            resp.newDevices.firstOrNull()?.let { DeviceCenter.alert = it }
             onRegistered(resp.user)
         } else {
             onNeedRegister()

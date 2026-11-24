@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CITY_LETTERS, locateCity } from '../cities';
 import { t } from '../i18n';
 
-const HOT_CITIES = ['北京', '上海', '广州', '深圳', '成都', '杭州', '重庆', '武汉', '西安', '南京', '长沙', '三亚'];
+export const HOT_CITIES = ['北京', '上海', '广州', '深圳', '成都', '杭州', '重庆', '武汉', '西安', '南京', '长沙', '三亚'];
 
 /**
  * 城市选择组件：定位 + 热门 + 字母分组列表 + 右侧 A-Z 索引导航（无滚动条）。

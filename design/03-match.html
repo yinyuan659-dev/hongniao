@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>AI 红娘 · 模块三、四：每日推荐、喜欢 / 跳过、互相喜欢后才能聊天（样稿）</title>
+<!--
+  给用户确认用的界面样稿，不是产品代码。人是 AI 生成的假人，文字是示意。
+  双击用浏览器打开就能看。网址后面加 ?only=a / b / c / d 只显示其中一组（截图用）。
+  观感沿用模块一（common.css / common.js）。
+-->
+<link rel="stylesheet" href="common.css">
+<style>
+  .tt { display: flex; gap: 22px; padding: 6px 20px 8px; align-items: center; flex-shrink: 0; }
+  .tt span { color: var(--ink-2); font-size: 16px; position: relative; padding-bottom: 6px; }
+  .tt span.on { color: var(--ink); font-weight: 800; font-size: 19px; }
+  .tt span.on::after { content: ""; position: absolute; left: 50%; transform: translateX(-50%); bottom: 0; width: 20px; height: 4px; border-radius: 2px; background: var(--grad); }
+  .tt .city { margin-left: auto; font-size: 13px; }
+  .sub { display: flex; gap: 8px; padding: 2px 16px 10px; flex-shrink: 0; }
+  .sub span { font-size: 13px; padding: 5px 14px; border-radius: 15px; background: rgba(255, 255, 255, .75); color: var(--ink-2); }
+  .sub span.on { background: var(--grad); color: #fff; font-weight: 700; box-shadow: 0 4px 10px rgba(255, 61, 99, .28); }
+  .rec { margin: 0 16px; border-radius: 28px; overflow: hidden; background: #fff; box-shadow: 0 16px 36px rgba(255, 90, 120, .18); position: relative; z-index: 2; }
+  .rec .ph { height: 268px; position: relative; }
+  .rec .ph::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 50%, rgba(24, 8, 14, .82) 100%); }
+  .rec .ph .txt { position: absolute; left: 16px; right: 16px; bottom: 13px; z-index: 2; color: #fff; }
+  .under { margin: -14px 30px 0; height: 26px; border-radius: 0 0 24px 24px; background: rgba(255, 255, 255, .7); box-shadow: 0 10px 20px rgba(255, 90, 120, .1); }
+  .under.b { margin: -16px 46px 0; height: 24px; background: rgba(255, 255, 255, .45); box-shadow: none; }
+  .why { padding: 13px 16px 15px; }
+  .acts { display: flex; align-items: center; justify-content: center; gap: 26px; padding: 14px 0 0; }
+  .rb { width: 62px; height: 62px; border-radius: 31px; display: flex; align-items: center; justify-content: center; background: #fff; color: var(--ink-2); box-shadow: 0 8px 20px rgba(43, 28, 34, .1); }
+  .rb.like { width: 72px; height: 72px; border-radius: 36px; background: var(--grad); color: #fff; box-shadow: 0 12px 26px rgba(255, 61, 99, .38); }
+  .pg { display: flex; gap: 5px; align-items: center; }
+  .pg i { width: 6px; height: 6px; border-radius: 3px; background: rgba(43, 28, 34, .15); }
+  .pg i.on { width: 18px; background: var(--grad); }
+  .seg { display: flex; gap: 6px; padding: 4px; margin: 4px 16px 0; border-radius: 20px; background: rgba(255, 255, 255, .7); flex-shrink: 0; }
+  .seg span { flex: 1; height: 34px; border-radius: 17px; display: flex; align-items: center; justify-content: center; font-size: 13.5px; color: var(--ink-2); gap: 4px; }
+  .seg span.on { background: #fff; color: var(--ink); font-weight: 700; box-shadow: 0 2px 8px rgba(43, 28, 34, .08); }
+  .seg b { background: var(--rose); color: #fff; font-size: 10.5px; border-radius: 9px; padding: 0 6px; height: 17px; display: inline-flex; align-items: center; }
+  .pr { display: flex; gap: 12px; align-items: center; padding: 12px; margin: 0 16px 10px; }
+  .pr .av { width: 64px; height: 64px; border-radius: 20px; flex-shrink: 0; }
+  .ent { flex: 1; border-radius: 20px; padding: 12px 10px; text-align: center; }
+  .ent .num { font-size: 20px; font-weight: 800; }
+  .cl { display: flex; align-items: center; gap: 12px; padding: 10px 18px; }
+  .cl .av { width: 54px; height: 54px; border-radius: 27px; flex-shrink: 0; position: relative; }
+  .dot { position: absolute; right: -2px; top: -2px; min-width: 18px; height: 18px; border-radius: 9px; background: var(--rose); color: #fff; font-size: 10.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; padding: 0 4px; }
+  .match { position: absolute; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; padding: 86px 26px 0; color: #fff;
+           background: radial-gradient(90% 50% at 50% 0%, #ff9a7a 0%, transparent 70%), radial-gradient(80% 50% at 50% 100%, #c2185b 0%, transparent 75%), linear-gradient(160deg, #ff3d63, #ff6b6b 55%, #e63a7a); }
+  .duo { display: flex; align-items: center; margin-top: 26px; }
+  .duo .a { width: 118px; height: 118px; border-radius: 59px; border: 4px solid #fff; box-shadow: 0 14px 30px rgba(120, 10, 40, .35); }
+  .duo .h { width: 52px; height: 52px; border-radius: 26px; background: #fff; color: var(--rose); display: flex; align-items: center; justify-content: center; margin: 0 -14px; z-index: 2; box-shadow: 0 8px 18px rgba(120, 10, 40, .3); }
+  .ice { width: 100%; border-radius: 22px; background: rgba(255, 255, 255, .18); border: 1px solid rgba(255, 255, 255, .4); padding: 13px 14px; margin-top: 24px; backdrop-filter: blur(12px); }
+  .ice span { display: block; background: rgba(255, 255, 255, .92); color: var(--ink); border-radius: 14px; padding: 9px 12px; font-size: 13.5px; margin-top: 8px; line-height: 1.5; }
+  .dk { display: flex; gap: 10px; padding: 9px; border-radius: 30px; margin: 0 14px; }
+  .dk .btn { height: 46px; font-size: 15px; }
+  .st { font-size: 12px; color: var(--ink-2); margin: 14px 22px 6px; display: flex; align-items: center; gap: 6px; }
+  .st b { width: 18px; height: 18px; border-radius: 9px; background: var(--grad); color: #fff; font-size: 11px; display: inline-flex; align-items: center; justify-content: center; }
+  .tip { margin: 0 14px 10px; padding: 10px 14px; border-radius: 16px; font-size: 12.5px; line-height: 1.55; color: var(--ink-2); text-align: center; background: rgba(255, 255, 255, .7); }
+</style>
+</head>
+<body>
+
+<div class="intro">
+  <h1>模块三、四：每日推荐、喜欢 / 跳过、互相喜欢后才能聊天（样稿）</h1>
+  <p>每天给你挑 3 位 → 喜欢或跳过 → 对方也喜欢你，才出现聊天。人是 AI 生成的假人，文字是示意。</p>
+</div>
+
+<!-- ============ A：今日推荐 ============ -->
+<section data-s="a">
+  <h2><b>1</b>每日推荐：每天 3 位</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">广场 · 遇见 · 推荐 <small>放在「所有」前面</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="tt"><span>动态</span><span class="on">遇见</span><span class="city">成都 ▾</span></div>
+        <div class="sub"><span class="on">推荐</span><span>所有</span><span>新人</span><span>同城</span><span>亲密度</span></div>
+        <div class="row" style="padding:2px 22px 8px"><span style="font-size:13.5px;font-weight:600">今天为你挑了 3 位</span><span class="pg" style="margin-left:auto"><i class="on"></i><i></i><i></i></span></div>
+
+        <div class="rec">
+          <div class="ph photo" style="height:226px;background-image:url(img/f1.jpg);background-position:center 20%">
+            <div class="txt">
+              <div style="font-size:25px;font-weight:800">小林 <span style="font-weight:500;font-size:20px">27</span></div>
+              <div class="row" style="gap:5px;margin-top:7px"><span class="chip-g">成都</span><span class="chip-g">163cm</span><span class="chip-g">本科</span><span class="chip-g">教师</span></div>
+            </div>
+          </div>
+          <div class="why">
+            <div class="lbl"><span class="orb sm"><i data-ic="heart" data-s="13"></i></span>AI 红娘为什么推荐她<span class="r"><i data-ic="spark" data-s="10"></i>AI 生成</span></div>
+            <div style="font-size:14.5px;line-height:1.65;margin-top:8px">你们都喜欢自己做饭、周末往外跑，也都想一到两年内结婚。她看重责任心和好脾气，你说过自己「慢热但靠谱」。</div>
+            <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:10px"><span class="tag">同城</span><span class="tag">都爱做饭</span><span class="tag">结婚节奏一致</span></div>
+          </div>
+        </div>
+        <div class="under"></div><div class="under b"></div>
+
+        <div class="acts">
+          <div class="rb"><i data-ic="x" data-s="26"></i></div>
+          <div class="rb like"><i data-ic="heart" data-s="30"></i></div>
+        </div>
+        <div class="t3" style="text-align:center;margin-top:8px">点照片看她的完整画像</div>
+        <div class="tabbar"><div class="tab on">广场</div><div class="tab">大厅</div><div class="tab"><div class="plus"><i data-ic="plus" data-s="18"></i></div></div><div class="tab">消息</div><div class="tab">我的</div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>位置</b>：广场还是「动态 / 遇见」两个分类。「推荐」放在遇见里面那一排小标签的最前面，点「遇见」先看到它。</div>
+        <div><b>「所有 / 新人 / 同城 / 亲密度」</b>：还是原来的两列大图，可以逛、可以点进去看画像。在这里点喜欢<b>每天最多 3 个</b>（后台可调），「推荐」里的 3 位不占这个名额。</div>
+        <div><b>每天 3 位</b>：按双方的条件互相符合来挑（年龄、城市、学历、婚史这些硬条件对得上，再看兴趣和画像像不像）。人少的时候有几位给几位，如实说。</div>
+        <div><b>为什么推荐</b>：一段话加几个共同点。有余额或填了 Key 时由 AI 写（一位大约 0.1 分钱）；没有就只显示下面那几个共同点，不影响推荐本身。</div>
+        <div><b>✕ 跳过</b> → 换下一位，以后不再推荐这个人。<b>♥ 喜欢</b> → 换下一位；对方也喜欢你时才能聊天。<b>点照片</b> → 右边的完整画像。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">她的完整画像 <small>就是模块一的画像网页</small></div>
+      <div class="phone"><div class="island"></div><div class="screen">
+        <div class="status w"><span>9:41</span><span>5G</span></div>
+        <div class="hero photo" style="background-image:url(img/f1.jpg);height:400px">
+          <div class="top"><span class="gbtn"><i data-ic="left" data-s="18"></i></span><span class="gbtn"><i data-ic="more" data-s="18"></i></span></div>
+          <div class="info">
+            <div class="bars"><i class="on"></i><i></i><i></i></div>
+            <div class="row" style="align-items:baseline;gap:10px"><span style="font-size:32px;font-weight:800">小林</span><span style="font-size:24px;font-weight:500">27</span></div>
+            <div class="row" style="gap:6px;margin-top:10px;flex-wrap:wrap"><span class="chip-g">成都</span><span class="chip-g">163cm</span><span class="chip-g">本科</span><span class="chip-g">教师</span><span class="chip-g">未婚</span></div>
+          </div>
+        </div>
+        <div class="wsheet mesh">
+          <div class="wcard" style="background:linear-gradient(135deg,#fff0f2,#fff6ec);border:1px solid #fff;box-shadow:0 8px 26px rgba(255,90,120,.10)">
+            <div class="lbl"><span class="orb sm"><i data-ic="heart" data-s="13"></i></span>为什么推荐给你<span class="r"><i data-ic="spark" data-s="10"></i>AI 生成</span></div>
+            <div style="font-size:14.5px;line-height:1.65;margin-top:8px">你们都喜欢自己做饭、周末往外跑，也都想一到两年内结婚。</div>
+          </div>
+          <div class="wcard glass">
+            <div class="lbl"><span class="orb sm"><i data-ic="heart" data-s="13"></i></span>AI 红娘眼里的她</div>
+            <div class="quote" style="font-size:17px">开朗爱笑，会做饭、爱旅行，过日子有规划，相处喜欢有话直说。</div>
+          </div>
+        </div>
+        <div class="wdock glass" style="padding:8px">
+          <div class="btn ghost" style="flex:1;height:48px;box-shadow:none;background:transparent"><i data-ic="x" data-s="17"></i>跳过</div>
+          <div class="btn" style="flex:1.6;height:48px"><i data-ic="heart" data-s="17"></i>喜欢</div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div>和模块一的画像网页是同一页，多了最上面那块「为什么推荐给你」，底部按钮换成<b>跳过 / 喜欢</b>。</div>
+        <div>在这一页点了喜欢或跳过，回到推荐页自动换下一位。</div>
+        <div><b>右上角「···」</b>：举报、拉黑。</div>
+        <div>从「遇见」或动态点进别人的画像，也是这一页，也是这两个按钮。<b>以后哪里都不再有直接「发消息」</b>。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ B：看完了 + 喜欢列表 ============ -->
+<section data-s="b">
+  <h2><b>2</b>看完以后，和「谁喜欢了我」</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">今天的看完了</div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="tt"><span>动态</span><span class="on">遇见</span><span class="city">成都 ▾</span></div>
+        <div class="sub"><span class="on">推荐</span><span>所有</span><span>新人</span><span>同城</span><span>亲密度</span></div>
+        <div style="display:flex;flex-direction:column;align-items:center;padding:36px 30px 0;text-align:center">
+          <div class="orb lg"><i data-ic="heart" data-s="28"></i></div>
+          <div style="font-size:21px;font-weight:800;margin-top:28px">今天的 3 位看完了</div>
+          <div class="t2" style="margin-top:8px;line-height:1.7">明天上午 10 点有新的推荐<br>今天喜欢了 2 位，跳过 1 位</div>
+        </div>
+        <div class="pad" style="padding:0 16px;margin-top:30px">
+          <div class="glass" style="overflow:hidden">
+            <div class="lr"><span class="sq"><i data-ic="heart"></i></span>喜欢我的<span class="end"><b style="color:var(--rose);font-size:15px">2 人</b><i data-ic="right"></i></span></div>
+            <div class="lr"><span class="sq"><i data-ic="users"></i></span>去「所有」里逛逛<span class="end"><span class="t2" style="font-size:12.5px">今天还能喜欢 3 个</span><i data-ic="right"></i></span></div>
+            <div class="lr"><span class="sq"><i data-ic="spark"></i></span>和 AI 红娘再聊聊，让推荐更准<span class="end"><i data-ic="right"></i></span></div>
+          </div>
+        </div>
+        <div class="tabbar"><div class="tab on">广场</div><div class="tab">大厅</div><div class="tab"><div class="plus"><i data-ic="plus" data-s="18"></i></div></div><div class="tab">消息</div><div class="tab">我的</div></div>
+      </div></div>
+      <div class="notes">
+        <div>3 位都点过喜欢或跳过以后是这个样子。当天没看完的，第二天换成新的 3 位。</div>
+        <div><b>喜欢我的</b> → 右边的列表。<b>去「遇见」逛逛</b> → 切到旁边的「所有」，那里每天还能再喜欢 3 个。</div>
+        <div>资料没填完的人，这一页是「先把基本情况填完，才能给你推荐」加一个去填写的按钮。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">喜欢 <small>从「消息」页顶上进来</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">喜欢</div><span style="width:34px"></span></div>
+        <div class="seg"><span class="on">喜欢我的<b>2</b></span><span>我喜欢的</span><span>互相喜欢</span></div>
+        <div style="height:14px"></div>
+        <div class="pr glass">
+          <div class="av photo" style="background-image:url(img/f2.jpg)"></div>
+          <div class="grow"><div style="font-size:16px;font-weight:700">阿雯 <span style="font-weight:500">26</span></div><div class="t3" style="margin-top:3px">成都 · 本科 · 设计 · 2 小时前喜欢了你</div><div class="row" style="gap:5px;margin-top:6px"><span class="tag" style="height:22px;font-size:11px">都爱旅行</span></div></div>
+          <span class="pill" style="height:38px;border-radius:19px"><i data-ic="heart" data-s="14"></i>也喜欢</span>
+        </div>
+        <div class="pr glass">
+          <div class="av photo" style="background-image:url(img/f3.jpg)"></div>
+          <div class="grow"><div style="font-size:16px;font-weight:700">书岚 <span style="font-weight:500">29</span></div><div class="t3" style="margin-top:3px">成都 · 硕士 · 教师 · 昨天喜欢了你</div><div class="row" style="gap:5px;margin-top:6px"><span class="tag" style="height:22px;font-size:11px">都不抽烟</span></div></div>
+          <span class="pill" style="height:38px;border-radius:19px"><i data-ic="heart" data-s="14"></i>也喜欢</span>
+        </div>
+        <div class="t3" style="text-align:center;margin-top:8px;line-height:1.7">点头像看完整画像 · 不想认识的可以左滑「不合适」</div>
+      </div></div>
+      <div class="notes">
+        <div><b>喜欢我的</b>：谁喜欢了你，直接看得到是谁（不收费、不打码）。点「也喜欢」→ 马上互相喜欢，弹出下一组图的庆祝页。</div>
+        <div><b>我喜欢的</b>：你点过喜欢、对方还没回应的人，可以取消喜欢。</div>
+        <div><b>互相喜欢</b>：已经配上的人，点一个进聊天。</div>
+        <div>有人喜欢你时，「消息」页的数字和顶上的入口会提醒。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ C：互相喜欢 ============ -->
+<section data-s="c">
+  <h2><b>3</b>互相喜欢了</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">庆祝页 <small>两边都点了喜欢的那一刻弹出</small></div>
+      <div class="phone"><div class="island"></div><div class="screen">
+        <div class="status w"><span>9:41</span><span>5G</span></div>
+        <div class="match">
+          <div style="font-size:30px;font-weight:800;letter-spacing:2px">互相喜欢了</div>
+          <div style="font-size:14px;opacity:.92;margin-top:8px">你和小林都喜欢了对方，现在可以聊天了</div>
+          <div class="duo">
+            <div class="a photo" style="background-image:url(img/p1.jpg)"></div>
+            <div class="h"><i data-ic="heart" data-s="26"></i></div>
+            <div class="a photo" style="background-image:url(img/f1.jpg);background-position:center 20%"></div>
+          </div>
+          <div class="ice">
+            <div class="row" style="font-size:12.5px;font-weight:600"><i data-ic="spark" data-s="13"></i>AI 红娘帮你想的开场白<span style="margin-left:auto;opacity:.8;font-weight:400;font-size:11px">AI 生成</span></div>
+            <span>听说你也喜欢自己做饭，最拿手的是哪道菜？</span>
+            <span>你放假最想去哪儿旅行？我最近在想去云南。</span>
+          </div>
+          <div class="btn" style="margin-top:22px;width:100%;background:#fff;color:var(--rose);box-shadow:0 12px 26px rgba(120,10,40,.3)">开始聊天</div>
+          <div style="margin-top:14px;font-size:14px;opacity:.9">待会儿再说</div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div>你点喜欢时对方早就喜欢你了，或者对方回了你的喜欢，就弹出这一页（对方那边同时也收到）。</div>
+        <div><b>开场白</b>：AI 根据两个人的画像想两句。点一句 → 进聊天并把这句话填进输入框，你可以改了再发。有余额或 Key 才有这一块，没有就不显示。</div>
+        <div><b>开始聊天</b> → 进你们的聊天。<b>待会儿再说</b> → 关掉，这个人会出现在消息列表里。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">消息页 <small>顶上多一排入口</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div style="font-size:24px;font-weight:800;padding:6px 20px 12px">消息</div>
+        <div class="row" style="padding:0 16px;gap:10px">
+          <div class="ent glass"><div class="num" style="color:var(--rose)">2</div><div class="t2" style="font-size:12px;margin-top:2px">喜欢我的</div></div>
+          <div class="ent glass"><div class="num">1</div><div class="t2" style="font-size:12px;margin-top:2px">我喜欢的</div></div>
+          <div class="ent glass"><div class="num">3</div><div class="t2" style="font-size:12px;margin-top:2px">互相喜欢</div></div>
+        </div>
+        <div style="height:14px"></div>
+        <div class="cl">
+          <div class="av photo" style="background-image:url(img/f1.jpg);background-position:center 20%"><span class="dot">新</span></div>
+          <div class="grow"><div class="row"><b style="font-size:16px">小林</b><span class="tag" style="height:20px;font-size:10.5px;padding:0 8px">刚配上</span><span class="t3" style="margin-left:auto">刚刚</span></div><div class="t2" style="margin-top:4px">你们互相喜欢了，打个招呼吧</div></div>
+        </div>
+        <div class="cl">
+          <div class="av photo" style="background-image:url(img/f2.jpg)"><span class="dot">2</span></div>
+          <div class="grow"><div class="row"><b style="font-size:16px">阿雯</b><span class="t3" style="margin-left:auto">10:24</span></div><div class="t2" style="margin-top:4px">周末那家店我也想去</div></div>
+        </div>
+        <div class="cl">
+          <div class="av photo" style="background-image:url(img/f3.jpg)"></div>
+          <div class="grow"><div class="row"><b style="font-size:16px">书岚</b><span class="t3" style="margin-left:auto">昨天</span></div><div class="t2" style="margin-top:4px">好的，那到时候见</div></div>
+        </div>
+        <div class="tabbar"><div class="tab">广场</div><div class="tab">大厅</div><div class="tab"><div class="plus"><i data-ic="plus" data-s="18"></i></div></div><div class="tab on">消息</div><div class="tab">我的</div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>顶上三个数字</b>：喜欢我的 / 我喜欢的 / 互相喜欢，点哪个进上一组图那个列表对应的分类。</div>
+        <div><b>消息列表里只有互相喜欢的人</b>。刚配上还没说过话的，带一个「刚配上」的小标签。</div>
+        <div>原来消息页的搜索、扫一扫都还在，这里没画。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ D：按钮的几种样子 + 聊天页 ============ -->
+<section data-s="d">
+  <h2><b>4</b>没互相喜欢就不能聊：各处的样子</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">别人画像网页底部的四种样子</div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="st" style="margin-top:6px"><b>1</b>还没表态</div>
+        <div class="dk glass"><div class="btn ghost" style="flex:1;box-shadow:none;background:transparent"><i data-ic="x" data-s="17"></i>跳过</div><div class="btn" style="flex:1.6"><i data-ic="heart" data-s="17"></i>喜欢</div></div>
+
+        <div class="st"><b>2</b>我喜欢了，对方还没回应</div>
+        <div class="dk glass"><div class="btn ghost" style="flex:1;box-shadow:none;background:transparent;font-size:14px">取消喜欢</div><div class="btn" style="flex:1.6;opacity:.55"><i data-ic="check" data-s="17"></i>已喜欢，等她回应</div></div>
+
+        <div class="st"><b>3</b>对方先喜欢了我</div>
+        <div class="tip" style="color:var(--rose);font-weight:600;background:#fff0f2;margin-bottom:8px">她喜欢了你。你也喜欢的话，马上就能聊天</div>
+        <div class="dk glass"><div class="btn ghost" style="flex:1;box-shadow:none;background:transparent;font-size:14px">不合适</div><div class="btn" style="flex:1.6"><i data-ic="heart" data-s="17"></i>也喜欢，开始聊</div></div>
+
+        <div class="st"><b>4</b>已经互相喜欢</div>
+        <div class="dk glass"><div class="btn" style="flex:1"><i data-ic="chat" data-s="17"></i>发消息</div></div>
+
+        <div class="st" style="margin-top:20px"><b>!</b>没填完基本情况的人点「喜欢」</div>
+        <div class="pad" style="padding:0 14px"><div class="glass" style="padding:16px">
+          <div style="font-size:15.5px;font-weight:800">先把基本情况填完</div>
+          <div class="t2" style="margin-top:4px;line-height:1.6">填完才能喜欢别人，别人也才能在推荐里看到你。</div>
+          <div class="row" style="margin-top:12px"><span class="pill" style="height:38px;border-radius:19px;padding:0 20px">去填写</span><span class="pill ghost" style="height:38px;border-radius:19px">以后再说</span></div>
+        </div></div>
+      </div></div>
+      <div class="notes">
+        <div>同一个位置，按你们俩的关系显示四种里的一种。只有第 4 种有「发消息」。</div>
+        <div><b>跳过 / 不合适</b>：以后不再互相推荐，对方不会收到通知。</div>
+        <div>动态里、遇见里原来能直接「打招呼」「发消息」的地方，都换成「喜欢」。</div>
+        <div>就算有人绕过页面直接调接口想发消息，服务器也会拒绝，和现在「没填资料不能聊」是一个做法。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">聊天页 <small>只多了两处</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">小林</div><span class="ic-btn"><i data-ic="more"></i></span></div>
+        <div class="t3" style="position:absolute;right:18px;top:338px;z-index:30">点右上角「···」弹出的菜单 ↓</div>
+        <div class="menu" style="position:absolute;right:14px;top:362px;width:200px;background:#fff;border-radius:16px;box-shadow:0 12px 30px rgba(43,28,34,.16);z-index:30;padding:6px 0;font-size:14.5px">
+          <div style="padding:12px 18px">看她的画像</div>
+          <div style="padding:12px 18px">视频见面</div>
+          <div style="padding:12px 18px">举报</div>
+          <div style="padding:12px 18px;color:#f04438">不合适，不再联系</div>
+        </div>
+        <div class="body">
+          <div class="tip" style="margin:6px 0 16px">你们在 11 月 23 日互相喜欢了。<br>线下见面前不要转账，遇到借钱、投资的请直接举报。</div>
+          <div class="br me"><div class="bb me">你好呀，听说你也喜欢自己做饭？</div><div class="me-av photo" style="background-image:url(img/p1.jpg)"></div></div>
+          <div class="br"><div class="me-av photo" style="background-image:url(img/f1.jpg);background-position:center 20%"></div><div class="bb ai">是呀，最近在学做川菜</div></div>
+        </div>
+        <div class="dock">
+          <div class="ibar" style="margin-top:0"><div class="box">发消息…</div><div class="send"><i data-ic="up" data-s="20"></i></div></div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div>聊天页还是现在的样子（文字、图片、语音都在），这里只画了新增的两处。</div>
+        <div><b>顶上一条提示</b>：哪天配上的，加一句防骗提醒。</div>
+        <div><b>右上角「···」多一项「不合适，不再联系」</b>：二次确认后，两边都不能再给对方发消息，聊天从列表里收起，也不再互相推荐。对方只会看到「对方已结束聊天」。</div>
+        <div><b>视频见面</b>：互相喜欢、并且两个人都打开了视频见面开关才能点。</div>
+        <div><b>这条规则上线前就有的聊天</b>：保留 30 天（天数后台可调），这期间照常能聊；到期还没互相喜欢的，不能再发新消息，顶上提示「互相喜欢后才能继续聊」，以前的聊天记录还能看。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script src="common.js"></script>
+</body>
+</html>

@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 /** 大厅固定的几个 tab（内容都在 H5 里写死，后台只调顺序） */
-export const HALL_TAB_KEYS = ['guide', 'games', 'gallery', 'treehole'] as const;
+export const HALL_TAB_KEYS = ['games'] as const;
 export type HallTabKey = (typeof HALL_TAB_KEYS)[number];
 const KEY = 'hall_tabs';
 

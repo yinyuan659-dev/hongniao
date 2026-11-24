@@ -30,107 +30,29 @@ enum FeedVideoCenter {
     }
 }
 
-/// 一次性定位 + 反查城市名
-final class CityLocator: NSObject, CLLocationManagerDelegate {
-    static let shared = CityLocator()
-    private let manager = CLLocationManager()
-    private var handler: ((String?) -> Void)?
-
-    /// 最近一次定位结果（供距离计算）
-    private(set) var lastLocation: CLLocation?
-
-    func detect(_ completion: @escaping (String?) -> Void) {
-        handler = completion
-        manager.delegate = self
-        let status = manager.authorizationStatus
-        if status == .notDetermined {
-            manager.requestWhenInUseAuthorization()
-        } else if status == .authorizedWhenInUse || status == .authorizedAlways {
-            manager.requestLocation()
-        } else {
-            completion(nil); handler = nil
-        }
-    }
-
-    /// 定位城市 + 经纬度
-    func detectWithLocation(_ completion: @escaping (String?, CLLocation?) -> Void) {
-        detect { [weak self] name in
-            completion(name, self?.lastLocation)
-        }
-    }
-
-    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        let s = manager.authorizationStatus
-        if s == .authorizedWhenInUse || s == .authorizedAlways { manager.requestLocation() }
-        else if s == .denied || s == .restricted { handler?(nil); handler = nil }
-    }
-
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let loc = locations.first else { handler?(nil); handler = nil; return }
-        lastLocation = loc
-        CLGeocoder().reverseGeocodeLocation(loc, preferredLocale: Locale(identifier: "zh_CN")) { [weak self] placemarks, _ in
-            let name = placemarks?.first?.locality ?? placemarks?.first?.administrativeArea
-            self?.handler?(name?.replacingOccurrences(of: "市", with: ""))
-            self?.handler = nil
-        }
-    }
-
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        handler?(nil); handler = nil
-    }
-
-    /// 拿一次经纬度（发送位置消息用）
-    func currentLocation(_ completion: @escaping (CLLocation?, String?) -> Void) {
-        detectRaw { loc in
-            guard let loc else { completion(nil, nil); return }
-            CLGeocoder().reverseGeocodeLocation(loc, preferredLocale: Locale(identifier: "zh_CN")) { pms, _ in
-                let p = pms?.first
-                let addr = [p?.locality, p?.subLocality, p?.thoroughfare, p?.name]
-                    .compactMap { $0 }.joined(separator: "")
-                completion(loc, addr)
-            }
-        }
-    }
-
-    private var rawHandler: ((CLLocation?) -> Void)?
-    private func detectRaw(_ completion: @escaping (CLLocation?) -> Void) {
-        handler = { _ in }
-        rawHandler = completion
-        manager.delegate = self
-        let status = manager.authorizationStatus
-        if status == .notDetermined { manager.requestWhenInUseAuthorization() }
-        else if status == .authorizedWhenInUse || status == .authorizedAlways {
-            if let last = manager.location { completion(last); rawHandler = nil; handler = nil; return }
-            manager.requestLocation()
-        } else { completion(nil); rawHandler = nil; handler = nil }
-    }
-}
-
-/// 广场：动态（推荐+同城合并）/ 遇见
+/// 广场：动态 / 遇见（只看得到异性，服务端强制）
 struct PlazaView: View {
+    /// 手动选过的城市存在本机：下次打开直接用，不再被自动定位覆盖（和网页端 localStorage 的做法一致）
+    private static let cityKey = "hn_plaza_city"
+
     @State private var tab = "feed"
     @State private var items: [Moment] = []
-    @State private var city = ""
+    @State private var city = UserDefaults.standard.string(forKey: PlazaView.cityKey) ?? ""
     @State private var locating = false
-    @State private var showTikTok = false
-    @State private var tiktokStartId: String?
+    @State private var showCity = false
     @State private var myLocation: CLLocation?
 
     var body: some View {
         NavStack {
             VStack(spacing: 0) {
                 HStack(spacing: 12) {
-                    // 左侧 tab 横向滑动，占剩余宽度；右侧定位按钮固定尺寸不被压缩
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 16) {
-                            TextTab(text: t("plaza.tab.feed"), selected: tab == "feed") { tab = "feed"; Task { await load() } }
-                            TextTab(text: t("plaza.tab.meet"), selected: tab == "meet") { tab = "meet" }
-                            TextTab(text: t("plaza.tab.quotes"), selected: tab == "quotes") { tab = "quotes" }
-                            TextTab(text: t("plaza.tab.treehole"), selected: tab == "treehole") { tab = "treehole" }
-                        }
-                        .padding(.trailing, 4)
+                    HStack(spacing: 16) {
+                        TextTab(text: t("plaza.tab.feed"), selected: tab == "feed") { tab = "feed"; Task { await load() } }
+                        TextTab(text: t("plaza.tab.meet"), selected: tab == "meet") { tab = "meet" }
                     }
-                    Button(locating ? t("plaza.locating") : (city.isEmpty ? t("plaza.locate") : "\(city) ▾")) { locate() }
+                    Spacer()
+                    // 点城市：弹城市选择（里面第一格是当前定位）
+                    Button(locating ? t("plaza.locating") : (city.isEmpty ? t("plaza.locate") : "\(city) ▾")) { showCity = true }
                         .font(.system(size: 13)).foregroundStyle(Theme.textSub)
                         .lineLimit(1).fixedSize()
                         .layoutPriority(1)
@@ -140,23 +62,14 @@ struct PlazaView: View {
                 if tab == "meet" {
                     // 遇见：异性卡片流（所有/新人/同城/亲密度）
                     MeetSectionView(city: city)
-                } else if tab == "quotes" {
-                    // 励志行：AI 每天一句励志话，按天累积
-                    QuotesSectionView()
-                } else if tab == "treehole" {
-                    // 私密树洞：匿名投稿信息流（原生实现，大厅 H5 内不再展示）
-                    TreeholeSectionView()
                 } else if items.isEmpty {
                     EmptyHint(text: t("plaza.emptyFeed"))
                 } else {
                     ScrollView {
                         LazyVStack(spacing: 0) {
                             ForEach(items) { m in
-                                // 点视频直接进抖音模式，从这条开始
-                                MomentCardView(m: m, viewerLocation: myLocation, onOpenVideo: {
-                                    tiktokStartId = m.id
-                                    showTikTok = true
-                                }, onVideoCall: { user in
+                                // 视频点封面原地播放（抖音模式已下线，不传 onOpenVideo）
+                                MomentCardView(m: m, viewerLocation: myLocation, onVideoCall: { user in
                                     startCallWithPermissions(calleeId: user.id, type: 2, name: user.nickname ?? "", avatar: user.avatar ?? "")
                                 })
                             }
@@ -168,11 +81,15 @@ struct PlazaView: View {
             .fullBg()
             .withRoutes()
         }
-        .fullScreenCover(isPresented: $showTikTok) {
-            TikTokView(startId: tiktokStartId)
+        .sheet(isPresented: $showCity) {
+            CityPickerSheet(current: city) { picked in
+                city = picked
+                UserDefaults.standard.set(picked, forKey: PlazaView.cityKey)
+                showCity = false
+            }
         }
-        .onChange(of: showTikTok) { shown in
-            // 进入抖音模式停止列表内视频
+        .onChange(of: showCity) { shown in
+            // 打开弹层时停止列表内视频
             if shown { FeedVideoCenter.pauseCurrent() }
         }
         .task {
@@ -186,11 +103,12 @@ struct PlazaView: View {
         }
     }
 
+    /// 定位：经纬度总是更新（算距离用）；城市只在没手动选过时才用定位结果
     private func locate() {
-        locating = true
+        locating = city.isEmpty
         CityLocator.shared.detectWithLocation { name, loc in
             DispatchQueue.main.async {
-                city = name ?? city
+                if city.isEmpty { city = name ?? "" }
                 myLocation = loc ?? myLocation
                 locating = false
             }
@@ -212,38 +130,113 @@ struct PlazaView: View {
     }
 }
 
-/// 关注动态（原主页「关注」tab，入口移到「我的」）
-struct FollowMomentsView: View {
-    @State private var items: [Moment] = []
-    @State private var loaded = false
+/// 城市选择（对齐网页端 CityPickerSheet）：定位 + 热门 + 字母分组列表 + 右侧 A-Z 索引
+struct CityPickerSheet: View {
+    let current: String
+    var onSelect: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var located: String?
+    @State private var locating = true
+    @State private var activeLetter = ""
 
     var body: some View {
-        Group {
-            if loaded, items.isEmpty {
-                EmptyHint(text: t("plaza.emptyFollow"))
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(items) { m in
-                            MomentCardView(m: m, onVideoCall: { user in
-                                startCallWithPermissions(calleeId: user.id, type: 2, name: user.nickname ?? "", avatar: user.avatar ?? "")
-                            })
+        VStack(spacing: 0) {
+            HStack {
+                Text(t("city.choose")).font(.system(size: 17, weight: .bold)).foregroundStyle(Theme.text)
+                Spacer()
+                Button(t("common.close")) { dismiss() }
+                    .font(.system(size: 14)).foregroundStyle(Theme.textSub)
+            }
+            .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 10)
+
+            ScrollViewReader { proxy in
+                ZStack(alignment: .trailing) {
+                    ScrollView(showsIndicators: false) {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            hotBlock.id("#")
+                            ForEach(cityLetters) { group in
+                                Text(group.letter)
+                                    .font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.textSub)
+                                    .padding(.top, 16).padding(.bottom, 6)
+                                    .id(group.letter)
+                                ForEach(group.cities, id: \.self) { name in
+                                    Button { onSelect(name) } label: {
+                                        VStack(alignment: .leading, spacing: 0) {
+                                            Text(name).font(.system(size: 15))
+                                                .foregroundStyle(name == current ? Theme.accent : Theme.text)
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                                .padding(.horizontal, 4).padding(.vertical, 12)
+                                            Rectangle().fill(Theme.line).frame(height: 0.5)
+                                        }
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                        .padding(.leading, 16).padding(.trailing, 40).padding(.bottom, 24)
+                    }
+
+                    // 右侧字母索引：点字母跳到那一组，# 回到顶部
+                    VStack(spacing: 1) {
+                        ForEach(["#"] + cityLetters.map(\.letter), id: \.self) { l in
+                            Text(l).font(.system(size: 10))
+                                .foregroundStyle(activeLetter == l ? Color.white : Theme.textSub)
+                                .frame(width: 16, height: 15)
+                                .background(Capsule().fill(activeLetter == l ? Theme.accent : Color.clear))
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    activeLetter = l
+                                    proxy.scrollTo(l, anchor: .top)
+                                }
                         }
                     }
+                    .padding(.trailing, 5)
                 }
-                .refreshable { await load() }
             }
         }
-        .fullBg()
-        .navigationTitle(t("me.followMoments"))
-        .navigationBarTitleDisplayMode(.inline)
-        .compatNavBarBackground(Theme.bg)
-        .task { await load() }
+        .background(Theme.bg2.ignoresSafeArea())
+        .task { locate() }
     }
 
-    private func load() async {
-        if let fresh: [Moment] = try? await Api.request("/moments/feed?follow=1") { items = fresh }
-        loaded = true
+    /// 定位格 + 热门城市，4 列
+    private var hotBlock: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(t("city.locateHot")).font(.system(size: 12)).foregroundStyle(Theme.textSub)
+                .padding(.top, 4)
+            let cols = Array(repeating: GridItem(.flexible(), spacing: 8), count: 4)
+            LazyVGrid(columns: cols, spacing: 8) {
+                // 第一格是当前定位：定位到了点它直接选中；没定位到点它再试一次
+                Button {
+                    if let located { onSelect(located) } else if !locating { locate() }
+                } label: {
+                    chip(locating ? t("city.locating") : (located ?? t("city.locateUnavailable")), color: Theme.accent, bg: Theme.accent.opacity(0.12))
+                }
+                .buttonStyle(.plain)
+                ForEach(hotCities, id: \.self) { name in
+                    Button { onSelect(name) } label: {
+                        chip(name, color: name == current ? Theme.accent : Theme.text, bg: Theme.bg3)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private func chip(_ text: String, color: Color, bg: Color) -> some View {
+        Text(text).font(.system(size: 13)).foregroundStyle(color).lineLimit(1)
+            .frame(maxWidth: .infinity).padding(.vertical, 9)
+            .background(RoundedRectangle(cornerRadius: 10).fill(bg))
+    }
+
+    private func locate() {
+        locating = true
+        CityLocator.shared.detect { name in
+            DispatchQueue.main.async {
+                located = name
+                locating = false
+            }
+        }
     }
 }
 
@@ -256,7 +249,7 @@ struct MomentCardView: View {
     var showVideoCover: Bool = true
     /// 观看者位置（用于距离显示）
     var viewerLocation: CLLocation? = nil
-    /// 点视频封面：传了就交给调用方（广场 = 进抖音模式），不传则原地播放
+    /// 点视频封面：传了就交给调用方处理，不传则原地播放（广场现在不传，抖音模式已下线）
     var onOpenVideo: (() -> Void)? = nil
     var onVideoCall: (MomentUser) -> Void
     @EnvironmentObject private var appState: AppState
@@ -283,11 +276,6 @@ struct MomentCardView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 5) {
                         Text(m.user?.nickname ?? "").font(.system(size: 15, weight: .medium)).foregroundStyle(Theme.text)
-                        if m.user?.isGuide == true {
-                            Text(t("me.verified")).font(.system(size: 10)).foregroundStyle(Theme.accent)
-                                .padding(.horizontal, 5).padding(.vertical, 1)
-                                .background(RoundedRectangle(cornerRadius: 3).fill(Theme.accent.opacity(0.12)))
-                        }
                         // 位置紧跟昵称（迷你淡色标签）
                         if let cityName = m.cityName, !cityName.isEmpty {
                             Text(cityName).font(.system(size: 10)).foregroundStyle(Theme.textDim)
@@ -322,20 +310,18 @@ struct MomentCardView: View {
                             }
                     }
                     .buttonStyle(.plain)
-                    // 视频通话仅男方可发起（女方只能接听）；对方离线置灰不可点
-                    if appState.user?.gender == 1 {
-                        // 视频按钮三态：通话中（占线）/ 离线置灰 / 可打（显示价格）
+                    // 视频按钮：对方打开了视频见面才显示；对方离线置灰不可点
+                    if m.user?.allowVideo == true {
+                        // 三态：通话中（占线）/ 离线置灰 / 可打
                         let peerOnline = m.user?.online == true
                         let peerBusy = m.user?.busy == true
-                        let priceFen = m.user?.videoPriceFen ?? 0
                         let busyOrange = Color(red: 1, green: 0.67, blue: 0.24)
                         let fgColor: Color = peerBusy ? busyOrange : peerOnline ? Theme.accent : Theme.textDim
-                        let callText = priceFen > 0 ? t("plaza.videoCallPrice", ["n": fmtPoints(String(priceFen))]) : t("plaza.videoCall")
                         Button {
                             if peerBusy || !peerOnline { return }
                             if let u = m.user { onVideoCall(u) }
                         } label: {
-                            Text(peerBusy ? t("plaza.inCall") : callText)
+                            Text(peerBusy ? t("plaza.inCall") : t("plaza.videoCall"))
                                 .font(.system(size: 12))
                                 .foregroundStyle(fgColor)
                                 .padding(.horizontal, 11).padding(.vertical, 4)
@@ -522,8 +508,6 @@ struct MomentDetailView: View {
     @State private var moment: Moment?
     @State private var comments: [CommentItem] = []
     @State private var input = ""
-    /// 待发的贴纸：点贴纸先挂到输入栏，再点发送
-    @State private var sticker: StickerPayload?
     @State private var showSticker = false
     @FocusState private var inputFocused: Bool
     @State private var chatTarget: ChatTarget?
@@ -573,9 +557,6 @@ struct MomentDetailView: View {
                                         .clipShape(RoundedRectangle(cornerRadius: 8))
                                         .onTapGesture { fullImage = img }
                                 }
-                                if let s = c.sticker {
-                                    StickerImageView(p: s, size: s.isGif ? 160 : 96)
-                                }
                                 Text(timeAgo(c.createdAt)).font(.system(size: 11)).foregroundStyle(Theme.textDim)
                             }
                             Spacer()
@@ -586,13 +567,6 @@ struct MomentDetailView: View {
             }
 
             VStack(spacing: 0) {
-                if let s = sticker {
-                    HStack {
-                        PendingStickerChip(p: s) { sticker = nil }
-                        Spacer()
-                    }
-                    .padding(.horizontal, 16).padding(.top, 8)
-                }
                 HStack(spacing: 10) {
                     Button {
                         inputFocused = false; showSticker.toggle()
@@ -615,7 +589,7 @@ struct MomentDetailView: View {
                 }
                 .padding(12)
                 if showSticker {
-                    EmojiPanel(onPick: { sticker = $0 }, onEmoji: { input += $0 }, onDelete: { input = dropLastGrapheme(input) }, onKeyboard: { showSticker = false; inputFocused = true })
+                    EmojiPanel(onEmoji: { input += $0 }, onDelete: { input = dropLastGrapheme(input) }, onKeyboard: { showSticker = false; inputFocused = true })
                 }
             }
             .background(Theme.bg2)
@@ -640,19 +614,16 @@ struct MomentDetailView: View {
     }
 
     private var canSend: Bool {
-        !input.trimmingCharacters(in: .whitespaces).isEmpty || sticker != nil
+        !input.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     private func send() {
         let text = input.trimmingCharacters(in: .whitespaces)
         guard canSend else { return }
-        let picked = sticker
         Task {
-            var body: [String: Any] = ["content": text]
-            if let picked { body["stickerId"] = picked.id }
+            let body: [String: Any] = ["content": text]
             let _: CommentItem? = try? await Api.request("/moments/\(momentId)/comments", method: "POST", body: body)
-                        input = ""
-            sticker = nil
+            input = ""
             showSticker = false
             await load()
         }
@@ -887,6 +858,93 @@ struct PublishView: View {
                 toastMsg = error.localizedDescription
             }
             publishing = false
+        }
+    }
+}
+
+/// 我的动态（双列网格，对齐 Android/Web）
+struct MyMomentsView: View {
+    @State private var items: [Moment] = []
+    @State private var deleting: Moment?
+
+    var body: some View {
+        Group {
+            if items.isEmpty {
+                EmptyHint(text: t("profile.myMomentsEmpty"))
+            } else {
+                ScrollView {
+                    let cols = [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)]
+                    LazyVGrid(columns: cols, spacing: 8) {
+                        ForEach(items) { m in
+                            momentCell(m)
+                        }
+                    }
+                    .padding(12)
+                }
+            }
+        }
+        .fullBg()
+        .navigationTitle(t("me.myMoments"))
+        .navigationBarTitleDisplayMode(.inline)
+        .compatNavBarBackground(Theme.bg)
+        .confirmationDialog(t("moments.deleteConfirm"), isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
+            Button(t("common.delete"), role: .destructive) {
+                guard let m = deleting else { return }
+                Task {
+                    struct OkResp: Codable { var ok: Bool? }
+                    if let _: OkResp = try? await Api.request("/moments/\(m.id)", method: "DELETE") {
+                        items.removeAll { $0.id == m.id }
+                    }
+                    deleting = nil
+                }
+            }
+            Button(t("common.cancel"), role: .cancel) { deleting = nil }
+        }
+        .task {
+            items = (try? await Api.request("/moments/mine")) ?? []
+        }
+    }
+
+    private func momentCell(_ m: Moment) -> some View {
+        let cover = m.type == 2 ? (m.coverUrl ?? "") : (m.images?.first ?? "")
+        return ZStack(alignment: .topTrailing) {
+            RouteLink(.moment(m.id)) {
+                VStack(alignment: .leading, spacing: 0) {
+                    if !cover.isEmpty {
+                        RemoteImage(url: cover)
+                            .frame(maxWidth: .infinity).frame(height: 150)
+                            .clipped()
+                    } else {
+                        Text(m.content ?? "")
+                            .font(.system(size: 14)).foregroundStyle(Theme.text)
+                            .lineLimit(4).multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, minHeight: 110, alignment: .topLeading)
+                            .padding(14)
+                            .background(Theme.bg3)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        if !cover.isEmpty, let content = m.content, !content.isEmpty {
+                            Text(content).font(.system(size: 13)).foregroundStyle(Theme.text).lineLimit(2)
+                                .multilineTextAlignment(.leading)
+                        }
+                        Text(t("moments.stats", ["likes": m.likeCount ?? 0, "comments": m.commentCount ?? 0]))
+                            .font(.system(size: 11)).foregroundStyle(Theme.textDim)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+                }
+                .background(Theme.bg2)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .buttonStyle(.plain)
+
+            Button { deleting = m } label: {
+                Text("×").font(.system(size: 16)).foregroundStyle(.white)
+                    .frame(width: 26, height: 26)
+                    .background(Circle().fill(Color.black.opacity(0.55)))
+            }
+            .buttonStyle(.plain)
+            .padding(6)
         }
     }
 }

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { openNativeChat } from '../bridge';
-import { api, fmtPoints } from '../api';
+import { LikePill } from '../match';
+import { api } from '../api';
 import { useApp } from '../store';
 import { t } from '../i18n';
 
@@ -20,7 +20,10 @@ interface HomeProfile {
   /** 五维度均分（0-100），展示词：真实度/配合度/腿型/曲线/肤质 */
   rating?: { avg: number; count: number; photo?: number; obedience?: number; legs?: number; chest?: number; skin?: number } | null;
   answerRate?: number | null;
-  videoPriceActualFen?: number;
+  /** 对方打开了视频见面（默认关） */
+  allowVideo?: boolean;
+  /** 相亲资料卡：对方完成资料收集后才有 */
+  matchProfile?: { summary: string; tags: string[]; intro: string; about: { label: string; value: string }[]; prefs: { label: string; value: string }[] } | null;
   online?: boolean;
   busy?: boolean;
   realnameVerified?: boolean;
@@ -62,9 +65,6 @@ export function UserHomePage() {
   const [moments, setMoments] = useState<MomentItem[]>([]);
   const [following, setFollowing] = useState(false);
   const [tab, setTab] = useState(0);
-  const [giftOpen, setGiftOpen] = useState(false);
-  const [gifts, setGifts] = useState<any[]>([]);
-  const [selGift, setSelGift] = useState<number | null>(null);
   const [toast, setToast] = useState('');
   const [wallImage, setWallImage] = useState<string | null>(null);
   const [heroIdx, setHeroIdx] = useState(0);
@@ -99,40 +99,14 @@ export function UserHomePage() {
     } catch (e: any) { showToast(e.message); }
   };
 
-  const openChat = async () => {
-    try {
-      const r = await api<{ conversationId: string }>(`/im/conversations/open/${id}`, { method: 'POST' });
-      if (openNativeChat(r.conversationId, 1, id!, p?.nickname ?? '')) return;
-      nav(`/chatroom/${r.conversationId}`, { state: { title: p?.nickname, convType: 1, targetId: id } });
-    } catch (e: any) { showToast(e.message); }
-  };
-
-  const openGifts = async () => {
-    setGiftOpen(true);
-    if (gifts.length === 0) api<any[]>('/gifts').then(setGifts).catch(() => {});
-  };
-
-  const sendGift = async () => {
-    if (selGift == null) return showToast(t('userHome.pickGift'));
-    try {
-      await api('/gifts/send', { method: 'POST', body: { toUserId: id, giftId: selGift } });
-      showToast(t('userHome.giftSent'));
-    } catch (e: any) { showToast(e.message); }
-  };
-
   if (!p) return <div className="app"><div className="empty">{t('common.loading')}</div></div>;
   const isFemale = p.gender === 2;
-  const canVideo = me?.gender === 1 && isFemale;
+  // 视频按钮：对方打开了视频见面才显示（网页端点了只提示去 App）
+  const canVideo = !!p.allowVideo && me?.id !== p.id;
   // hero 轮播图：头像 + 照片墙（去重去空）
   const heroImages = [...new Set([p.avatar, ...(p.albums ?? []).filter((a) => a.type === 1).map((a) => a.url)].filter(Boolean))] as string[];
 
-  const videoSub = p.busy
-    ? ''
-    : !p.online
-      ? t('userHome.peerOffline')
-      : (p.videoPriceActualFen ?? 0) > 0
-        ? t('userHome.pricePerMin', { price: fmtPoints(String(p.videoPriceActualFen)) })
-        : '';
+  const videoSub = p.busy || p.online ? '' : t('userHome.peerOffline');
 
   return (
     <div className="app">
@@ -188,18 +162,12 @@ export function UserHomePage() {
               fontSize: 22, color: '#fff', cursor: 'pointer',
             }}
           >‹</div>
-          {/* 左下叠层：接通率 / 视频价格（仅女生） */}
+          {/* 左下叠层：接通率（仅女生） */}
           <div style={{ position: 'absolute', left: 16, bottom: 34, display: 'flex', flexDirection: 'column', gap: 4 }}>
             {isFemale && p.answerRate != null && p.answerRate >= 0 && (
               <div style={{ display: 'flex', alignItems: 'baseline' }}>
                 <b style={{ fontSize: 26, color: '#fff' }}>{p.answerRate}</b>
                 <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)' }}>&nbsp;{t('userHome.answerRate')}</span>
-              </div>
-            )}
-            {isFemale && (p.videoPriceActualFen ?? 0) > 0 && (
-              <div style={{ display: 'flex', alignItems: 'baseline' }}>
-                <b style={{ fontSize: 26, color: '#fff' }}>{fmtPoints(String(p.videoPriceActualFen))}</b>
-                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)' }}>&nbsp;{t('userHome.pointsPerMin')}</span>
               </div>
             )}
           </div>
@@ -234,91 +202,113 @@ export function UserHomePage() {
             </button>
           </div>
 
-          {tab === 0 ? (
-            /* ===== 关于我 ===== */
-            <div style={{ padding: '0 16px' }}>
-              <div style={{ fontSize: 20, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
-                {p.nickname}
-                <span style={{ fontSize: 11, fontWeight: 400, color: p.busy ? '#ffaa3c' : p.online ? 'var(--success)' : 'var(--text-3)' }}>
-                  ● {p.busy ? t('common.inCall') : p.online ? t('common.online') : t('common.offline')}
-                </span>
-              </div>
-              <div className="row" style={{ gap: 6, marginTop: 8 }}>
-                <span className="tag" style={{ fontSize: 11, color: p.gender === 1 ? '#6db3ff' : '#ff7a95' }}>
-                  {p.gender === 1 ? t('me.male') : t('me.female')} {p.age}
-                </span>
-                {p.cityName && <span className="tag" style={{ fontSize: 11 }}>{p.cityName}</span>}
-              </div>
-              {p.signature && <div className="muted" style={{ marginTop: 12, fontSize: 13, lineHeight: 1.6 }}>{p.signature}</div>}
-              <div className="row" style={{ gap: 24, marginTop: 16 }}>
-                <span style={{ fontSize: 13 }}><b style={{ fontSize: 16 }}>{p.following}</b> <span className="muted">{t('me.following')}</span></span>
-                <span style={{ fontSize: 13 }}><b style={{ fontSize: 16 }}>{p.fans}</b> <span className="muted">{t('me.fans')}</span></span>
-              </div>
-              {/* ===== 评分：星级总分 + 五维度方格，最高维度渐变高亮 ===== */}
-              {isFemale && p.rating && p.rating.count > 0 && (() => {
-                const star = p.rating.avg / 20;
-                const filled = Math.min(Math.max(Math.round(star), 0), 5);
-                // 按分从高到低排成 3+2 方格，第一格（她最突出的）用渐变填充
-                const dims = ([
-                  [t('userHome.ratingPhoto'), p.rating.photo ?? 0],
-                  [t('userHome.ratingObedience'), p.rating.obedience ?? 0],
-                  [t('userHome.ratingLegs'), p.rating.legs ?? 0],
-                  [t('userHome.ratingChest'), p.rating.chest ?? 0],
-                  [t('userHome.ratingSkin'), p.rating.skin ?? 0],
-                ] as [string, number][]).sort((a, b) => b[1] - a[1]);
-                return (
-                  <div style={{ marginTop: 18 }}>
-                    <div className="row" style={{ gap: 6, alignItems: 'center' }}>
-                      <span style={{ fontSize: 14, fontWeight: 600 }}>{t('userHome.rating')}</span>
-                      <span style={{ fontSize: 13, color: 'var(--accent)' }}>{'★'.repeat(filled)}{'☆'.repeat(5 - filled)}</span>
-                      <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent)' }}>{star.toFixed(1)}</span>
-                      <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{t('userHome.ratingCount', { n: p.rating.count })}</span>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginTop: 8 }}>
-                      {dims.map(([label, score], i) => {
-                        const best = i === 0 && score > 0;
-                        return (
-                          <div key={label} style={{
-                            borderRadius: 10, padding: '10px 0', textAlign: 'center',
-                            background: best ? 'var(--accent-grad)' : 'rgba(0,0,0,0.05)',
-                          }}>
-                            <div style={{ fontSize: 16, fontWeight: 700, color: best ? '#fff' : 'var(--text)' }}>{(score / 20).toFixed(1)}</div>
-                            <div style={{ fontSize: 11, marginTop: 2, color: best ? 'rgba(255,255,255,0.9)' : 'var(--text-2)' }}>{label}</div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })()}
-              {/* 照片墙（最多 8 张） */}
-              {(p.albums ?? []).filter((a) => a.type === 1).length > 0 && (
-                <div style={{ marginTop: 18 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600 }}>{t('userHome.photoWall')}</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginTop: 8 }}>
-                    {(p.albums ?? []).filter((a) => a.type === 1).map((a) => (
-                      <div
-                        key={a.id}
-                        onClick={() => setWallImage(a.url)}
-                        style={{ aspectRatio: '1', borderRadius: 10, overflow: 'hidden', background: 'var(--bg-card)', cursor: 'pointer' }}
-                      >
-                        <img src={a.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          {/* ===== 关于我 ===== */}
+          <div style={{ padding: '0 16px', display: tab === 0 ? 'block' : 'none' }}>
+            <div style={{ fontSize: 20, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+              {p.nickname}
+              <span style={{ fontSize: 11, fontWeight: 400, color: p.busy ? '#ffaa3c' : p.online ? 'var(--success)' : 'var(--text-3)' }}>
+                ● {p.busy ? t('common.inCall') : p.online ? t('common.online') : t('common.offline')}
+              </span>
+            </div>
+            <div className="row" style={{ gap: 6, marginTop: 8 }}>
+              <span className="tag" style={{ fontSize: 11, color: p.gender === 1 ? '#6db3ff' : '#ff7a95' }}>
+                {p.gender === 1 ? t('me.male') : t('me.female')} {p.age}
+              </span>
+              {p.cityName && <span className="tag" style={{ fontSize: 11 }}>{p.cityName}</span>}
+            </div>
+            {p.signature && <div className="muted" style={{ marginTop: 12, fontSize: 13, lineHeight: 1.6 }}>{p.signature}</div>}
+            <div className="row" style={{ gap: 24, marginTop: 16 }}>
+              <span style={{ fontSize: 13 }}><b style={{ fontSize: 16 }}>{p.following}</b> <span className="muted">{t('me.following')}</span></span>
+              <span style={{ fontSize: 13 }}><b style={{ fontSize: 16 }}>{p.fans}</b> <span className="muted">{t('me.fans')}</span></span>
+            </div>
+            {/* ===== 相亲资料（AI 红娘收集的画像）：摘要 + 标签 + 明细；对方没完成就不显示 ===== */}
+            {p.matchProfile && (
+              <div style={{ marginTop: 18 }}>
+                <div style={{ fontSize: 14, fontWeight: 600 }}>{t('userHome.matchProfile')}</div>
+                <div style={{ fontSize: 14, lineHeight: 1.7, marginTop: 8 }}>{p.matchProfile.summary}</div>
+                {p.matchProfile.intro && <div className="muted" style={{ fontSize: 13, lineHeight: 1.6, marginTop: 6 }}>“{p.matchProfile.intro}”</div>}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                  {p.matchProfile.tags.map((tag) => <span key={tag} className="tag tag-accent">{tag}</span>)}
+                </div>
+                {[p.matchProfile.about, p.matchProfile.prefs].map((rows, i) => rows.length > 0 && (
+                  <div key={i} style={{ marginTop: 12, background: 'var(--bg-card)', borderRadius: 12, padding: '4px 14px' }}>
+                    {i === 1 && <div className="muted" style={{ fontSize: 12, padding: '8px 0 2px' }}>{t('userHome.lookingFor')}</div>}
+                    {rows.map((r) => (
+                      <div key={r.label} style={{ display: 'flex', gap: 10, padding: '9px 0', fontSize: 14, borderBottom: '0.5px solid var(--line)' }}>
+                        <span className="muted" style={{ flexShrink: 0, width: 92 }}>{r.label}</span>
+                        <span style={{ flex: 1, textAlign: 'right' }}>{r.value}</span>
                       </div>
                     ))}
                   </div>
+                ))}
+              </div>
+            )}
+            {/* ===== 评分：星级总分 + 五维度方格，最高维度渐变高亮 ===== */}
+            {isFemale && p.rating && p.rating.count > 0 && (() => {
+              const star = p.rating.avg / 20;
+              const filled = Math.min(Math.max(Math.round(star), 0), 5);
+              // 按分从高到低排成 3+2 方格，第一格（她最突出的）用渐变填充
+              const dims = ([
+                [t('userHome.ratingPhoto'), p.rating.photo ?? 0],
+                [t('userHome.ratingObedience'), p.rating.obedience ?? 0],
+                [t('userHome.ratingLegs'), p.rating.legs ?? 0],
+                [t('userHome.ratingChest'), p.rating.chest ?? 0],
+                [t('userHome.ratingSkin'), p.rating.skin ?? 0],
+              ] as [string, number][]).sort((a, b) => b[1] - a[1]);
+              return (
+                <div style={{ marginTop: 18 }}>
+                  <div className="row" style={{ gap: 6, alignItems: 'center' }}>
+                    <span style={{ fontSize: 14, fontWeight: 600 }}>{t('userHome.rating')}</span>
+                    <span style={{ fontSize: 13, color: 'var(--accent)' }}>{'★'.repeat(filled)}{'☆'.repeat(5 - filled)}</span>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent)' }}>{star.toFixed(1)}</span>
+                    <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{t('userHome.ratingCount', { n: p.rating.count })}</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginTop: 8 }}>
+                    {dims.map(([label, score], i) => {
+                      const best = i === 0 && score > 0;
+                      return (
+                        <div key={label} style={{
+                          borderRadius: 10, padding: '10px 0', textAlign: 'center',
+                          background: best ? 'var(--accent-grad)' : 'rgba(0,0,0,0.05)',
+                        }}>
+                          <div style={{ fontSize: 16, fontWeight: 700, color: best ? '#fff' : 'var(--text)' }}>{(score / 20).toFixed(1)}</div>
+                          <div style={{ fontSize: 11, marginTop: 2, color: best ? 'rgba(255,255,255,0.9)' : 'var(--text-2)' }}>{label}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              )}
-              {/* 认证信息：简约行，无背景卡 */}
+              );
+            })()}
+            {/* 照片墙（最多 8 张） */}
+            {(p.albums ?? []).filter((a) => a.type === 1).length > 0 && (
               <div style={{ marginTop: 18 }}>
-                <div style={{ fontSize: 14, fontWeight: 600 }}>{t('userHome.certs')}</div>
-                <div className="row" style={{ gap: 18, marginTop: 10 }}>
-                  <CertLine label={t('userHome.platformCert')} verified={p.isGuide} />
-                  {isFemale && <CertLine label={t('userHome.realnameCert')} verified={!!p.realnameVerified} />}
+                <div style={{ fontSize: 14, fontWeight: 600 }}>{t('userHome.photoWall')}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginTop: 8 }}>
+                  {(p.albums ?? []).filter((a) => a.type === 1).map((a) => (
+                    <div
+                      key={a.id}
+                      onClick={() => setWallImage(a.url)}
+                      style={{ aspectRatio: '1', borderRadius: 10, overflow: 'hidden', background: 'var(--bg-card)', cursor: 'pointer' }}
+                    >
+                      <img src={a.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    </div>
+                  ))}
                 </div>
               </div>
+            )}
+            {/* 认证信息：简约行，无背景卡 */}
+            <div style={{ marginTop: 18 }}>
+              <div style={{ fontSize: 14, fontWeight: 600 }}>{t('userHome.certs')}</div>
+              <div className="row" style={{ gap: 18, marginTop: 10 }}>
+                <CertLine label={t('userHome.platformCert')} verified={p.isGuide} />
+                {isFemale && <CertLine label={t('userHome.realnameCert')} verified={!!p.realnameVerified} />}
+              </div>
             </div>
-          ) : (
-            /* ===== 我的动态：列表式 ===== */
+          </div>
+
+          {/* ===== 我的动态：列表式 ===== */}
+          {tab === 1 && (
             <div>
               {moments.length === 0 && <div className="empty" style={{ padding: 40 }}>{t('userHome.noPosts')}</div>}
               {moments.map((m) => {
@@ -380,21 +370,12 @@ export function UserHomePage() {
         background: 'linear-gradient(180deg, transparent, rgba(10,10,12,0.95) 40%, var(--bg))',
         maxWidth: 520, margin: '0 auto',
       }}>
-        <div
-          onClick={openChat}
-          style={{
-            width: 48, height: 48, borderRadius: '50%', background: 'var(--bg-card)', flexShrink: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, cursor: 'pointer',
-          }}
-        >{t('userHome.chat')}</div>
-        <div
-          onClick={openGifts}
-          style={{
-            width: 48, height: 48, borderRadius: '50%', background: 'var(--bg-card)', flexShrink: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: '#ff6b81', cursor: 'pointer',
-          }}
-        >{t('userHome.gift')}</div>
-        {canVideo ? (
+        {/* 原来这里是直接「发消息」；现在要互相喜欢才能聊，换成喜欢按钮（互相喜欢后它会变成「发消息」） */}
+        <LikePill
+          peer={{ id: p.id, nickname: p.nickname }}
+          style={{ height: 48, borderRadius: 24, padding: '0 24px', fontSize: 15, justifyContent: 'center', ...(canVideo ? {} : { flex: 1 }) }}
+        />
+        {canVideo && (
           <button
             onClick={() => {
               if (p.busy) return showToast(t('common.peerBusy'));
@@ -413,16 +394,6 @@ export function UserHomePage() {
               <span style={{ fontSize: 10, fontWeight: 400, opacity: 0.85, lineHeight: 1.2 }}>{videoSub}</span>
             )}
           </button>
-        ) : (
-          <button
-            onClick={openChat}
-            style={{
-              flex: 1, height: 48, border: 'none', borderRadius: 999, fontSize: 15, fontWeight: 600, cursor: 'pointer',
-              background: 'linear-gradient(90deg, var(--accent), #ff6b81)', color: '#fff',
-            }}
-          >
-            {t('userHome.message')}
-          </button>
         )}
       </div>
 
@@ -436,39 +407,6 @@ export function UserHomePage() {
           }}
         >
           <img src={wallImage} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
-        </div>
-      )}
-
-      {/* 送礼物面板 */}
-      {giftOpen && (
-        <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }}
-          onClick={() => setGiftOpen(false)}
-        >
-          <div
-            style={{ width: '100%', background: 'var(--bg-card)', borderRadius: '16px 16px 0 0', padding: 16, maxHeight: '60vh', overflowY: 'auto' }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>{t('userHome.giftTo', { name: p.nickname })}</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
-              {gifts.map((g) => (
-                <div
-                  key={g.id}
-                  onClick={() => setSelGift(g.id)}
-                  style={{
-                    textAlign: 'center', padding: '10px 4px', borderRadius: 10, cursor: 'pointer',
-                    border: selGift === g.id ? '1px solid var(--accent)' : '1px solid transparent',
-                    background: selGift === g.id ? 'rgba(254,44,85,0.08)' : 'transparent',
-                  }}
-                >
-                  <img src={g.icon} alt="" style={{ width: 40, height: 40 }} />
-                  <div style={{ fontSize: 12, marginTop: 4 }}>{g.name}</div>
-                  <div className="small" style={{ color: 'var(--accent)' }}>{fmtPoints(g.price)}</div>
-                </div>
-              ))}
-            </div>
-            <button className="btn" style={{ width: '100%', marginTop: 14 }} onClick={sendGift}>{t('userHome.giftSend')}</button>
-          </div>
         </div>
       )}
     </div>

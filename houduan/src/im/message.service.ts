@@ -3,20 +3,20 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CryptoService } from '../common/crypto.service';
 import { ConnectionRegistry } from './connection.registry';
 import { ImService } from './im.service';
-import { CHANNEL_KIND, ChannelService, MEDIA_RE } from './channel.service';
 import { UploadService } from '../upload/upload.service';
 
 /** 聊天里长按消息可选的表情；前 7 个是菜单顶上那一排 */
 export const MSG_REACTIONS = ['❤️', '👍', '👎', '🔥', '🥰', '👏', '😁', '😂', '😮', '😢', '🎉', '🙏'];
-/** 能转发的消息类型（礼物、通话记录、转账卡片不能转发；喊单卡片可以） */
-const FORWARDABLE = new Set(['text', 'image', 'video', 'audio', 'file', 'location', 'sticker', 'callout', 'card']);
+/** 能转发的消息类型（通话记录不能转发） */
+const FORWARDABLE = new Set(['text', 'image', 'video', 'audio', 'file', 'location']);
+/** 用户上传目录里的文件地址 */
+const MEDIA_RE = /\/res\/[\w.-]+\/(?:image|video|audio|file)\/[\w./-]+/g;
 const MAX_BATCH = 100;
 const MAX_FORWARD_TARGETS = 10;
 
-/**
- * 消息长按菜单：删除（自己 / 双方）、转发、表情回应、置顶、已读详情、举报。
- * 频道帖子的删除、回应仍走 ChannelService；这里管单聊和群聊（置顶、转发也支持频道）。
- */
+type Conv = { id: bigint; userAId: bigint | null; userBId: bigint | null; wrappedKey: string };
+
+/** 消息长按菜单：删除（自己 / 双方）、转发、表情回应、置顶、已读详情、举报。 */
 @Injectable()
 export class MessageService {
   constructor(
@@ -24,11 +24,10 @@ export class MessageService {
     private readonly crypto: CryptoService,
     private readonly registry: ConnectionRegistry,
     private readonly im: ImService,
-    private readonly channels: ChannelService,
     private readonly uploads: UploadService,
   ) {}
 
-  /** 转发的图片 / 视频 / 语音 / 文件复制一份新文件：频道消息会被物理删除，两边不能共用同一个文件 */
+  /** 转发的图片 / 视频 / 语音 / 文件复制一份新文件：两边不共用同一个文件 */
   private async copyMedia(type: string, content: string) {
     if (type !== 'image' && type !== 'video' && type !== 'audio' && type !== 'file') return content;
     let out = content;
@@ -39,23 +38,20 @@ export class MessageService {
   // ---------- 删除 ----------
 
   /**
-   * forAll=true：为双方删除（物理删除并推送 msg_delete）。自己的消息不限时间；群主 / 管理员可删任何人的。
+   * forAll=true：为双方删除（物理删除并推送 msg_delete）。只能删自己的消息，不限时间。
    * forAll=false：只在自己这边隐藏，对方还能看到。
    */
   async deleteMessages(userId: bigint, conversationId: bigint, ids: bigint[], forAll: boolean) {
     if (!ids.length) throw new BadRequestException('没有选中消息');
     if (ids.length > MAX_BATCH) throw new BadRequestException(`一次最多 ${MAX_BATCH} 条`);
-    const { conv, group, role } = await this.ctx(userId, conversationId);
-    if (group?.kind === 2) throw new BadRequestException('频道帖子请在频道里删除');
+    const conv = await this.ctx(userId, conversationId);
 
     const msgs = await this.prisma.message.findMany({ where: { id: { in: ids }, conversationId } });
     if (!msgs.length) throw new NotFoundException('消息不存在');
 
     if (forAll) {
-      const isAdmin = role === 'owner' || role === 'admin';
       for (const m of msgs) {
-        if (m.type === 'gift') throw new BadRequestException('礼物消息不能为双方删除');
-        if (m.senderId !== userId && !(conv.type === 2 && isAdmin)) throw new ForbiddenException('只能为双方删除自己发的消息');
+        if (m.senderId !== userId) throw new ForbiddenException('只能为双方删除自己发的消息');
       }
       await this.purge(conv, msgs.map((m) => m.id));
       return { deleted: msgs.length, forAll: true };
@@ -78,12 +74,12 @@ export class MessageService {
 
   // ---------- 转发 ----------
 
-  async forward(userId: bigint, fromConversationId: bigint, ids: bigint[], targets: { convType: 1 | 2; targetId: string }[]) {
+  async forward(userId: bigint, fromConversationId: bigint, ids: bigint[], targets: { convType?: number; targetId: string }[]) {
     if (!ids.length) throw new BadRequestException('没有选中消息');
     if (ids.length > MAX_BATCH) throw new BadRequestException(`一次最多 ${MAX_BATCH} 条`);
     if (!targets?.length) throw new BadRequestException('请选择转发对象');
     if (targets.length > MAX_FORWARD_TARGETS) throw new BadRequestException(`一次最多转发给 ${MAX_FORWARD_TARGETS} 个会话`);
-    const { conv, group } = await this.ctx(userId, fromConversationId);
+    const conv = await this.ctx(userId, fromConversationId);
     const key = this.crypto.unwrapKey(conv.wrappedKey);
 
     const hidden = await this.prisma.messageHide.findMany({ where: { userId, messageId: { in: ids } }, select: { messageId: true } });
@@ -91,22 +87,22 @@ export class MessageService {
     const msgs = (await this.prisma.message.findMany({ where: { id: { in: ids }, conversationId: fromConversationId }, orderBy: { id: 'asc' } }))
       .filter((m) => !hiddenSet.has(m.id.toString()));
     if (!msgs.length) throw new NotFoundException('消息不存在');
-    for (const m of msgs) if (!FORWARDABLE.has(m.type)) throw new BadRequestException('礼物、通话记录不能转发');
+    for (const m of msgs) if (!FORWARDABLE.has(m.type)) throw new BadRequestException('通话记录不能转发');
 
     const senders = await this.prisma.user.findMany({ where: { id: { in: [...new Set(msgs.map((m) => m.senderId))] } }, select: { id: true, nickname: true } });
     const names = new Map(senders.map((s) => [s.id.toString(), s.nickname]));
     const items = msgs.map((m) => ({
       type: m.type,
       content: this.crypto.decrypt(key, m.cipherContent),
-      // 转发的转发保留最初来源；频道帖子显示频道名
-      fwdFrom: (m.fwdFrom || (group?.kind === 2 ? group.name : names.get(m.senderId.toString())) || '').slice(0, 60),
+      // 转发的转发保留最初来源
+      fwdFrom: (m.fwdFrom || names.get(m.senderId.toString()) || '').slice(0, 60),
     }));
 
     const results: { convType: number; targetId: string; ok: boolean; error?: string }[] = [];
     for (const t of targets) {
-      const convType = Number(t.convType) === 2 ? 2 : 1;
+      const convType = 1;
       const targetId = String(t.targetId ?? '');
-      if (!/^\d+$/.test(targetId)) {
+      if (Number(t.convType ?? 1) !== 1 || !/^\d+$/.test(targetId)) {
         results.push({ convType, targetId, ok: false, error: '目标不正确' });
         continue;
       }
@@ -131,7 +127,7 @@ export class MessageService {
   async react(userId: bigint, messageId: bigint, emoji: string) {
     const m = await this.prisma.message.findUnique({ where: { id: messageId } });
     if (!m) throw new NotFoundException('消息不存在');
-    const { conv } = await this.ctx(userId, m.conversationId);
+    const conv = await this.ctx(userId, m.conversationId);
     const e = (emoji ?? '').trim();
     if (e && !MSG_REACTIONS.includes(e)) throw new BadRequestException('不支持的表情');
 
@@ -144,7 +140,7 @@ export class MessageService {
       await this.prisma.channelReaction.create({ data: { messageId, userId, emoji: e } });
     }
     const reactions = (await this.im.reactionsOf([messageId])).get(messageId.toString()) ?? [];
-    const members = (await this.memberIds(conv)).filter((id) => id !== userId);
+    const members = this.memberIds(conv).filter((id) => id !== userId);
     await this.registry.deliver(members, {
       op: 'msg_reactions',
       data: { conversationId: m.conversationId.toString(), msgId: messageId.toString(), reactions },
@@ -154,12 +150,11 @@ export class MessageService {
 
   // ---------- 置顶 ----------
 
-  /** 单聊双方都能置顶；群聊、频道只有群主 / 管理员 */
+  /** 双方都能置顶 */
   async pin(userId: bigint, messageId: bigint, pin: boolean) {
     const m = await this.prisma.message.findUnique({ where: { id: messageId } });
     if (!m) throw new NotFoundException('消息不存在');
-    const { conv, role } = await this.ctx(userId, m.conversationId);
-    if (conv.type === 2 && role !== 'owner' && role !== 'admin') throw new ForbiddenException('只有群主或管理员能置顶');
+    const conv = await this.ctx(userId, m.conversationId);
 
     if (pin) {
       await this.prisma.messagePin.upsert({
@@ -170,7 +165,7 @@ export class MessageService {
     } else {
       await this.prisma.messagePin.deleteMany({ where: { conversationId: m.conversationId, messageId } });
     }
-    await this.registry.deliver(await this.memberIds(conv), {
+    await this.registry.deliver(this.memberIds(conv), {
       op: 'msg_pin',
       data: { conversationId: m.conversationId.toString(), msgId: messageId.toString(), pinned: pin },
     });
@@ -179,7 +174,7 @@ export class MessageService {
 
   /** 会话的置顶消息，新置顶的在前 */
   async pins(userId: bigint, conversationId: bigint) {
-    const { conv } = await this.ctx(userId, conversationId);
+    const conv = await this.ctx(userId, conversationId);
     const rows = await this.prisma.messagePin.findMany({ where: { conversationId }, orderBy: { createdAt: 'desc' }, take: 50 });
     if (!rows.length) return [];
     const key = this.crypto.unwrapKey(conv.wrappedKey);
@@ -191,25 +186,13 @@ export class MessageService {
 
   // ---------- 已读详情 ----------
 
-  /** 只看自己发的消息：单聊 {read, readAt}；群聊 {count, users}（不含自己和机器人） */
+  /** 只看自己发的消息：{read, readAt} */
   async readers(userId: bigint, messageId: bigint) {
     const m = await this.prisma.message.findUnique({ where: { id: messageId } });
     if (!m) throw new NotFoundException('消息不存在');
-    const { conv } = await this.ctx(userId, m.conversationId);
+    await this.ctx(userId, m.conversationId);
     if (m.senderId !== userId) throw new ForbiddenException('只能查看自己消息的已读情况');
-    if (conv.type === 1) return { read: m.isRead, readAt: m.readAt };
-
-    const rows = await this.prisma.groupMember.findMany({
-      where: { groupId: conv.groupId!, userId: { not: userId }, lastReadMsgId: { gte: messageId } },
-      select: { userId: true },
-    });
-    const users = rows.length
-      ? await this.prisma.user.findMany({
-          where: { id: { in: rows.map((r) => r.userId) }, isBot: false },
-          select: { id: true, nickname: true, avatar: true },
-        })
-      : [];
-    return { count: users.length, users: users.slice(0, 50) };
+    return { read: m.isRead, readAt: m.readAt };
   }
 
   // ---------- 举报 ----------
@@ -266,7 +249,7 @@ export class MessageService {
       }
     }
     const convs = convIds.size
-      ? await this.prisma.conversation.findMany({ where: { id: { in: [...convIds].map(BigInt) } }, select: { id: true, wrappedKey: true, type: true, groupId: true } })
+      ? await this.prisma.conversation.findMany({ where: { id: { in: [...convIds].map(BigInt) } }, select: { id: true, wrappedKey: true, type: true } })
       : [];
     const convMap = new Map(convs.map((c) => [c.id.toString(), c]));
     const alive = new Set(
@@ -296,7 +279,7 @@ export class MessageService {
         createdAt: r.createdAt,
         reporter: userMap.get(r.reporterId.toString()) ?? null,
         target: userMap.get(r.targetUserId.toString()) ?? null,
-        message: s ? { type: s.type, content, convType: c?.type ?? null, groupId: c?.groupId ?? null, deleted: !alive.has(r.targetId.toString()) } : null,
+        message: s ? { type: s.type, content, convType: c?.type ?? null, deleted: !alive.has(r.targetId.toString()) } : null,
       };
     });
   }
@@ -310,9 +293,7 @@ export class MessageService {
       const m = await this.prisma.message.findUnique({ where: { id: r.targetId } });
       if (m) {
         const conv = await this.prisma.conversation.findUnique({ where: { id: m.conversationId } });
-        const group = conv?.groupId ? await this.prisma.chatGroup.findUnique({ where: { id: conv.groupId }, select: { kind: true } }) : null;
-        if (group?.kind === CHANNEL_KIND) await this.channels.adminDeletePost(m.id);
-        else if (conv) await this.purge(conv, [m.id]);
+        if (conv) await this.purge(conv, [m.id]);
       }
     }
     if (action === 'ban') await this.prisma.user.update({ where: { id: r.targetUserId }, data: { status: 1 } });
@@ -325,36 +306,29 @@ export class MessageService {
 
   // ---------- 工具 ----------
 
-  /** 物理删除消息及其附属数据，并通知会话所有成员 */
-  private async purge(conv: { id: bigint; type: number; userAId: bigint | null; userBId: bigint | null; groupId: bigint | null }, mids: bigint[]) {
+  /** 物理删除消息及其附属数据，并通知会话双方 */
+  private async purge(conv: Conv, mids: bigint[]) {
     await this.prisma.$transaction([
       this.prisma.channelReaction.deleteMany({ where: { messageId: { in: mids } } }),
-      this.prisma.botMessageMarkup.deleteMany({ where: { messageId: { in: mids } } }),
       this.prisma.messagePin.deleteMany({ where: { messageId: { in: mids } } }),
       this.prisma.messageHide.deleteMany({ where: { messageId: { in: mids } } }),
       this.prisma.message.deleteMany({ where: { id: { in: mids } } }),
     ]);
-    const members = await this.memberIds(conv);
+    const members = this.memberIds(conv);
     const cid = conv.id.toString();
     for (const id of mids) await this.registry.deliver(members, { op: 'msg_delete', data: { conversationId: cid, msgId: id.toString() } });
     await this.registry.deliver(members, { op: 'conv_refresh' });
   }
 
-  private async ctx(userId: bigint, conversationId: bigint) {
+  /** 取会话并校验本人在会话里 */
+  private async ctx(userId: bigint, conversationId: bigint): Promise<Conv> {
     const conv = await this.prisma.conversation.findUnique({ where: { id: conversationId } });
     if (!conv) throw new NotFoundException('会话不存在');
     await this.im.assertMember(userId, conv);
-    if (conv.type === 1 || !conv.groupId) return { conv, group: null, role: null as string | null };
-    const [group, me] = await Promise.all([
-      this.prisma.chatGroup.findUnique({ where: { id: conv.groupId }, select: { id: true, name: true, kind: true } }),
-      this.prisma.groupMember.findUnique({ where: { groupId_userId: { groupId: conv.groupId, userId } }, select: { role: true } }),
-    ]);
-    return { conv, group, role: me?.role ?? null };
+    return conv;
   }
 
-  private async memberIds(conv: { type: number; userAId: bigint | null; userBId: bigint | null; groupId: bigint | null }) {
-    if (conv.type === 1) return [conv.userAId, conv.userBId].filter((id): id is bigint => id != null);
-    const rows = await this.prisma.groupMember.findMany({ where: { groupId: conv.groupId! }, select: { userId: true } });
-    return rows.map((r) => r.userId);
+  private memberIds(conv: Conv) {
+    return [conv.userAId, conv.userBId].filter((id): id is bigint => id != null);
   }
 }

@@ -1,20 +1,5 @@
 import Foundation
 
-struct MomentUser: Codable, Hashable {
-    var id: String = ""
-    var nickname: String? = ""
-    var avatar: String? = ""
-    var age: Int? = 0
-    var isGuide: Bool? = false
-    var online: Bool? = false
-    var latitude: Double? = nil
-    var longitude: Double? = nil
-    /// 女生视频通话实际价格（分/分钟），男生为 0
-    var videoPriceFen: Int? = 0
-    /// 正在通话中（占线）
-    var busy: Bool? = false
-}
-
 struct RatingInfo: Codable, Hashable {
     var avg: Int? = 0
     var count: Int? = 0
@@ -51,7 +36,10 @@ struct HomeProfile: Codable {
     var rating: RatingInfo? = nil
     /// 视频接通率（%），-1=暂无数据，null=男生
     var answerRate: Int? = nil
-    var videoPriceActualFen: Int? = 0
+    /// 对方打开了视频见面（默认关）
+    var allowVideo: Bool? = false
+    /// 相亲资料卡：对方完成资料收集后才有
+    var matchProfile: MatchProfile? = nil
     var online: Bool? = false
     var busy: Bool? = false
     var realnameVerified: Bool? = false
@@ -59,6 +47,31 @@ struct HomeProfile: Codable {
     var albums: [AlbumItem]? = []
 }
 
+struct ProjectItem: Codable, Identifiable, Hashable {
+    var id: Int = 0
+    var name: String = ""
+    var desc: String? = ""
+    var cover: String? = ""
+    var type: String? = "native"
+    var entry: String? = ""
+}
+
+/// 动态 / 评论的作者
+struct MomentUser: Codable, Hashable {
+    var id: String = ""
+    var nickname: String? = ""
+    var avatar: String? = ""
+    var age: Int? = 0
+    var online: Bool? = false
+    var latitude: Double? = nil
+    var longitude: Double? = nil
+    /// 对方打开了视频见面（默认关）
+    var allowVideo: Bool? = false
+    /// 正在通话中（占线）
+    var busy: Bool? = false
+}
+
+/// 广场动态：type 1=图文 2=视频
 struct Moment: Codable, Identifiable, Hashable {
     var id: String = ""
     var user: MomentUser? = nil
@@ -82,107 +95,8 @@ struct CommentItem: Codable, Identifiable, Hashable {
     var user: MomentUser? = nil
     var content: String? = ""
     var imageUrl: String? = ""
-    /// 贴纸（表情包），可与文字同时存在
-    var sticker: StickerPayload? = nil
     var replyToNickname: String? = ""
     var createdAt: String? = ""
-}
-
-struct Person: Codable, Identifiable, Hashable {
-    var id: String = ""
-    var nickname: String? = ""
-    var avatar: String? = ""
-    var age: Int? = 0
-    var gender: Int? = 0
-    var cityName: String? = ""
-    var signature: String? = ""
-    var isGuide: Bool? = false
-}
-
-struct GiftDef: Codable, Identifiable, Hashable {
-    var id: Int = 0
-    var name: String = ""
-    var icon: String? = ""
-    var price: String = "0"
-    var count: Int? = 0
-}
-
-struct NotificationItem: Codable, Identifiable {
-    var id: String = ""
-    var kind: String? = ""
-    var title: String? = ""
-    var body: String? = ""
-    var refId: String? = "0"
-    var isRead: Bool? = false
-    var createdAt: String? = ""
-}
-
-struct UnreadCounts: Codable {
-    var comment: Int? = 0
-    var task: Int? = 0
-}
-
-struct WalletData: Codable {
-    var balance: String? = "0"
-    var frozen: String? = "0"
-}
-
-struct WalletTx: Codable, Identifiable {
-    var id: String = ""
-    var type: String? = ""
-    var amount: String? = "0"
-    var remark: String? = ""
-    var createdAt: String? = ""
-}
-
-struct ProjectItem: Codable, Identifiable, Hashable {
-    var id: Int = 0
-    var name: String = ""
-    var desc: String? = ""
-    var cover: String? = ""
-    var type: String? = "native"
-    var entry: String? = ""
-}
-
-struct TaskOrder: Codable, Identifiable, Hashable {
-    var id: String = ""
-    var owner: MomentUser? = nil
-    var title: String? = ""
-    var detail: String? = ""
-    var meetAt: String? = ""
-    var cityName: String? = ""
-    var address: String? = ""
-    var reward: String? = "0"
-    var status: Int? = 0
-    var applyCount: Int? = 0
-    var takerId: String? = nil
-}
-
-struct TaskApplyItem: Codable, Identifiable, Hashable {
-    var id: String = ""
-    var user: Person? = nil
-    var message: String? = ""
-    var status: Int? = 0
-}
-
-struct TaskDetailData: Codable, Identifiable {
-    var id: String = ""
-    var title: String? = ""
-    var detail: String? = ""
-    var meetAt: String? = ""
-    var cityName: String? = ""
-    var address: String? = ""
-    var reward: String? = "0"
-    var status: Int? = 0
-    var isOwner: Bool? = false
-    var applies: [TaskApplyItem]? = []
-}
-
-struct LookupUser: Codable {
-    var id: String = ""
-    var shortId: String? = ""
-    var nickname: String? = ""
-    var avatar: String? = ""
 }
 
 struct FollowResp: Codable { var following: Bool? = false }

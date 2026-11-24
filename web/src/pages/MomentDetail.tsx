@@ -1,13 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { openNativeChat } from '../bridge';
+import { LikePill } from '../match';
 import { api, uploadFile } from '../api';
 import { MomentItem } from './Plaza';
 import { useApp } from '../store';
-import { StickerPayload } from '../stickers';
 import { dropLastGrapheme } from '../emojis';
 import { EmojiPanel } from '../components/EmojiPanel';
-import { StickerView } from '../components/StickerView';
 import { t } from '../i18n';
 
 /** 动态详情页：正文 + 全部评论 + 底部固定输入栏 */
@@ -21,8 +19,6 @@ export function MomentDetailPage() {
   const [replyTo, setReplyTo] = useState<{ id: string; nickname: string } | null>(null);
   const [showEmoji, setShowEmoji] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  /** 待发的贴纸（评论里点贴纸先挂到输入栏，再点发送） */
-  const [sticker, setSticker] = useState<StickerPayload | null>(null);
   const [liked, setLiked] = useState(false);
   const [likeCount, setLikeCount] = useState(0);
   const [toast, setToast] = useState('');
@@ -56,25 +52,13 @@ export function MomentDetailPage() {
     } catch {}
   };
 
-  const greet = async () => {
-    if (!moment) return;
-    try {
-      const r = await api<{ conversationId: string }>(`/im/conversations/open/${moment.user.id}`, { method: 'POST' });
-      if (openNativeChat(r.conversationId, 1, moment.user.id, moment.user.nickname)) return;
-      nav(`/chatroom/${r.conversationId}`, { state: { title: moment.user.nickname, convType: 1, targetId: moment.user.id } });
-    } catch (e: any) {
-      showToast(e.message);
-    }
-  };
-
   const send = async (imageUrl?: string) => {
     const content = input.trim();
-    if (!content && !imageUrl && !sticker) return;
+    if (!content && !imageUrl) return;
     setBusy(true);
     try {
-      await api(`/moments/${id}/comments`, { method: 'POST', body: { content, imageUrl, stickerId: sticker?.id, replyToId: replyTo?.id } });
+      await api(`/moments/${id}/comments`, { method: 'POST', body: { content, imageUrl, replyToId: replyTo?.id } });
       setInput('');
-      setSticker(null);
       setReplyTo(null);
       setShowEmoji(false);
       showToast(t('moments.commentSent'));
@@ -110,9 +94,9 @@ export function MomentDetailPage() {
           {moment.user?.avatar && <img src={moment.user.avatar} alt="" />}
         </div>
         <span className="grow" style={{ fontSize: 15 }}>{moment.user?.nickname}</span>
-        {/* 自己的动态不显示私聊按钮 */}
-        {me?.id !== moment.user?.id && (
-          <button className="btn-sm ghost" onClick={greet}>{t('moments.chat')}</button>
+        {/* 原来这里是「私聊」；现在要互相喜欢才能聊，换成喜欢按钮（互相喜欢后它会变成「发消息」）。自己的动态不显示 */}
+        {me?.id !== moment.user?.id && moment.user?.id && (
+          <LikePill peer={{ id: moment.user.id, nickname: moment.user.nickname }} />
         )}
       </div>
 
@@ -157,7 +141,6 @@ export function MomentDetailPage() {
                 </div>
                 {c.content && <div style={{ fontSize: 14, marginTop: 3, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{c.content}</div>}
                 {c.imageUrl && <img src={c.imageUrl} style={{ maxWidth: 140, borderRadius: 8, marginTop: 4, display: 'block' }} alt="" />}
-                {c.sticker && <StickerView p={c.sticker} size={96} style={{ marginTop: 4 }} />}
                 <div className="small" style={{ marginTop: 4 }}>
                   {new Date(c.createdAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                   <span className="accent" style={{ marginLeft: 12, cursor: 'pointer' }} onClick={() => setReplyTo({ id: c.id, nickname: c.user?.nickname ?? '' })}>{t('moments.reply')}</span>
@@ -169,18 +152,11 @@ export function MomentDetailPage() {
         </div>
       </div>
 
-      {/* 回复提示条 / 待发贴纸 */}
-      {(replyTo || sticker) && (
+      {/* 回复提示条 */}
+      {replyTo && (
         <div className="row" style={{ padding: '6px 16px', gap: 10, borderTop: '1px solid var(--line)' }}>
-          {sticker && (
-            <span style={{ position: 'relative', display: 'inline-block' }}>
-              <StickerView p={sticker} size={56} />
-              <span onClick={() => setSticker(null)} style={{ position: 'absolute', top: -6, right: -6, width: 18, height: 18, borderRadius: 9, background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>×</span>
-            </span>
-          )}
-          {replyTo && <span className="small grow">{t('moments.replyingTo')} <span className="accent">@{replyTo.nickname}</span></span>}
-          {!replyTo && <span className="grow" />}
-          {replyTo && <span className="small" style={{ cursor: 'pointer' }} onClick={() => setReplyTo(null)}>{t('common.cancel')}</span>}
+          <span className="small grow">{t('moments.replyingTo')} <span className="accent">@{replyTo.nickname}</span></span>
+          <span className="small" style={{ cursor: 'pointer' }} onClick={() => setReplyTo(null)}>{t('common.cancel')}</span>
         </div>
       )}
 
@@ -204,11 +180,11 @@ export function MomentDetailPage() {
         <span className={liked ? 'accent' : 'muted'} style={{ cursor: 'pointer', fontSize: 13, flexShrink: 0 }} onClick={toggleLike}>
           {t('moments.like')} {likeCount > 0 ? likeCount : ''}
         </span>
-        <button className="btn-sm" disabled={busy || (!input.trim() && !sticker)} onClick={() => send()}>{t('common.send')}</button>
+        <button className="btn-sm" disabled={busy || !input.trim()} onClick={() => send()}>{t('common.send')}</button>
       </div>
 
-      {/* 表情面板：emoji 插入文字，贴纸挂到待发评论 */}
-      {showEmoji && <EmojiPanel onPick={(p) => setSticker(p)} onEmoji={(e) => setInput((v) => v + e)} onDelete={() => setInput((v) => dropLastGrapheme(v))} onKeyboard={() => { setShowEmoji(false); inputRef.current?.focus(); }} />}
+      {/* 表情面板：emoji 插入文字 */}
+      {showEmoji && <EmojiPanel onEmoji={(e) => setInput((v) => v + e)} onDelete={() => setInput((v) => dropLastGrapheme(v))} onKeyboard={() => { setShowEmoji(false); inputRef.current?.focus(); }} />}
 
       <input ref={imgRef} type="file" accept="image/*" hidden onChange={(e) => sendImage(e.target.files)} />
       {toast && (

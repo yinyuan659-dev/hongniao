@@ -161,19 +161,6 @@ fun VideoIcon(tint: Color, size: Dp = 20.dp) {
     }
 }
 
-/** 礼物盒图标 */
-@Composable
-fun GiftIcon(tint: Color, size: Dp = 20.dp) {
-    Canvas(Modifier.size(size)) {
-        val w = this.size.width
-        drawRoundRect(tint, topLeft = Offset(w * 0.2f, w * 0.4f), size = Size(w * 0.6f, w * 0.42f), cornerRadius = CornerRadius(w * 0.04f), style = Stroke(w * 0.07f))
-        drawLine(tint, Offset(w * 0.14f, w * 0.4f), Offset(w * 0.86f, w * 0.4f), strokeWidth = w * 0.07f)
-        drawLine(tint, Offset(w * 0.5f, w * 0.4f), Offset(w * 0.5f, w * 0.82f), strokeWidth = w * 0.07f)
-        drawCircle(tint, w * 0.08f, Offset(w * 0.4f, w * 0.28f))
-        drawCircle(tint, w * 0.08f, Offset(w * 0.6f, w * 0.28f))
-    }
-}
-
 /** 相机图标（实心，叠在取景画面上用） */
 @Composable
 fun CameraIcon(tint: Color, size: Dp = 24.dp) {
@@ -256,70 +243,5 @@ fun FileIcon(tint: Color, size: Dp = 20.dp) {
         drawPath(fold, tint, style = s)
         drawLine(tint, Offset(w * 0.36f, w * 0.52f), Offset(w * 0.64f, w * 0.52f), w * 0.07f)
         drawLine(tint, Offset(w * 0.36f, w * 0.67f), Offset(w * 0.56f, w * 0.67f), w * 0.07f)
-    }
-}
-
-/** 实心对话气泡（消息页「评论通知」） */
-@Composable
-fun BubbleIcon(tint: Color, size: Dp = 26.dp) {
-    Canvas(Modifier.size(size)) {
-        val w = this.size.width
-        drawOval(tint, topLeft = Offset(w * 0.08f, w * 0.14f), size = Size(w * 0.84f, w * 0.64f))
-        val tail = androidx.compose.ui.graphics.Path().apply {
-            moveTo(w * 0.26f, w * 0.62f); lineTo(w * 0.18f, w * 0.9f); lineTo(w * 0.46f, w * 0.74f); close()
-        }
-        drawPath(tail, tint)
-    }
-}
-
-/** 线性单人 + 加号（消息页「+」菜单「创建群聊」） */
-@Composable
-fun PersonPlusIcon(tint: Color, size: Dp = 20.dp) {
-    Canvas(Modifier.size(size)) {
-        val w = this.size.width
-        val s = Stroke(w * 0.085f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
-        drawCircle(tint, radius = w * 0.16f, center = Offset(w * 0.38f, w * 0.32f), style = s)
-        drawArc(tint, 180f, 180f, false, topLeft = Offset(w * 0.1f, w * 0.6f), size = Size(w * 0.56f, w * 0.5f), style = s)
-        drawLine(tint, Offset(w * 0.8f, w * 0.28f), Offset(w * 0.8f, w * 0.56f), strokeWidth = s.width, cap = s.cap)
-        drawLine(tint, Offset(w * 0.66f, w * 0.42f), Offset(w * 0.94f, w * 0.42f), strokeWidth = s.width, cap = s.cap)
-    }
-}
-
-/** 线性双人（消息页「+」菜单「加入群聊」） */
-@Composable
-fun PeopleIcon(tint: Color, size: Dp = 20.dp) {
-    Canvas(Modifier.size(size)) {
-        val w = this.size.width
-        val s = Stroke(w * 0.085f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
-        drawCircle(tint, radius = w * 0.15f, center = Offset(w * 0.36f, w * 0.34f), style = s)
-        drawArc(tint, 180f, 180f, false, topLeft = Offset(w * 0.08f, w * 0.62f), size = Size(w * 0.56f, w * 0.48f), style = s)
-        drawArc(tint, 120f, 270f, false, topLeft = Offset(w * 0.56f, w * 0.2f), size = Size(w * 0.26f, w * 0.26f), style = s)
-        drawArc(tint, 270f, 90f, false, topLeft = Offset(w * 0.5f, w * 0.58f), size = Size(w * 0.42f, w * 0.44f), style = s)
-    }
-}
-
-/** 线性喇叭（消息页「+」菜单「创建频道」） */
-@Composable
-fun BroadcastIcon(tint: Color, size: Dp = 20.dp) {
-    Canvas(Modifier.size(size)) {
-        val w = this.size.width
-        val s = Stroke(w * 0.085f, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round)
-        val p = androidx.compose.ui.graphics.Path().apply {
-            moveTo(w * 0.14f, w * 0.4f); lineTo(w * 0.34f, w * 0.4f); lineTo(w * 0.72f, w * 0.18f)
-            lineTo(w * 0.72f, w * 0.82f); lineTo(w * 0.34f, w * 0.6f); lineTo(w * 0.14f, w * 0.6f); close()
-        }
-        drawPath(p, tint, style = s)
-        drawLine(tint, Offset(w * 0.36f, w * 0.62f), Offset(w * 0.42f, w * 0.86f), strokeWidth = w * 0.085f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
-        drawArc(tint, -40f, 80f, false, topLeft = Offset(w * 0.7f, w * 0.34f), size = Size(w * 0.2f, w * 0.32f), style = s)
-    }
-}
-
-/** 实心公文包（消息页「接单通知」） */
-@Composable
-fun BriefcaseIcon(tint: Color, size: Dp = 24.dp) {
-    Canvas(Modifier.size(size)) {
-        val w = this.size.width
-        drawRoundRect(tint, topLeft = Offset(w * 0.36f, w * 0.14f), size = Size(w * 0.28f, w * 0.2f), cornerRadius = CornerRadius(w * 0.05f), style = Stroke(w * 0.08f))
-        drawRoundRect(tint, topLeft = Offset(w * 0.08f, w * 0.3f), size = Size(w * 0.84f, w * 0.56f), cornerRadius = CornerRadius(w * 0.1f))
     }
 }

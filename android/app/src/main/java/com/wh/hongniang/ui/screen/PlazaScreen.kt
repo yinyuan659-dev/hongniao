@@ -1,10 +1,6 @@
 package com.wh.hongniang.ui.screen
 
 import android.Manifest
-import android.annotation.SuppressLint
-import android.content.Context
-import android.location.Geocoder
-import android.location.LocationManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -15,9 +11,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -33,41 +26,16 @@ import coil.compose.AsyncImage
 import com.wh.hongniang.i18n.t
 import com.wh.hongniang.net.Api
 import com.wh.hongniang.net.Moment
-import com.wh.hongniang.net.fmtPoints
 import com.wh.hongniang.ui.*
 import com.wh.hongniang.ui.theme.*
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.util.Locale
-
-/** 最近一次定位（发布带经纬度 / 距离计算用） */
-object LocationCache {
-    var lat: Double? = null
-    var lng: Double? = null
-}
 
 /** 广场数据进程级缓存：离开主页面返回时直接恢复，不重新定位/加载 */
 object PlazaCache {
     var items: List<Moment> = emptyList()
     var city: String = ""
-    /** feed=动态（推荐+同城合并） meet=遇见 */
+    /** feed=动态 meet=遇见 */
     var tab: String = "feed"
-    /** 进入抖音模式时从当前屏幕最近的视频起播 */
-    var tiktokStartId: String = ""
-}
-
-@SuppressLint("MissingPermission")
-suspend fun detectCity(ctx: Context): String? = withContext(Dispatchers.IO) {
-    runCatching {
-        val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        val loc = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-            ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER) ?: return@withContext null
-        LocationCache.lat = loc.latitude
-        LocationCache.lng = loc.longitude
-        val addr = Geocoder(ctx, Locale.CHINA).getFromLocation(loc.latitude, loc.longitude, 1)?.firstOrNull()
-        (addr?.locality ?: addr?.subAdminArea ?: addr?.adminArea)?.removeSuffix("市")
-    }.getOrNull()
 }
 
 /** 距离文案：优先作者实时上报位置，其次动态发布位置 */
@@ -88,22 +56,22 @@ fun distanceText(m: Moment): String? {
 fun PlazaScreen(
     modifier: Modifier = Modifier,
     onOpenDetail: (String) -> Unit,
-    onOpenChat: (String, String) -> Unit,
-    onOpenTiktok: () -> Unit = {},
     onOpenUser: (String) -> Unit = {},
-    /** 通用路由跳转（私密树洞详情 / 发布） */
+    /** 跳到 App 内的页面（推荐页里的「喜欢我的」「去填写」「和 AI 聊聊」） */
     onNav: (String) -> Unit = {},
 ) {
-    var tab by remember { mutableStateOf(if (PlazaCache.tab in listOf("meet", "quotes", "treehole")) PlazaCache.tab else "feed") }
+    val ctx = LocalContext.current
+    var tab by remember { mutableStateOf(if (PlazaCache.tab == "meet") "meet" else "feed") }
     var items by remember { mutableStateOf(PlazaCache.items) }
-    var city by remember { mutableStateOf(PlazaCache.city) }
+    // 城市：进程内缓存 > 上次手动选的 > 自动定位（定位不到默认成都）
+    var city by remember { mutableStateOf(PlazaCache.city.ifEmpty { CityStore.load(ctx) }) }
     var locating by remember { mutableStateOf(false) }
+    var showCity by remember { mutableStateOf(false) }
     // 状态回写缓存：返回主页面时原样恢复
     LaunchedEffect(tab) { PlazaCache.tab = tab }
     LaunchedEffect(items) { PlazaCache.items = items }
     LaunchedEffect(city) { PlazaCache.city = city }
     val scope = rememberCoroutineScope()
-    val ctx = LocalContext.current
     val startCall = rememberStartCallAny()
     val listState = rememberLazyListState()
 
@@ -161,7 +129,7 @@ fun PlazaScreen(
                 Modifier.weight(1f).horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                listOf("feed" to t("plaza.tab.feed"), "meet" to t("plaza.tab.meet"), "quotes" to t("plaza.tab.quotes"), "treehole" to t("plaza.tab.treehole")).forEach { (k, label) ->
+                listOf("feed" to t("plaza.tab.feed"), "meet" to t("plaza.tab.meet")).forEach { (k, label) ->
                     Text(
                         label,
                         color = if (tab == k) TextMain else TextSub,
@@ -175,24 +143,24 @@ fun PlazaScreen(
             Text(
                 if (locating) t("plaza.locating") else (if (city.isEmpty()) t("plaza.locate") else "$city ▾"),
                 color = TextSub, fontSize = 13.sp, maxLines = 1, softWrap = false,
-                modifier = Modifier.noRippleClick {
-                    locPerm.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+                // 点城市：弹城市选择（里面第一格是重新定位）
+                modifier = Modifier.noRippleClick { showCity = true },
+            )
+        }
+        if (showCity) {
+            CityPickerSheet(
+                current = city,
+                onClose = { showCity = false },
+                onSelect = {
+                    city = it
+                    CityStore.save(ctx, it)
+                    showCity = false
                 },
             )
         }
         if (tab == "meet") {
             // 遇见：异性卡片流（所有/新人/同城/亲密度）
-            MeetSection(city = city, onOpenUser = onOpenUser, startCall = startCall)
-            return@Column
-        }
-        if (tab == "quotes") {
-            // 励志行：AI 每天一句励志话，按天累积
-            QuoteSection()
-            return@Column
-        }
-        if (tab == "treehole") {
-            // 私密树洞：匿名投稿信息流（原生实现，大厅 H5 内不再展示）
-            TreeholeSection(onOpen = { onNav("treehole/$it") }, onPublish = { onNav("treehole-publish") })
+            MeetSection(city = city, onOpenUser = onOpenUser, startCall = startCall, onNav = onNav)
             return@Column
         }
         // 下拉刷新（对齐 iOS）
@@ -225,39 +193,8 @@ fun PlazaScreen(
                             onOpenDetail = { onOpenDetail(m.id) },
                             onVideoCall = { m.user?.let { startCall(it.id, it.nickname, it.avatar, 2) } },
                             onOpenUser = { m.user?.let { onOpenUser(it.id) } },
-                            // 点视频直接进抖音模式，从这条开始
-                            onOpenVideo = { PlazaCache.tiktokStartId = m.id; onOpenTiktok() },
                         )
                     }
-                }
-            }
-        }
-    }
-}
-
-/** 关注动态（原主页「关注」tab，入口移到「我的」） */
-@Composable
-fun FollowMomentsScreen(onBack: () -> Unit, onOpenDetail: (String) -> Unit, onOpenUser: (String) -> Unit) {
-    var items by remember { mutableStateOf<List<Moment>>(emptyList()) }
-    var loaded by remember { mutableStateOf(false) }
-    val startCall = rememberStartCallAny()
-    LaunchedEffect(Unit) {
-        items = runCatching { Api.getList<Moment>("/moments/feed?follow=1") }.getOrDefault(emptyList())
-        loaded = true
-    }
-    Column(modifier = Modifier.fillMaxSize()) {
-        NavBar(t("me.followMoments"), onBack)
-        if (loaded && items.isEmpty()) {
-            EmptyHint(t("plaza.emptyFollow"))
-        } else {
-            LazyColumn {
-                items(items, key = { it.id }) { m ->
-                    MomentCard(
-                        m,
-                        onOpenDetail = { onOpenDetail(m.id) },
-                        onVideoCall = { m.user?.let { startCall(it.id, it.nickname, it.avatar, 2) } },
-                        onOpenUser = { m.user?.let { onOpenUser(it.id) } },
-                    )
                 }
             }
         }
@@ -270,7 +207,7 @@ fun MomentCard(
     onOpenDetail: () -> Unit,
     onVideoCall: () -> Unit,
     onOpenUser: () -> Unit = {},
-    /** 点视频封面：传了就交给调用方（广场 = 进抖音模式），不传则原地播放 */
+    /** 点视频封面：传了就交给调用方处理，不传则原地播放（广场现在不传，抖音模式已下线） */
     onOpenVideo: (() -> Unit)? = null,
 ) {
     var liked by remember { mutableStateOf(m.liked) }
@@ -288,10 +225,6 @@ fun MomentCard(
             Column(modifier = Modifier.weight(1f).padding(start = 10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(m.user?.nickname ?: "", color = TextMain, fontSize = 15.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
-                    if (m.user?.isGuide == true) {
-                        Spacer(Modifier.width(5.dp))
-                        Text(t("me.verified"), color = Accent, fontSize = 10.sp, modifier = Modifier.clip(RoundedCornerShape(3.dp)).background(Accent.copy(alpha = 0.12f)).padding(horizontal = 5.dp, vertical = 1.dp))
-                    }
                     // 位置紧跟昵称（迷你淡色标签）
                     if (m.cityName.isNotEmpty()) {
                         Spacer(Modifier.width(5.dp))
@@ -320,8 +253,8 @@ fun MomentCard(
                             }
                         }.padding(horizontal = 11.dp, vertical = 4.dp),
                 ) { Text(if (following) t("plaza.followed") else t("me.following"), color = if (following) TextSub else androidx.compose.ui.graphics.Color.White, fontSize = 12.sp) }
-                // 视频通话仅男方可发起（女方只能接听）；三态：通话中（占线）/ 离线置灰 / 可打（显示价格）
-                if (com.wh.hongniang.net.Session.gender == 1) {
+                // 视频按钮：对方打开了视频见面才显示；三态：通话中（占线）/ 离线置灰 / 可打
+                if (m.user?.allowVideo == true) {
                     val peerOnline = m.user?.online == true
                     val peerBusy = m.user?.busy == true
                     val busyColor = androidx.compose.ui.graphics.Color(0xFFFFAA3C)
@@ -343,13 +276,7 @@ fun MomentCard(
                             }
                             .padding(horizontal = 11.dp, vertical = 4.dp),
                     ) {
-                        // 叠加显示女方视频价格（积分/分钟）
-                        val priceFen = m.user?.videoPriceFen ?: 0
-                        val label = when {
-                            peerBusy -> t("plaza.inCall")
-                            priceFen > 0 -> t("plaza.videoCallPrice", "n" to fmtPoints(priceFen.toString()))
-                            else -> t("attach.videoCall")
-                        }
+                        val label = if (peerBusy) t("plaza.inCall") else t("attach.videoCall")
                         Text(label, color = if (peerBusy) busyColor else if (peerOnline) Accent else TextDim, fontSize = 12.sp)
                     }
                 }

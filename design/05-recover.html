@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>AI 红娘 · 换手机找回 / 并号 样稿</title>
+<!--
+  给用户确认用的界面样稿，不是产品代码。金额、昵称、时间都是示意。
+  双击用浏览器打开就能看。网址后面加 ?only=a / b / c / d 只显示其中一组（截图用）。
+  观感沿用前面几个模块（common.css / common.js）。
+  本模块：不绑手机号。做过真人认证的人，换手机 / 换浏览器后用「身份证 + 刷脸」回到原来的账号；一个账号可以挂多台设备。
+-->
+<link rel="stylesheet" href="common.css">
+<style>
+  .lab { font-size: 12px; color: var(--ink-2); margin: 14px 4px 6px; }
+  .inp { height: 52px; border-radius: 18px; background: #fff; box-shadow: 0 4px 14px rgba(43,28,34,.06); display: flex; align-items: center; padding: 0 16px; font-size: 15px; color: var(--ink); }
+  .inp.ph { color: var(--ink-3); }
+  .ring3 { width: 92px; height: 92px; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto; }
+  .ring3.ok { background: #e3f7ec; color: #12b76a; box-shadow: 0 0 0 10px rgba(18,183,106,.08); }
+  .ring3.warn { background: #fff1e0; color: #f08c00; box-shadow: 0 0 0 10px rgba(240,140,0,.08); }
+  .acct { display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 20px; }
+  .acct .av { width: 56px; height: 56px; border-radius: 28px; border: 2px solid #fff; box-shadow: 0 4px 10px rgba(43,28,34,.14); flex-shrink: 0; }
+  .verify { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 11px; font-size: 11px; font-weight: 700; color: #fff; background: linear-gradient(135deg,#12b76a,#22c55e); white-space: nowrap; }
+  .dev { display: flex; align-items: center; gap: 12px; padding: 13px 14px; }
+  .dev + .dev { border-top: 1px solid var(--line); }
+  .dev .sq { width: 40px; height: 40px; border-radius: 13px; background: var(--soft); color: var(--rose); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .dev .rm { margin-left: auto; height: 30px; padding: 0 13px; border-radius: 15px; background: #f5f0f1; color: var(--ink-2); font-size: 12.5px; display: flex; align-items: center; white-space: nowrap; }
+  .dev .cur { margin-left: auto; font-size: 12px; color: #12b76a; font-weight: 700; white-space: nowrap; }
+  .tip { display: flex; gap: 9px; align-items: flex-start; padding: 11px 14px; border-radius: 16px; font-size: 12.5px; line-height: 1.6; color: var(--ink-2); }
+  .tip i { color: var(--rose); margin-top: 2px; flex-shrink: 0; }
+  .avpick { width: 92px; height: 92px; border-radius: 46px; background: #fff; box-shadow: 0 6px 16px rgba(43,28,34,.08); display: flex; align-items: center; justify-content: center; color: var(--ink-3); font-size: 12px; margin: 0 auto; }
+  .seg { display: flex; gap: 10px; }
+  .seg span { flex: 1; height: 46px; border-radius: 16px; background: #fff; box-shadow: 0 4px 14px rgba(43,28,34,.06); display: flex; align-items: center; justify-content: center; color: var(--ink-2); }
+  .mine { color: #b54708; background: #fff4e5; border-radius: 4px; padding: 0 4px; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="intro">
+  <h1>换手机找回 / 并号 样稿</h1>
+  <p><b>不绑手机号。</b>账号认人（身份证），设备只是登录这个账号的钥匙：做过真人认证的人，换手机、换浏览器、清了浏览器数据之后，用「身份证 + 刷脸」回到原来的账号，一个账号可以同时挂几台设备（手机 + 网页）。同一台手机卸载重装本来就不丢号，这里解决的是换设备。<b>没做过真人认证的账号找不回</b>（没有东西能证明号是他的）。</p>
+  <p>你已经定的：<b>先查再刷</b>（身份证没有对应账号就不刷脸、不花钱）；<b>老设备都保留</b>（多设备同时登录，老设备收到提醒，可在设备列表里移除）。注释里标了 <span class="mine">我定的</span> 的是没问过你、我按理解先填的数字和规则，不合适就改。</p>
+</div>
+
+<!-- ============ A：新设备上还没注册 ============ -->
+<section data-s="a">
+  <h2><b>1</b>新手机上还没注册：从注册页进「刷脸找回」</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">注册页 <small>新设备第一次打开，多一行找回入口</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div style="padding:26px 22px 0">
+          <div style="font-size:24px;font-weight:800">创建账号</div>
+          <div class="t2" style="margin-top:6px">填几项基本信息就能开始</div>
+          <div style="margin-top:22px"><div class="avpick">点击选择头像</div></div>
+          <div class="lab">昵称</div><div class="inp ph">昵称</div>
+          <div class="lab">年纪</div><div class="inp ph">年纪（点击选择）</div>
+          <div class="lab">性别（注册后不可修改）</div>
+          <div class="seg"><span>男</span><span>女</span></div>
+        </div>
+        <div class="dock" style="margin-top:auto">
+          <div class="btn">进入</div>
+          <div class="glass" style="margin-top:12px;border-radius:18px;padding:12px 14px;display:flex;align-items:center;gap:10px">
+            <span class="orb" style="width:36px;height:36px"><i data-ic="shield" data-s="17"></i></span>
+            <div class="grow"><div style="font-weight:700;font-size:14px">换了手机？已有账号</div><div class="t3" style="margin-top:2px">做过真人认证的，刷脸就能回到原来的号</div></div>
+            <span class="pill ghost" style="height:30px">刷脸找回</span>
+          </div>
+          <div class="t3" style="text-align:center;margin-top:10px">无需密码，账号与本机自动绑定，卸载重装自动恢复</div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>什么时候看到这一页</b>：这台设备服务器不认识（新手机、换了浏览器、清了浏览器数据、恢复过出厂设置）。同一台手机卸载重装不会到这页，直接进原来的号。</div>
+        <div><b>新加的只有底下那一行</b>「换了手机？已有账号 → 刷脸找回」。上面的注册表单是现在就有的，没动（样子是示意，实际还是现在的注册页）。</div>
+        <div><b>三端都加</b>：网页、安卓、iOS 的注册页都有这一行。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">刷脸找回 <small>先填姓名和身份证号</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">找回账号</div><span style="width:34px"></span></div>
+        <div style="padding:6px 20px 0">
+          <div style="text-align:center;padding-top:6px"><div class="orb lg" style="margin:0 auto"><i data-ic="shield" data-s="26"></i></div>
+            <div style="font-size:20px;font-weight:800;margin-top:14px">用身份证 + 刷脸找回</div>
+            <div class="t2" style="margin-top:6px">只有做过真人认证的账号能这样找回</div>
+          </div>
+          <div class="lab" style="margin-top:20px">真实姓名</div><div class="inp">周明</div>
+          <div class="lab">身份证号</div><div class="inp">5101 **** **** **** 17</div>
+          <div class="glass tip" style="margin-top:16px"><i data-ic="lock" data-s="15"></i><span>先查这张身份证有没有认证过的账号。有，就刷脸确认是你本人；没有，就不用刷。我们不保存你填的证号。</span></div>
+        </div>
+        <div class="dock" style="margin-top:auto">
+          <div class="btn">下一步</div>
+          <div class="t3" style="text-align:center;margin-top:8px">点「下一步」即同意把姓名、身份证号交给认证服务商核验</div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>点「下一步」</b>：服务器先查这张身份证有没有对应的已认证账号（你定的「先查再刷」）。有 → 直接跳到阿里云刷脸页（和真人认证是同一个页面）；没有 → 下一组左边那张。</div>
+        <div><b>这一步不显示账号的任何信息</b>（昵称、头像都不显示），刷脸通过以后才显示。</div>
+        <div><b>防乱试</b> <span class="mine">我定的</span>：同一台设备一天最多查 5 次、同一个网络地址一天最多 20 次，超了提示明天再来。你选的「先查再刷」会让知道别人身份证号的人试出对方有没有注册，这个限制只能让他试得慢，挡不住。</div>
+        <div><b>未满 18 岁、证号格式不对</b>：在这一页就拦下，不往下走。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ B：查不到 / 刷脸通过 ============ -->
+<section data-s="b">
+  <h2><b>2</b>查不到就停；查到了刷脸，通过就回到原来的号</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">没查到账号 <small>不刷脸、不花钱</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">找回账号</div><span style="width:34px"></span></div>
+        <div style="padding:44px 28px 0;text-align:center">
+          <div class="ring3 warn"><i data-ic="info" data-s="46"></i></div>
+          <div style="font-size:21px;font-weight:800;margin-top:22px">没有找到账号</div>
+          <div class="t2" style="margin-top:10px;line-height:1.7">这张身份证没有做过真人认证的账号。<br>请核对姓名和证号有没有填错。</div>
+        </div>
+        <div style="padding:22px 20px 0"><div class="glass tip"><i data-ic="info" data-s="15"></i><span>以前的账号如果没做过真人认证，换了手机就找不回了，只能重新注册。在原来那台手机上还能打开的话，先在那台手机上做完真人认证，再回来找回。</span></div></div>
+        <div class="dock" style="margin-top:auto">
+          <div class="btn">重新填写</div>
+          <div class="btn ghost" style="margin-top:10px">注册新账号</div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>没查到</b>：不调阿里云，不产生费用。可以重新填，或者去注册新号。</div>
+        <div><b>没认证过的号找不回</b>，这里照实告诉用户，并给一条出路：老手机还在的话先在老手机上认证。</div>
+        <div><b>账号正在注销冷静期里、或者被封了</b>：也算「查到了」，刷脸通过后进去看到的是「账号正在注销中」或封禁提示，不会让他另开一个新号绕过去。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">刷脸通过 → 找回成功</div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span style="width:34px"></span><div class="mid">找回账号</div><span style="width:34px"></span></div>
+        <div style="padding:30px 26px 0;text-align:center">
+          <div class="ring3 ok"><i data-ic="check" data-s="46"></i></div>
+          <div style="font-size:22px;font-weight:800;margin-top:20px">找回成功</div>
+          <div class="t2" style="margin-top:8px">这台设备已经登录你的账号</div>
+        </div>
+        <div style="padding:20px 18px 0">
+          <div class="glass acct">
+            <div class="av photo" style="background-image:url(img/p2.jpg)"></div>
+            <div class="grow">
+              <div class="row" style="gap:6px"><b style="font-size:17px">小周</b><span class="verify"><i data-ic="shield" data-s="12"></i>真人认证</span></div>
+              <div class="t3" style="margin-top:5px">短号 711405 · 2026-11-23 注册</div>
+            </div>
+          </div>
+          <div class="glass" style="margin-top:12px;padding:4px 14px 12px">
+            <div class="feat"><span class="sq"><i data-ic="chat" data-s="18"></i></span><span>聊天记录、画像、喜欢的人、余额都在</span></div>
+            <div class="feat"><span class="sq"><i data-ic="users" data-s="18"></i></span><span>原来的设备不受影响，可在「登录设备」里移除</span></div>
+            <div class="feat"><span class="sq"><i data-ic="wallet" data-s="18"></i></span><span>刷脸 ¥1.00 已从 AI 余额扣，剩 ¥2.99</span></div>
+          </div>
+        </div>
+        <div class="dock" style="margin-top:auto"><div class="btn">进入</div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>中间的刷脸页是阿里云的页面</b>，和你今天刷的那个一样，这里没画。</div>
+        <div><b>通过后</b>：这台设备挂到原账号下，直接登录，不建新号。到这一步才显示昵称、头像、短号。</div>
+        <div><b>刷脸没通过</b>（不是本人、光线不好）：显示「刷脸没通过，不能确认是你本人」+「重新刷脸」，不登录、不显示账号信息。</div>
+        <div><b>这 ¥1 谁出</b> <span class="mine">我定的</span>：阿里云每刷完一次收 ¥1。通过了从找回的那个账号的 AI 余额扣；余额不够就不扣，平台出。没通过的也是平台出。</div>
+        <div><b>防刷钱</b> <span class="mine">我定的</span>：同一张身份证一天最多刷脸找回 3 次（通过和没通过都算）。</div>
+        <div><b>一个账号最多挂 5 台设备</b> <span class="mine">我定的</span>：满了要先在老设备上移除一台；老设备都不在手边时，找回成功后自动顶掉最久没用的那台。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ C：新设备上已经注册了新号 ============ -->
+<section data-s="c">
+  <h2><b>3</b>新手机上已经注册了新号：做真人认证时发现有老账号（并号）</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">刷脸通过后弹出确认 <small>这张身份证已经有一个账号</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span style="width:34px"></span><div class="mid">实人认证</div><span style="width:34px"></span></div>
+        <div style="padding:40px 26px 0;text-align:center">
+          <div class="ring3 ok"><i data-ic="check" data-s="46"></i></div>
+          <div style="font-size:22px;font-weight:800;margin-top:22px">刷脸通过</div>
+        </div>
+        <div class="dim"></div>
+        <div class="sheet" style="padding-top:24px">
+          <div style="font-size:19px;font-weight:800;text-align:center">你已经有一个账号了</div>
+          <div class="t2" style="text-align:center;margin-top:8px;line-height:1.6">这张身份证之前认证过下面这个账号。<br>一个人只能有一个账号。</div>
+          <div class="acct" style="background:#faf5f6;margin-top:14px">
+            <div class="av photo" style="background-image:url(img/p2.jpg)"></div>
+            <div class="grow">
+              <div class="row" style="gap:6px"><b style="font-size:17px">小周</b><span class="verify"><i data-ic="shield" data-s="12"></i>真人认证</span></div>
+              <div class="t3" style="margin-top:5px">短号 711405 · 2026-11-23 注册</div>
+            </div>
+          </div>
+          <div class="feat"><span class="sq"><i data-ic="users" data-s="18"></i></span><span>进入后，这台设备登录的就是上面这个账号</span></div>
+          <div class="feat"><span class="sq"><i data-ic="trash" data-s="18"></i></span><span>现在这个新号「阿明」会作废，资料和聊天不保留</span></div>
+          <div class="feat"><span class="sq"><i data-ic="wallet" data-s="18"></i></span><span>新号里的 AI 余额 ¥5.00 会转到原来的账号</span></div>
+          <div class="btn" style="margin-top:18px">进入原来的账号</div>
+          <div class="btn ghost" style="margin-top:10px;background:#f5f0f1;box-shadow:none">先不进，留在现在这个号</div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>什么情况</b>：换了手机没点「刷脸找回」，而是直接注册了一个新号，后来在新号里做真人认证，刷的还是自己那张身份证。现在这种情况是直接报「该身份证已被其他账号实名认证」，卡死。</div>
+        <div><b>改成</b>：照样让他刷脸（证明是本人），通过后弹这张确认。<b>刷脸通过之前不显示老账号的任何信息。</b></div>
+        <div><b>「进入原来的账号」</b>：这台设备改挂到老账号下并登录；新号作废（不再能登录、不再被推荐、别人那里显示成「已注销用户」）。<b>只把 AI 余额转过去</b>，资料、照片、喜欢、聊天都不合并 <span class="mine">我定的</span>。</div>
+        <div><b>「先不进」</b>：留在新号里，这次不算认证通过；这张身份证不能用来认证这个新号。之后还可以再来。</div>
+        <div><b>这 ¥1</b> <span class="mine">我定的</span>：从老账号的余额扣（转过去以后再扣）；选「先不进」的话平台出。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">进入后 <small>回到原来的号，顶上提示一次</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="row" style="padding:14px 20px 4px"><b style="font-size:22px">我的</b></div>
+        <div style="padding:8px 16px 0"><div class="glass tip" style="background:#e9f8ef;border-color:#c9efd9"><i data-ic="check" data-s="15" style="color:#12b76a"></i><span style="color:#1d6b45">已回到你原来的账号「小周」。新号里的 ¥5.00 已转入 AI 余额。</span></div></div>
+        <div class="hero-card" style="margin-top:12px">
+          <div style="position:relative;z-index:2">
+            <div class="row">
+              <div class="ring"><span>100%</span></div>
+              <div class="grow" style="margin-left:12px">
+                <div style="font-size:17px;font-weight:800">我的相亲画像</div>
+                <div style="font-size:12px;opacity:.92;margin-top:3px">小周 · 已真人认证</div>
+              </div>
+            </div>
+            <div class="row" style="margin-top:14px;gap:8px">
+              <span class="pill w" style="flex:1;justify-content:center;height:38px;border-radius:19px">查看画像</span>
+              <span class="pill g" style="height:38px;border-radius:19px">和红娘深聊</span>
+            </div>
+          </div>
+        </div>
+        <div class="gt">AI 费用</div>
+        <div class="grp glass"><div class="lr"><span class="sq"><i data-ic="wallet"></i></span>AI 余额<span class="end"><b style="color:var(--ink);font-size:15px">¥7.99</b><i data-ic="right"></i></span></div></div>
+        <div class="gt">账号与安全</div>
+        <div class="grp glass">
+          <div class="lr"><span class="sq"><i data-ic="users"></i></span>登录设备<span class="end">2 台<i data-ic="right"></i></span></div>
+        </div>
+        <div class="tabbar" style="margin-top:auto"><div class="tab">广场</div><div class="tab">大厅</div><div class="tab"><div class="plus"><i data-ic="plus" data-s="18"></i></div></div><div class="tab">消息</div><div class="tab on">我的</div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>进入后</b>：看到的就是老账号的资料、画像、聊天。顶上一条绿色提示只出现这一次。</div>
+        <div><b>余额</b>：老账号原来 ¥3.99 + 新号转来 ¥5.00 − 刷脸 ¥1.00 = ¥7.99，明细里各有一条。</div>
+        <div><b>「我的」页多一组「账号与安全 → 登录设备」</b>，见下一组。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ D：登录设备 + 提醒 ============ -->
+<section data-s="d">
+  <h2><b>4</b>登录设备，和给老设备的提醒</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">登录设备 <small>「我的」→ 账号与安全 → 登录设备</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">登录设备</div><span style="width:34px"></span></div>
+        <div class="t2" style="padding:6px 22px 10px;line-height:1.6">下面这些设备可以直接登录你的账号。不认识的、不用了的，移除掉。</div>
+        <div class="grp glass">
+          <div class="dev"><span class="sq"><i data-ic="home" data-s="19"></i></span>
+            <div><div style="font-weight:700">安卓手机</div><div class="t3" style="margin-top:3px">今天 15:01 刷脸找回加入 · 刚刚在用</div></div>
+            <span class="cur">本机</span></div>
+          <div class="dev"><span class="sq"><i data-ic="home" data-s="19"></i></span>
+            <div><div style="font-weight:700">安卓手机</div><div class="t3" style="margin-top:3px">11-23 注册时的设备 · 昨天用过</div></div>
+            <span class="rm">移除</span></div>
+          <div class="dev"><span class="sq"><i data-ic="link" data-s="19"></i></span>
+            <div><div style="font-weight:700">网页（Chrome）</div><div class="t3" style="margin-top:3px">今天 10:20 刷脸找回加入 · 2 小时前用过</div></div>
+            <span class="rm">移除</span></div>
+        </div>
+        <div style="padding:14px 16px 0"><div class="glass tip"><i data-ic="shield" data-s="15"></i><span>新设备要登录你的账号，必须你本人刷脸。别人知道你的身份证号也登不上。</span></div></div>
+        <div style="padding:10px 16px 0"><div class="glass tip"><i data-ic="info" data-s="15"></i><span>移除后，那台设备会马上退出；想再用，要重新刷脸找回。</span></div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>列出</b>能登录这个账号的所有设备：哪一类（安卓手机 / iPhone / 网页）、怎么加入的、上次什么时候用过。「本机」不能移除。</div>
+        <div><b>设备名只能写到类型</b>：现在客户端没上报手机型号。要显示「华为 Mate 60」这种，得让客户端多报一项，三端都要改 <span class="mine">我定的：这一轮先不报型号</span>。</div>
+        <div><b>移除</b>：弹确认，确认后那台设备马上被踢下线，回到注册页。</div>
+        <div><b>没做过真人认证的人</b>：这一页只有本机一台，底下多一句「完成真人认证，换手机也能找回账号」+「去认证」。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">老设备上的提醒 <small>账号在新设备登录时弹一次</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="row" style="padding:14px 20px 4px"><b style="font-size:22px">消息</b></div>
+        <div class="body"></div>
+        <div class="dim"></div>
+        <div class="sheet" style="padding-top:26px">
+          <div style="text-align:center"><div class="orb lg" style="margin:0 auto"><i data-ic="shield" data-s="26"></i></div></div>
+          <div style="text-align:center;font-size:20px;font-weight:800;margin-top:16px">你的账号在新设备登录了</div>
+          <div class="t2" style="text-align:center;margin-top:8px;line-height:1.7">今天 15:01，一台<b style="color:var(--ink)">安卓手机</b>通过刷脸登录了你的账号。</div>
+          <div class="feat"><span class="sq"><i data-ic="check" data-s="18"></i></span><span>是你本人换了手机：不用管，两台都能用</span></div>
+          <div class="feat"><span class="sq"><i data-ic="flag" data-s="18"></i></span><span>不是你：马上移除那台设备</span></div>
+          <div class="btn" style="margin-top:18px">是我本人</div>
+          <div class="btn ghost" style="margin-top:10px;background:#f5f0f1;box-shadow:none">不是我，去移除</div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>什么时候弹</b>：有新设备通过刷脸挂到这个账号上时，其他已登录的设备各弹一次。在线的马上弹，不在线的下次打开时弹。</div>
+        <div><b>「不是我，去移除」</b>→ 左边那张登录设备页。</div>
+        <div><b>刷脸要本人活体</b>，正常情况下不会是别人。留这个提醒是为了万一（比如被人胁迫、或者双胞胎）。</div>
+        <div><b>消息通知里也留一条</b>记录，之后能翻到。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script src="common.js"></script>
+</body>
+</html>

@@ -16,6 +16,9 @@ struct BootView: View {
                 _ = await minShow.value
                 if let resp, resp.registered, let token = resp.token, let user = resp.user {
                     Api.token = token
+                    Api.did = resp.did
+                    // 不在的时候有新设备通过刷脸登录了这个账号：进去以后提醒一次
+                    if let d = resp.newDevices?.first { DeviceCenter.shared.alert = d }
                     state.user = user
                     state.stage = .main
                 } else if Api.token != nil, let me: UserProfile = try? await Api.request("/user/me") {

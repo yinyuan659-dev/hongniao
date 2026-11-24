@@ -68,7 +68,6 @@ struct MediaViewerView: View {
             }
         }
         .ignoresSafeArea()
-        .onAppear { MusicCenter.shared.pause() }
     }
 
     /// 当前窗口顶部安全区高度（状态栏 / 灵动岛），拿不到时按带刘海机型给 47

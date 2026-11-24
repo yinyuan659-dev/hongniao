@@ -44,7 +44,7 @@ export interface AlbumCell {
   h?: number;
   state?: UploadState;
   sending?: boolean;
-  /** 这一格的 DOM id（引用跳转 / 删除动画按消息 id 找元素） */
+  /** 这一格的 DOM id（引用跳转按消息 id 找元素） */
   domId?: string;
 }
 

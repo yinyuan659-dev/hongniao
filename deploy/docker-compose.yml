@@ -1,0 +1,114 @@
+# AI 红娘 · 单机部署（测试环境起步用）
+# 服务器目录约定：/opt/hongniang/{docker-compose.yml,.env,nginx/,minio/,www/web/,houduan/}
+# 对外只暴露 nginx 的 80 和 SRS 的 1985(TCP) / 8000(UDP)；MySQL / Redis / MinIO / API 只在容器内网互通，不映射到宿主机端口。
+name: hongniang
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: hn-mysql
+    restart: unless-stopped
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: hongniang
+      MYSQL_USER: hongniang
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    container_name: hn-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+
+  minio:
+    # 官方镜像已拉不到，用 ./minio/Dockerfile 自建（原因见该文件）
+    build: ./minio
+    image: hongniang-minio
+    container_name: hn-minio
+    restart: unless-stopped
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    volumes:
+      - minio-data:/data
+
+  api:
+    build: ./houduan
+    image: hongniang-api
+    container_name: hn-api
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      minio:
+        condition: service_started
+    environment:
+      DATABASE_URL: mysql://hongniang:${MYSQL_PASSWORD}@mysql:3306/hongniang
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      MASTER_KEY: ${MASTER_KEY}
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: "9000"
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: hongniang
+      PUBLIC_RES_BASE: ${PUBLIC_BASE}
+      SITE_BASE: ${PUBLIC_BASE}
+      # App 里「大厅」标签加载的网页 = Web 端的 /#/hall-embed 路由（不配的话客户端会去找 /site/#/hall-embed）
+      HALL_H5_URL: "${PUBLIC_BASE}/#/hall-embed"
+      ADMIN_INIT_PASSWORD: ${ADMIN_INIT_PASSWORD}
+      DEMO_PASSWORD: ${DEMO_PASSWORD}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_BASE_URL: ${AI_BASE_URL:-https://api.deepseek.com/v1}
+      # AI 深聊用的模型。DeepSeek 现在的模型名是 deepseek-flash / deepseek-v4-pro（没有 deepseek-chat 了）
+      AI_MODEL: ${AI_MODEL:-deepseek-flash}
+      # 实人认证：mock = 测试假核验（不花钱、固定通过）；aliyun = 阿里云金融级实人认证（真刷脸，刷完出结果就收 1 元）
+      KYC_PROVIDER: ${KYC_PROVIDER:-mock}
+      KYC_ALIYUN_ACCESS_KEY_ID: ${KYC_ALIYUN_ACCESS_KEY_ID:-}
+      KYC_ALIYUN_ACCESS_KEY_SECRET: ${KYC_ALIYUN_ACCESS_KEY_SECRET:-}
+      KYC_ALIYUN_SCENE_ID: ${KYC_ALIYUN_SCENE_ID:-}
+      SRS_SERVER: ${SRS_SERVER:-}
+      SRS_API: ${SRS_API:-}
+
+  # 通话流媒体（WHIP / WHEP）。客户端直连 http://公网IP:1985，音视频走 UDP 8000，安全组要放行这两个端口。
+  srs:
+    image: ossrs/srs:5
+    container_name: hn-srs
+    restart: unless-stopped
+    command: ./objs/srs -c conf/rtc.conf
+    environment:
+      CANDIDATE: ${SRS_SERVER:-}
+    ports:
+      - "1985:1985"
+      - "8000:8000/udp"
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: hn-nginx
+    restart: unless-stopped
+    depends_on:
+      - api
+      - minio
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/hongniang.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./www:/var/www/hongniang:ro
+
+volumes:
+  mysql-data:
+  redis-data:
+  minio-data:

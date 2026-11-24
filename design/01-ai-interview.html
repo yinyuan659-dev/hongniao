@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>AI 红娘 · 模块一：AI 访谈 + 相亲画像网页（样稿第 2 版）</title>
+<!--
+  给用户确认用的界面样稿，不是产品代码。余额、花费这些数字是示意，照片是 AI 生成的假人。
+  双击用浏览器打开就能看。网址后面加 ?only=a / b / c / d 只显示其中一组（截图用）。
+  视觉参考（GitHub）：
+    - Meliwat/awesome-ios-design-md 里 Hinge / Match 的资料页写法：整屏大图 + 底部渐变压字 + 毛玻璃小标签，照片和「一段话卡片」交替往下排
+    - DavidHDev/react-bits、magicuidesign/magicui、Aceternity UI：柔和的多色渐变底、毛玻璃卡片、渐变按钮带光晕
+-->
+<style>
+  :root {
+    --rose: #ff3d63; --coral: #ff8469;
+    --grad: linear-gradient(135deg, #ff3d63 0%, #ff8469 100%);
+    --ink: #2b1c22; --ink-2: #8c7d83; --ink-3: #bcb0b4;
+    --cream: #fff8f4; --line: rgba(43, 28, 34, .08);
+    --glass: rgba(255, 255, 255, .8);
+    --soft: rgba(255, 61, 99, .09);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: linear-gradient(160deg, #fdecef, #f3eefb 50%, #fef2e6); color: var(--ink); font-family: "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif; -webkit-font-smoothing: antialiased; }
+  i { font-style: normal; }
+  i[data-ic] { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+
+  .intro { width: 860px; margin: 0 auto; padding: 28px 30px 0; }
+  .intro h1 { font-size: 24px; }
+  .intro p { font-size: 14px; color: #6d5f65; line-height: 1.8; margin-top: 8px; }
+
+  section { width: 860px; margin: 0 auto; padding: 26px 30px 30px; }
+  section h2 { font-size: 20px; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+  section h2 b { display: inline-flex; width: 30px; height: 30px; border-radius: 15px; background: var(--grad); color: #fff; font-size: 15px; align-items: center; justify-content: center; }
+  .phones { display: flex; gap: 40px; align-items: flex-start; }
+  .col { width: 380px; }
+  .cap { font-size: 15px; font-weight: 700; margin-bottom: 10px; }
+  .cap small { font-weight: 400; color: var(--ink-2); font-size: 12px; margin-left: 6px; }
+  .notes { margin-top: 16px; font-size: 13px; line-height: 1.75; color: #4b3d43; }
+  .notes div { position: relative; padding-left: 14px; margin-bottom: 5px; }
+  .notes div::before { content: ""; position: absolute; left: 0; top: 9px; width: 6px; height: 6px; border-radius: 3px; background: var(--grad); }
+  .notes b { color: var(--ink); }
+
+  /* 手机外壳 */
+  .phone { width: 380px; height: 800px; border-radius: 48px; background: #17141a; padding: 9px; box-shadow: 0 30px 60px rgba(120, 40, 70, .22), inset 0 0 0 1.5px #3b3641; position: relative; }
+  .screen { width: 100%; height: 100%; border-radius: 39px; overflow: hidden; position: relative; display: flex; flex-direction: column; background: var(--cream); font-size: 15px; }
+  .island { position: absolute; top: 19px; left: 50%; transform: translateX(-50%); width: 92px; height: 26px; border-radius: 14px; background: #000; z-index: 60; }
+  .status { height: 48px; flex-shrink: 0; display: flex; justify-content: space-between; align-items: center; padding: 8px 30px 0; font-size: 13px; font-weight: 700; position: relative; z-index: 40; }
+  .status.w { color: #fff; position: absolute; left: 0; right: 0; top: 0; }
+  /* 柔和的多色渐变底 */
+  .mesh { background:
+      radial-gradient(70% 38% at 0% 0%, #ffd2dc 0%, transparent 70%),
+      radial-gradient(55% 32% at 100% 6%, #ffe3cb 0%, transparent 70%),
+      radial-gradient(70% 40% at 100% 100%, #ece1ff 0%, transparent 70%),
+      var(--cream); }
+
+  .row { display: flex; align-items: center; gap: 10px; }
+  .grow { flex: 1; min-width: 0; }
+  .t2 { color: var(--ink-2); font-size: 13px; }
+  .t3 { color: var(--ink-3); font-size: 11px; }
+  .glass { background: var(--glass); backdrop-filter: blur(18px); border: 1px solid rgba(255, 255, 255, .95); box-shadow: 0 8px 26px rgba(255, 90, 120, .10); border-radius: 22px; }
+  .photo { background-size: cover; background-position: center; }
+  .new { background: #ffb020; color: #fff; font-size: 10px; border-radius: 6px; padding: 1px 6px; margin-left: 6px; font-weight: 700; }
+
+  /* AI 红娘的头像：渐变小球 + 爱心 */
+  .orb { width: 38px; height: 38px; border-radius: 50%; background: var(--grad); color: #fff; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+         box-shadow: 0 6px 14px rgba(255, 61, 99, .32), inset 0 -3px 6px rgba(0, 0, 0, .08), inset 0 3px 6px rgba(255, 255, 255, .4); }
+  .orb.lg { width: 60px; height: 60px; box-shadow: 0 0 0 8px rgba(255, 61, 99, .10), 0 0 0 18px rgba(255, 61, 99, .05), 0 10px 22px rgba(255, 61, 99, .35), inset 0 3px 8px rgba(255, 255, 255, .4); }
+  .orb.sm { width: 26px; height: 26px; box-shadow: 0 3px 8px rgba(255, 61, 99, .3); }
+
+  .btn { display: flex; align-items: center; justify-content: center; gap: 6px; height: 50px; border-radius: 25px; background: var(--grad); color: #fff; font-size: 16px; font-weight: 700; box-shadow: 0 10px 22px rgba(255, 61, 99, .32); }
+  .btn.ghost { background: #fff; color: var(--ink); font-weight: 500; box-shadow: 0 4px 14px rgba(43, 28, 34, .07); }
+  .pill { display: inline-flex; align-items: center; gap: 5px; height: 32px; padding: 0 14px; border-radius: 16px; font-size: 13px; font-weight: 600; background: var(--grad); color: #fff; box-shadow: 0 6px 14px rgba(255, 61, 99, .28); flex-shrink: 0; }
+  .pill.ghost { background: #fff; color: var(--ink-2); font-weight: 500; box-shadow: 0 2px 8px rgba(43, 28, 34, .07); }
+  .tag { display: inline-flex; align-items: center; height: 26px; padding: 0 11px; border-radius: 13px; font-size: 12px; background: var(--soft); color: var(--rose); font-weight: 600; }
+
+  /* 聊天页 */
+  .nav { height: 50px; flex-shrink: 0; display: flex; align-items: center; padding: 0 16px; gap: 8px; position: relative; z-index: 30; }
+  .nav .mid { flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 16px; font-weight: 700; }
+  .aib { font-size: 10px; color: var(--rose); background: var(--soft); border-radius: 8px; padding: 2px 7px; font-weight: 600; }
+  .ic-btn { width: 34px; height: 34px; border-radius: 17px; background: rgba(255, 255, 255, .85); box-shadow: 0 2px 8px rgba(43, 28, 34, .08); display: flex; align-items: center; justify-content: center; color: var(--ink); }
+  .steps { flex-shrink: 0; display: flex; gap: 5px; padding: 6px 14px 10px; }
+  .steps span { flex: 1; height: 26px; border-radius: 13px; font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 2px; background: rgba(255, 255, 255, .7); color: var(--ink-3); white-space: nowrap; }
+  .steps span.ok { background: var(--soft); color: var(--rose); }
+  .steps span.on { background: var(--grad); color: #fff; font-weight: 700; box-shadow: 0 4px 10px rgba(255, 61, 99, .3); }
+  .body { flex: 1; min-height: 0; overflow: hidden; padding: 8px 16px 0; position: relative; }
+  .br { display: flex; gap: 9px; margin-bottom: 14px; align-items: flex-start; }
+  .br.me { justify-content: flex-end; }
+  .bb { padding: 11px 15px; font-size: 15px; line-height: 1.6; max-width: 248px; }
+  .bb.ai { background: #fff; border-radius: 6px 20px 20px 20px; box-shadow: 0 4px 16px rgba(43, 28, 34, .06); }
+  .bb.me { background: var(--grad); color: #fff; border-radius: 20px 6px 20px 20px; box-shadow: 0 6px 16px rgba(255, 61, 99, .25); }
+  .gen { font-size: 10px; color: var(--ink-3); margin: 5px 0 0 6px; display: flex; align-items: center; gap: 3px; }
+  .me-av { width: 38px; height: 38px; border-radius: 19px; border: 2px solid #fff; box-shadow: 0 3px 8px rgba(43, 28, 34, .12); flex-shrink: 0; }
+  .dock { flex-shrink: 0; padding: 10px 14px 20px; position: relative; z-index: 20; }
+  .qr { display: flex; flex-wrap: wrap; gap: 8px; }
+  .qr span { height: 36px; padding: 0 14px; border-radius: 18px; font-size: 14px; display: inline-flex; align-items: center; background: #fff; color: var(--rose); border: 1px solid rgba(255, 61, 99, .28); font-weight: 500; }
+  .qr span.s { color: var(--ink-2); border-color: var(--line); }
+  .ibar { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+  .ibar .box { flex: 1; height: 46px; border-radius: 23px; background: #fff; box-shadow: 0 4px 16px rgba(43, 28, 34, .07); color: var(--ink-3); font-size: 14px; display: flex; align-items: center; padding: 0 18px; }
+  .ibar .send { width: 46px; height: 46px; border-radius: 23px; background: var(--grad); color: #fff; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 14px rgba(255, 61, 99, .32); }
+  .cost { margin: 10px auto 0; width: fit-content; height: 26px; padding: 0 12px; border-radius: 13px; background: rgba(255, 255, 255, .75); font-size: 11px; color: var(--ink-2); display: flex; align-items: center; gap: 5px; }
+  .cost b { color: var(--ink); font-weight: 600; }
+
+  /* 底部弹层 */
+  .dim { position: absolute; inset: 0; background: rgba(43, 20, 28, .42); z-index: 45; }
+  .sheet { position: absolute; left: 0; right: 0; bottom: 0; z-index: 46; border-radius: 30px 30px 0 0; padding: 0 20px 22px; text-align: left;
+           background: radial-gradient(80% 30% at 50% 0%, #ffe0e6 0%, transparent 75%), #fff; }
+  .feat { display: flex; gap: 12px; align-items: center; margin-top: 12px; font-size: 14px; line-height: 1.5; }
+  .feat .sq { width: 36px; height: 36px; border-radius: 12px; background: var(--soft); color: var(--rose); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .pay { display: flex; align-items: center; gap: 11px; padding: 11px 14px; border-radius: 18px; border: 1.5px solid var(--line); margin-top: 8px; background: #fff; }
+  .pay.on { border-color: var(--rose); background: #fff5f6; box-shadow: 0 6px 16px rgba(255, 61, 99, .12); }
+  .pay .sq { width: 36px; height: 36px; border-radius: 12px; background: #f5f0f1; color: var(--ink-2); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .pay.on .sq { background: var(--grad); color: #fff; }
+  .ck { width: 20px; height: 20px; border-radius: 10px; border: 1.5px solid var(--ink-3); flex-shrink: 0; display: flex; align-items: center; justify-content: center; color: #fff; }
+  .pay.on .ck { background: var(--grad); border: none; }
+
+  /* 「我的」页 */
+  .hero-card { margin: 16px 16px 0; border-radius: 26px; padding: 18px; color: #fff; position: relative; overflow: hidden;
+               background: radial-gradient(60% 90% at 100% 0%, rgba(255, 220, 160, .55) 0%, transparent 60%), var(--grad); box-shadow: 0 16px 30px rgba(255, 61, 99, .30); }
+  .hero-card::after { content: ""; position: absolute; right: -40px; bottom: -60px; width: 170px; height: 170px; border-radius: 50%; background: rgba(255, 255, 255, .12); }
+  .hero-card .w { background: #fff; color: var(--rose); box-shadow: none; }
+  .hero-card .g { background: rgba(255, 255, 255, .22); color: #fff; box-shadow: none; border: 1px solid rgba(255, 255, 255, .45); }
+  .ring { width: 54px; height: 54px; border-radius: 50%; background: conic-gradient(#fff 0 62%, rgba(255, 255, 255, .28) 62% 100%); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .ring span { width: 44px; height: 44px; border-radius: 50%; background: #ff5a66; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; }
+  .gt { font-size: 12px; color: var(--ink-2); margin: 14px 28px 6px; }
+  .grp { margin: 0 16px; border-radius: 20px; overflow: hidden; }
+  .lr { display: flex; align-items: center; height: 50px; padding: 0 14px; font-size: 15px; gap: 11px; }
+  .lr + .lr { border-top: 1px solid var(--line); }
+  .lr .sq { width: 30px; height: 30px; border-radius: 10px; background: var(--soft); color: var(--rose); display: flex; align-items: center; justify-content: center; }
+  .lr .end { margin-left: auto; display: flex; align-items: center; gap: 4px; color: var(--ink-3); }
+  .switch { width: 44px; height: 26px; border-radius: 13px; background: #e6dfe1; position: relative; }
+  .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 10px; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .2); }
+  .tabbar { margin-top: auto; display: flex; align-items: center; padding: 10px 0 22px; background: rgba(255, 255, 255, .86); border-top: 1px solid var(--line); flex-shrink: 0; }
+  .tab { flex: 1; text-align: center; color: var(--ink-2); font-size: 15px; }
+  .tab.on { color: var(--ink); font-weight: 800; }
+  .plus { width: 46px; height: 30px; border-radius: 11px; background: var(--grad); color: #fff; display: flex; align-items: center; justify-content: center; margin: 0 auto; box-shadow: 0 6px 12px rgba(255, 61, 99, .3); }
+
+  /* 聊天里的「网页卡片」 */
+  .link { margin: 0 0 14px 47px; border-radius: 22px; overflow: hidden; background: #fff; box-shadow: 0 10px 28px rgba(255, 90, 120, .16); }
+  .link .cover { height: 150px; position: relative; }
+  .link .cover::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 40%, rgba(30, 12, 18, .78) 100%); }
+  .link .cover .txt { position: absolute; left: 14px; right: 14px; bottom: 11px; z-index: 2; color: #fff; }
+  .chip-g { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border-radius: 12px; font-size: 11.5px; color: #fff; background: rgba(255, 255, 255, .22); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, .35); }
+
+  /* 相亲画像网页 */
+  .hero { height: 470px; position: relative; flex-shrink: 0; }
+  .hero::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(20, 8, 12, .30) 0%, transparent 22%, transparent 48%, rgba(24, 8, 14, .86) 100%); }
+  .hero .top { position: absolute; top: 52px; left: 16px; right: 16px; display: flex; justify-content: space-between; z-index: 3; }
+  .gbtn { height: 36px; min-width: 36px; padding: 0 10px; border-radius: 18px; background: rgba(255, 255, 255, .22); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, .4); color: #fff; display: flex; align-items: center; justify-content: center; gap: 5px; font-size: 13px; font-weight: 600; }
+  .hero .info { position: absolute; left: 20px; right: 20px; bottom: 44px; z-index: 3; color: #fff; }
+  .dots { position: absolute; left: 0; right: 0; bottom: 100%; margin-bottom: 0; display: flex; gap: 5px; }
+  .bars { display: flex; gap: 4px; margin-bottom: 12px; }
+  .bars i { flex: 1; height: 3px; border-radius: 2px; background: rgba(255, 255, 255, .35); }
+  .bars i.on { background: #fff; }
+  .wsheet { margin-top: -28px; border-radius: 28px 28px 0 0; position: relative; z-index: 4; flex: 1; padding: 18px 16px 0; }
+  .wcard { border-radius: 24px; padding: 16px 18px; margin-bottom: 14px; }
+  .lbl { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--rose); font-weight: 700; }
+  .lbl .r { margin-left: auto; color: var(--ink-3); font-weight: 400; font-size: 11px; display: flex; align-items: center; gap: 3px; }
+  .quote { font-size: 19px; line-height: 1.6; font-weight: 700; margin-top: 10px; letter-spacing: .2px; }
+  .edit { margin-left: auto; height: 26px; padding: 0 10px; border-radius: 13px; background: #fff; box-shadow: 0 2px 8px rgba(43, 28, 34, .08); color: var(--ink-2); font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; gap: 4px; }
+  .mini { height: 52px; flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 0 16px; background: rgba(255, 248, 244, .86); backdrop-filter: blur(16px); border-bottom: 1px solid var(--line); position: relative; z-index: 10; }
+  .fact { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border-radius: 17px; background: #fff; font-size: 13px; box-shadow: 0 2px 8px rgba(43, 28, 34, .05); }
+  .fact i { color: var(--rose); }
+  .facts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .sec { font-size: 16px; font-weight: 800; display: flex; align-items: center; }
+  .lock { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--ink-2); background: #f3eeef; border-radius: 10px; padding: 2px 8px; font-weight: 400; margin-left: 8px; }
+  .wdock { position: absolute; left: 14px; right: 14px; bottom: 18px; z-index: 20; display: flex; gap: 10px; padding: 9px; border-radius: 32px; }
+</style>
+</head>
+<body>
+
+<div class="intro">
+  <h1>模块一：AI 访谈 + 相亲画像网页（样稿第 2 版）</h1>
+  <p>这一版换了整体观感（暖色渐变底、毛玻璃卡片、渐变按钮），并按你的意思把「相亲画像」做成一个网页：聊天里只放一张卡片，点开是网页。收集和修改的逻辑不变，还是在聊天里一问一答。数字是示意，照片是 AI 生成的假人。</p>
+</div>
+
+<!-- ============ A：入口 + 开始前说明 ============ -->
+<section data-s="a">
+  <h2><b>1</b>从哪进去、开始前看到什么</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">「我的」页 <small>只换最上面这张卡片，下面照旧</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="row" style="padding:8px 22px 0;gap:14px">
+          <div class="photo" style="width:64px;height:64px;border-radius:32px;border:3px solid #fff;box-shadow:0 6px 16px rgba(43,28,34,.14);background-image:url(img/p1.jpg)"></div>
+          <div class="grow">
+            <div style="font-size:21px;font-weight:800">小周</div>
+            <div class="row" style="gap:6px;margin-top:6px"><span class="tag" style="background:rgba(64,156,255,.14);color:#3f8ff0">男 29</span><span class="tag" style="background:#fff;color:var(--ink-2);font-weight:500">成都</span></div>
+          </div>
+        </div>
+
+        <div class="hero-card">
+          <div class="row" style="position:relative;z-index:2">
+            <div class="grow">
+              <div style="font-size:18px;font-weight:800">我的相亲画像</div>
+              <div style="font-size:12.5px;opacity:.92;margin-top:6px;line-height:1.6">基本情况已完成<br>再和 AI 红娘聊聊，推荐更准</div>
+            </div>
+            <div class="ring"><span>62%</span></div>
+          </div>
+          <div class="row" style="margin-top:14px;position:relative;z-index:2">
+            <span class="pill w">查看画像 <i data-ic="right" data-s="14"></i></span>
+            <span class="pill g"><i data-ic="spark" data-s="14"></i>和 AI 红娘深聊</span>
+          </div>
+        </div>
+
+        <div class="gt">我的内容</div>
+        <div class="grp glass"><div class="lr"><span class="sq"><i data-ic="image"></i></span>我的动态<span class="end"><i data-ic="right"></i></span></div></div>
+        <div class="gt">AI 费用</div>
+        <div class="grp glass"><div class="lr"><span class="sq"><i data-ic="wallet"></i></span>AI 余额<span class="new">新</span><span class="end"><b style="color:var(--ink);font-size:15px">¥5.00</b><i data-ic="right"></i></span></div></div>
+        <div class="gt">设置</div>
+        <div class="grp glass">
+          <div class="lr"><span class="sq"><i data-ic="chat"></i></span>编辑资料<span class="end"><i data-ic="right"></i></span></div>
+          <div class="lr"><span class="sq"><i data-ic="camera"></i></span>基本资料<span class="end"><i data-ic="right"></i></span></div>
+          <div class="lr"><span class="sq"><i data-ic="video"></i></span>视频见面<span class="end"><span class="switch"></span></span></div>
+        </div>
+        <div class="tabbar"><div class="tab">广场</div><div class="tab">大厅</div><div class="tab"><div class="plus"><i data-ic="plus" data-s="18"></i></div></div><div class="tab">消息</div><div class="tab on">我的</div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>「我的相亲画像」卡片</b>：代替现在那条灰色的「相亲资料」。右边的圈是完成度：只做完点选问答是 62%，深聊完是 100%。</div>
+        <div><b>查看画像</b> → 打开相亲画像网页（第 3、4 组图）。</div>
+        <div><b>和 AI 红娘深聊</b> → 第一次先看右边的说明；聊到一半变成「继续聊」；聊完变成「再聊聊」。</div>
+        <div><b>编辑资料</b>：不变，还是进聊天页一问一答。<b>AI 余额</b>是模块二的入口，先占个位置。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">深聊开始前的说明 <small>第一次进来从底部弹出</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">AI 红娘<span class="aib">人工智能</span></div><span class="ic-btn"><i data-ic="more"></i></span></div>
+        <div class="body"><div class="br"><div class="orb"><i data-ic="heart" data-s="18"></i></div><div class="bb ai">你好，我是 AI 红娘。</div></div></div>
+        <div class="dim"></div>
+        <div class="sheet">
+          <div style="display:flex;flex-direction:column;align-items:center;margin-top:-30px">
+            <div class="orb lg"><i data-ic="heart" data-s="28"></i></div>
+            <div style="font-size:21px;font-weight:800;margin-top:22px">和 AI 红娘深聊</div>
+            <div class="aib" style="font-size:12px;padding:4px 12px;border-radius:12px;margin-top:8px">我是人工智能，不是真人</div>
+          </div>
+          <div class="feat" style="margin-top:16px"><span class="sq"><i data-ic="clock" data-s="18"></i></span><span>大约 10 分钟，聊性格、生活习惯、对家庭的想法和想找的人</span></div>
+          <div class="feat"><span class="sq"><i data-ic="shield" data-s="18"></i></span><span>不想说的就说「先不说」，随时能停，下次接着聊</span></div>
+          <div class="feat"><span class="sq"><i data-ic="spark" data-s="18"></i></span><span>聊完整理成画像，你确认了才生效</span></div>
+
+          <div class="row" style="margin-top:18px"><span style="font-size:14px;font-weight:700">费用怎么付</span><span class="t2" style="margin-left:auto;font-size:12px">这次预计 <b style="color:var(--rose)">¥0.10</b> 左右</span></div>
+          <div class="pay on">
+            <span class="sq"><i data-ic="wallet" data-s="18"></i></span>
+            <div class="grow"><div style="font-size:14.5px;font-weight:700">平台余额 <span style="font-weight:500;color:var(--ink-2)">¥5.00</span></div><div class="t3" style="margin-top:2px">模型费 + 10% 手续费</div></div>
+            <span class="ck"><i data-ic="check" data-s="12"></i></span>
+          </div>
+          <div class="pay">
+            <span class="sq"><i data-ic="key" data-s="18"></i></span>
+            <div class="grow"><div style="font-size:14.5px;font-weight:700">我自己的 DeepSeek Key</div><div class="t3" style="margin-top:2px">用你自己的额度</div></div>
+            <span style="font-size:13px;color:var(--rose);font-weight:600">去填写</span>
+          </div>
+          <div class="btn" style="margin-top:16px">开始聊</div>
+          <div class="t3" style="text-align:center;margin-top:10px">不聊也不影响你被推荐和找人聊天</div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div>先说清楚：自己是 AI、聊什么、多久、能跳过能暂停，还有<b>大概花多少钱</b>。</div>
+        <div><b>费用怎么付</b>：两种二选一，会记住上次的选择。余额是 0 时右边显示「去充值」；没填 Key 时点「去填写」。这两个页面在模块二设计。</div>
+        <div><b>开始聊</b> → 关掉弹层，进下一组图的聊天。既没余额也没 Key 时按钮是灰的。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ B：聊天 ============ -->
+<section data-s="b">
+  <h2><b>2</b>聊天的时候</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">和 AI 红娘聊 <small>真的大模型在问、在接话</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">AI 红娘<span class="aib">人工智能</span></div><span class="ic-btn"><i data-ic="more"></i></span></div>
+        <div class="steps"><span class="ok"><i data-ic="check" data-s="10"></i>性格</span><span class="ok"><i data-ic="check" data-s="10"></i>生活</span><span class="on">花钱</span><span>家庭</span><span>感情</span><span>想找的人</span></div>
+        <div class="body">
+          <div class="br"><div class="orb"><i data-ic="heart" data-s="18"></i></div><div class="bb ai">你刚才说周末喜欢爬山、在家做饭。那花钱这件事上，你是「该花就花」，还是更愿意存起来？</div></div>
+          <div class="br me"><div class="bb me">大钱比较谨慎，平时吃饭旅游不太省</div><div class="me-av photo" style="background-image:url(img/p1.jpg)"></div></div>
+          <div class="br"><div class="orb"><i data-ic="heart" data-s="18"></i></div><div><div class="bb ai">明白，日常舍得、大事谨慎。那以后两个人一起过日子，钱你希望怎么管？</div><div class="gen"><i data-ic="spark" data-s="10"></i>AI 生成</div></div></div>
+        </div>
+        <div class="dock">
+          <div class="qr"><span>放在一起管</span><span>各管各的</span><span>大钱一起、小钱各管</span><span class="s">先不说</span><span class="s">换个话题</span></div>
+          <div class="ibar"><div class="box">也可以自己打字…</div><div class="send"><i data-ic="up" data-s="20"></i></div></div>
+          <div class="cost">本次已花 <b>¥0.03</b> · 余额 <b>¥4.97</b> <i data-ic="right" data-s="12"></i></div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>顶上一排小标签</b>：一共 6 个话题，聊到哪了。不是固定题目，AI 会顺着你的回答追问，一个话题聊透了自己换下一个。</div>
+        <div><b>现成回答</b>：AI 每问一句顺带给 2～3 个，点一下就发，少打字；也能自己打。「先不说」跳过这一问，「换个话题」直接进下一个。</div>
+        <div><b>最下面的小胶囊</b>：这次已花多少、余额还剩多少，点一下去费用明细（模块二）。用自己 Key 时写「用的是你自己的 Key」。</div>
+        <div><b>右上角「···」</b>：先聊到这（保存退出）/ 聊够了直接出画像 / 重新聊。直接点返回也会自动保存。</div>
+        <div>AI 的话下面有「AI 生成」小字。AI 不评价外貌、不追问收入细节、不劝你花钱。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">钱不够了 / Key 用不了 <small>聊到一半出状况时</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">AI 红娘<span class="aib">人工智能</span></div><span class="ic-btn"><i data-ic="more"></i></span></div>
+        <div class="steps"><span class="ok"><i data-ic="check" data-s="10"></i>性格</span><span class="ok"><i data-ic="check" data-s="10"></i>生活</span><span class="ok"><i data-ic="check" data-s="10"></i>花钱</span><span class="on">家庭</span><span>感情</span><span>想找的人</span></div>
+        <div class="body">
+          <div class="br"><div class="orb"><i data-ic="heart" data-s="18"></i></div><div><div class="bb ai">以后成家了，你希望离父母近一点，还是保持一点距离？</div><div class="gen"><i data-ic="spark" data-s="10"></i>AI 生成</div></div></div>
+          <div class="br me"><div class="bb me">近一点吧，方便照顾</div><div class="me-av photo" style="background-image:url(img/p1.jpg)"></div></div>
+
+          <div class="glass" style="padding:16px;margin-top:4px">
+            <div class="row"><span class="feat" style="margin:0"><span class="sq" style="background:#fff3dc;color:#f59a00"><i data-ic="wallet" data-s="18"></i></span></span><div><div style="font-size:15.5px;font-weight:800">余额不够了，先聊到这里</div><div class="t2" style="margin-top:2px;font-size:12.5px">你说的都存好了，充值后接着聊</div></div></div>
+            <div class="row" style="margin-top:14px"><span class="pill" style="height:38px;border-radius:19px;padding:0 20px">去充值</span><span class="pill ghost" style="height:38px;border-radius:19px;padding:0 16px">改用我自己的 Key</span></div>
+          </div>
+          <div class="t3" style="text-align:center;margin:14px 0 8px">用自己的 Key 出问题时，出现的是下面这张</div>
+          <div class="glass" style="padding:14px 16px;opacity:.9">
+            <div class="row"><span class="feat" style="margin:0"><span class="sq" style="background:#fff3dc;color:#f59a00"><i data-ic="key" data-s="18"></i></span></span><div><div style="font-size:15px;font-weight:800">你的 Key 用不了</div><div class="t2" style="margin-top:2px;font-size:12.5px">可能额度用完了，或者 Key 失效了</div></div></div>
+            <div class="row" style="margin-top:12px"><span class="pill" style="height:36px;border-radius:18px;padding:0 18px">换一个 Key</span><span class="pill ghost" style="height:36px;border-radius:18px;padding:0 16px">改用平台余额</span></div>
+          </div>
+        </div>
+        <div class="dock">
+          <div class="ibar" style="margin-top:0;opacity:.5"><div class="box">暂时不能发</div><div class="send"><i data-ic="up" data-s="20"></i></div></div>
+          <div class="cost">本次已花 <b>¥0.06</b> · 余额 <b>¥0.00</b></div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>余额不够</b>：聊过的都保存着，不影响被推荐和找人聊天。「去充值」→ 充值页；「改用我自己的 Key」→ 填 Key 页（都在模块二）。</div>
+        <div><b>Key 用不了</b>：两张提示不会同时出现，放一起只是给你看。要不要「自动转成平台代付」，是模块二里要你选的一项。</div>
+        <div>解决之前输入框是灰的。回来以后 AI 接着刚才的话题往下问，不用从头来。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ C：聊天里的网页卡片 + 网页顶部 ============ -->
+<section data-s="c">
+  <h2><b>3</b>聊完以后：聊天里是一张卡片，点开是网页</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">聊天里的画像卡片 <small>代替现在那张很长的表格</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">AI 红娘<span class="aib">人工智能</span></div><span class="ic-btn"><i data-ic="more"></i></span></div>
+        <div class="body">
+          <div class="br"><div class="orb"><i data-ic="heart" data-s="18"></i></div><div class="bb ai">聊完了。我把你的相亲画像整理成了一页，只写了你亲口说过的，点开看看对不对。</div></div>
+
+          <div class="link">
+            <div class="cover photo" style="background-image:url(img/p1.jpg);background-position:center 22%">
+              <div class="txt">
+                <div style="font-size:20px;font-weight:800">小周 <span style="font-weight:500;font-size:17px">29</span></div>
+                <div class="row" style="gap:5px;margin-top:6px"><span class="chip-g">成都</span><span class="chip-g">176cm</span><span class="chip-g">本科</span><span class="chip-g">程序员</span></div>
+              </div>
+            </div>
+            <div style="padding:12px 14px 13px">
+              <div style="font-size:15.5px;font-weight:800">小周的相亲画像</div>
+              <div class="t2" style="margin-top:4px;line-height:1.55">慢热但真诚，周末喜欢爬山和做饭；花钱日常舍得、大事谨慎…</div>
+              <div class="row" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line);font-size:12px;color:var(--rose);font-weight:600"><i data-ic="link" data-s="13"></i>点开查看完整画像<i data-ic="right" data-s="14" style="margin-left:auto"></i></div>
+            </div>
+          </div>
+
+          <div class="br"><div class="orb"><i data-ic="heart" data-s="18"></i></div><div class="bb ai">没问题就点「确认」。想改哪一项，在那一页里点一下它，回到这里重新回答就行。</div></div>
+        </div>
+        <div class="dock">
+          <div class="row"><div class="btn ghost" style="flex:1">再聊聊</div><div class="btn" style="flex:1.5">确认，就这样</div></div>
+          <div class="cost">本次共花 <b>¥0.11</b>（模型费 ¥0.10 + 手续费 ¥0.01）</div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>画像卡片</b>：聊天里只放这一张，像别人发来的网页链接。点一下 → 打开右边的相亲画像网页。</div>
+        <div>现在点选问答做完后，聊天里那张很长的表格和最下面的「基本资料（头像、昵称、照片）」那一行都去掉，统一换成这张卡片。</div>
+        <div><b>确认，就这样</b> → 画像生效。<b>再聊聊</b> → 回去接着聊，聊完重新整理。</div>
+        <div>最下面写这次一共花了多少，模型费和手续费分开。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">相亲画像网页 · 刚打开 <small>头像、昵称、照片都在这</small></div>
+      <div class="phone"><div class="island"></div><div class="screen">
+        <div class="status w"><span>9:41</span><span>5G</span></div>
+        <div class="hero photo" style="background-image:url(img/p1.jpg)">
+          <div class="top"><span class="gbtn"><i data-ic="left" data-s="18"></i></span><span class="gbtn"><i data-ic="camera" data-s="15"></i>换头像 / 照片</span></div>
+          <div class="info">
+            <div class="bars"><i class="on"></i><i></i><i></i></div>
+            <div class="row" style="align-items:baseline;gap:10px"><span style="font-size:32px;font-weight:800;letter-spacing:.5px">小周</span><span style="font-size:24px;font-weight:500">29</span><span class="gbtn" style="height:28px;min-width:0;padding:0 10px;font-size:12px;margin-left:auto;align-self:center"><i data-ic="pencil" data-s="12"></i>改昵称</span></div>
+            <div class="row" style="gap:6px;margin-top:10px;flex-wrap:wrap"><span class="chip-g"><i data-ic="pin" data-s="12" style="margin-right:4px"></i>成都</span><span class="chip-g">176cm</span><span class="chip-g">本科</span><span class="chip-g">程序员</span><span class="chip-g">未婚</span></div>
+          </div>
+        </div>
+        <div class="wsheet mesh">
+          <div class="wcard glass">
+            <div class="lbl"><span class="orb sm"><i data-ic="heart" data-s="13"></i></span>AI 红娘眼里的我<span class="r"><i data-ic="spark" data-s="10"></i>AI 生成</span></div>
+            <div class="quote">慢热但真诚，周末喜欢爬山和做饭；花钱日常舍得、大事谨慎；希望成家后离父母近一点。</div>
+            <div class="row" style="flex-wrap:wrap;gap:7px;margin-top:12px"><span class="tag">慢热</span><span class="tag">情绪稳定</span><span class="tag">顾家</span><span class="tag">爱做饭</span></div>
+          </div>
+          <div class="wcard glass" style="padding-bottom:40px"><div class="lbl" style="color:var(--ink-2)">我自己说</div></div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>整屏大照片</b>：头像和照片墙左右滑着看，名字、年龄和几个最要紧的条件压在照片下方。</div>
+        <div><b>换头像 / 照片</b>、<b>改昵称</b> → 去现在已有的「基本资料」页改，改完回来。这两个按钮只有自己看自己时才有。</div>
+        <div><b>AI 红娘眼里的我</b>（别人看时写成「他 / 她」）：深聊后 AI 写的一段话加标签。没深聊过的人，这里用点选问答自动拼出来的那段话，再加一个「和 AI 红娘聊聊」的按钮。</div>
+        <div>这一页是网页。安卓和 iOS 用 App 里已有的内嵌网页打开（大厅就是这么做的），网页端直接跳过去。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ D：网页往下滑 ============ -->
+<section data-s="d">
+  <h2><b>4</b>相亲画像网页：往下滑</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">往下滑 · 中间 <small>照片和文字交替着排</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="mini"><span class="ic-btn" style="width:32px;height:32px"><i data-ic="left"></i></span><div class="photo" style="width:30px;height:30px;border-radius:15px;background-image:url(img/p1.jpg)"></div><b style="font-size:15px">小周 · 29</b></div>
+        <div style="padding:14px 16px 0;flex:1;overflow:hidden">
+          <div class="wcard glass">
+            <div class="lbl" style="color:var(--ink-2)">我自己说<span class="edit"><i data-ic="pencil" data-s="11"></i>改</span></div>
+            <div style="font-size:16px;line-height:1.7;margin-top:8px;font-weight:500">性格慢热，熟了以后话挺多。周末喜欢爬山、做饭，想找个能一起好好过日子的人。</div>
+          </div>
+          <div class="row" style="gap:10px;align-items:stretch;margin-bottom:16px">
+            <div class="photo" style="flex:1.25;height:210px;border-radius:22px;background-image:url(img/p2.jpg);box-shadow:0 10px 24px rgba(43,28,34,.12)"></div>
+            <div style="flex:1;display:flex;flex-direction:column;gap:10px">
+              <div class="photo" style="flex:1;border-radius:22px;background-image:url(img/p3.jpg);box-shadow:0 10px 24px rgba(43,28,34,.12)"></div>
+              <div style="height:62px;border-radius:20px;border:1.5px dashed rgba(255,61,99,.4);color:var(--rose);display:flex;align-items:center;justify-content:center;gap:5px;font-size:13px;font-weight:600;background:rgba(255,255,255,.5)"><i data-ic="plus" data-s="15"></i>加照片</div>
+            </div>
+          </div>
+          <div class="sec">基本情况<span class="edit"><i data-ic="pencil" data-s="11"></i>点一项可改</span></div>
+          <div class="facts">
+            <span class="fact"><i data-ic="cake"></i>1997 年 · 29 岁</span><span class="fact"><i data-ic="ruler"></i>176 cm</span>
+            <span class="fact"><i data-ic="pin"></i>现居成都</span><span class="fact"><i data-ic="home"></i>老家绵阳</span>
+            <span class="fact"><i data-ic="cap"></i>本科</span><span class="fact"><i data-ic="bag"></i>程序员</span><span class="fact"><i data-ic="heart"></i>未婚</span>
+            <span class="fact"><i data-ic="home"></i>已买房，有贷款</span><span class="fact"><i data-ic="car"></i>有车</span>
+            <span class="fact"><i data-ic="baby"></i>想要孩子</span><span class="fact"><i data-ic="clock"></i>一到两年内结婚</span>
+            <span class="fact"><i data-ic="leaf"></i>不抽烟</span><span class="fact"><i data-ic="cup"></i>偶尔喝酒</span>
+          </div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div>滑下来以后，顶上缩成一条小标题栏（返回 + 小头像 + 名字）。</div>
+        <div><b>照片</b>：两三张拼在一起，点一张放大看。「加照片」只有自己能看到，点了去「基本资料」页传。</div>
+        <div><b>基本情况</b>：点选问答里答过的，一项一个小标签，不再是一长串表格。答了「先不说」的不给别人看。</div>
+        <div><b>想改哪一项就点哪个小标签</b> → 回到聊天页，AI 红娘把那一题重新问一遍，答完回到这一页。和现在「点一行重新回答」是同一套逻辑。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">往下滑 · 到底 <small>想找的人 + 只有自己能看的</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="mini"><span class="ic-btn" style="width:32px;height:32px"><i data-ic="left"></i></span><div class="photo" style="width:30px;height:30px;border-radius:15px;background-image:url(img/p1.jpg)"></div><b style="font-size:15px">小周 · 29</b></div>
+        <div style="padding:14px 16px 0;flex:1;overflow:hidden">
+          <div class="sec">平时喜欢</div>
+          <div class="facts" style="margin-bottom:18px"><span class="fact">户外爬山</span><span class="fact">做饭</span><span class="fact">旅行</span><span class="fact">电影追剧</span></div>
+
+          <div class="wcard" style="background:linear-gradient(135deg,#fff0f2,#fff6ec);border:1px solid #fff;box-shadow:0 8px 26px rgba(255,90,120,.10)">
+            <div class="sec"><i data-ic="heart" data-s="17" style="color:var(--rose);margin-right:6px"></i>想找的人<span class="edit"><i data-ic="pencil" data-s="11"></i>点一项可改</span></div>
+            <div style="font-size:16px;line-height:1.65;font-weight:700;margin-top:10px">聊得来、情绪稳定、愿意一起做饭的人。</div>
+            <div class="facts"><span class="fact">只找同城</span><span class="fact">年龄相差 5 岁以内</span><span class="fact">160 以上</span><span class="fact">大专及以上</span><span class="fact">只接受未婚</span></div>
+          </div>
+
+          <div class="wcard glass">
+            <div class="sec" style="font-size:15px">只有我能看到<span class="lock"><i data-ic="lock" data-s="11"></i>别人看不到，只用来给你做推荐</span></div>
+            <div class="facts"><span class="fact">月收入 1 万～2 万</span><span class="fact">不能接受：冷战、不沟通</span><span class="fact">婚后钱放一起管</span><span class="fact">家务一起分担</span></div>
+          </div>
+          <div class="t3" style="text-align:center;margin-top:4px">由 AI 红娘（人工智能）整理 · 内容经本人确认</div>
+        </div>
+        <div class="wdock glass">
+          <div class="btn ghost" style="flex:1;height:46px;font-size:14.5px;box-shadow:none;background:transparent"><i data-ic="eye" data-s="16"></i>别人看到的样子</div>
+          <div class="btn" style="flex:1.2;height:46px;font-size:15px"><i data-ic="spark" data-s="16"></i>再和 AI 聊聊</div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>想找的人</b>：上面一句是深聊后 AI 写的，下面的小标签是点选问答里选的条件，点一个就回聊天页改那一题。</div>
+        <div><b>只有我能看到</b>：收入、不能接受的事、深聊里比较私人的想法放这一块，别人打开你的画像时整块不出现。</div>
+        <div><b>别人看到的样子</b> → 同一页去掉所有「改」按钮和这块私密内容，让你预览一下。</div>
+        <div><b>再和 AI 聊聊</b> → 回聊天页接着深聊。AI 记得上次聊过什么，只补聊新的。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  // 线条小图标（参考 lucide 的画法）
+  var IC = {
+    left: '<path d="m15 18-6-6 6-6"/>', right: '<path d="m9 18 6-6-6-6"/>', up: '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
+    more: '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+    plus: '<path d="M5 12h14"/><path d="M12 5v14"/>', check: '<path d="M20 6 9 17l-5-5"/>',
+    heart: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>',
+    spark: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>',
+    wallet: '<path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/>',
+    key: '<path d="m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4"/><path d="m21 2-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/>',
+    pencil: '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>',
+    pin: '<path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/>',
+    cap: '<path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/>',
+    bag: '<path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/>',
+    ruler: '<path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/>',
+    home: '<path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+    clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+    shield: '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>',
+    chat: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
+    camera: '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>',
+    image: '<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>',
+    video: '<path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/>',
+    link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+    lock: '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+    eye: '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
+    cake: '<path d="M20 21v-8a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8"/><path d="M4 16s.5-1 2-1 2.5 2 4 2 2.5-2 4-2 2.5 2 4 2 2-1 2-1"/><path d="M2 21h20"/><path d="M7 8v3"/><path d="M12 8v3"/><path d="M17 8v3"/>',
+    car: '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>',
+    baby: '<path d="M9 12h.01"/><path d="M15 12h.01"/><path d="M10 16c.5.3 1.2.5 2 .5s1.5-.2 2-.5"/><path d="M19 6.3a9 9 0 0 1 1.8 3.9 2 2 0 0 1 0 3.6 9 9 0 0 1-17.6 0 2 2 0 0 1 0-3.6A9 9 0 0 1 12 3c2 0 3.5 1.1 3.5 2.5s-.9 2.5-2 2.5c-.8 0-1.5-.4-1.5-1"/>',
+    leaf: '<path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>',
+    cup: '<path d="M10 2v2"/><path d="M14 2v2"/><path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1"/><path d="M6 2v2"/>'
+  };
+  document.querySelectorAll('i[data-ic]').forEach(function (el) {
+    var s = el.dataset.s || 16;
+    el.innerHTML = '<svg viewBox="0 0 24 24" width="' + s + '" height="' + s + '" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + (IC[el.dataset.ic] || '') + '</svg>';
+  });
+  // 网址带 ?only=a 时只显示那一组（截图用）
+  var only = new URLSearchParams(location.search).get('only');
+  if (only) {
+    document.querySelector('.intro').style.display = 'none';
+    document.querySelectorAll('section').forEach(function (s) { if (s.dataset.s !== only) s.style.display = 'none'; });
+  }
+</script>
+</body>
+</html>

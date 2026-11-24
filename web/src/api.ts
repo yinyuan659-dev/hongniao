@@ -1,4 +1,4 @@
-import { lang, localizeServer, t } from './i18n';
+import { lang, t } from './i18n';
 
 // http 环境（非安全上下文）没有 crypto.randomUUID，做降级
 function randomId(): string {
@@ -30,7 +30,38 @@ export function getToken(): string | null {
 
 export function setToken(token: string | null) {
   if (token) localStorage.setItem('pw_token', token);
-  else localStorage.removeItem('pw_token');
+  else {
+    localStorage.removeItem('pw_token');
+    localStorage.removeItem('pw_did');
+  }
+}
+
+/** 这台设备在服务器「登录设备」表里的编号（进入 / 找回 / 并号时服务器给的）。用来认出推送里说的是不是本机 */
+export function getDid(): string {
+  return localStorage.getItem('pw_did') ?? '';
+}
+
+export function setDid(did: string | null | undefined) {
+  if (did) localStorage.setItem('pw_did', did);
+  else localStorage.removeItem('pw_did');
+}
+
+/**
+ * 这一次是不是「借来的登录身份」：App 内嵌网页（原生把 token 放在网址里带进来），或者别的带 ?token= 的链接。
+ * 这种情况下不能拿网页自己的设备号去「进入」（那不是这个身份的设备）。只在当前标签页有效。
+ */
+export function isEmbedSession(): boolean {
+  try { return sessionStorage.getItem('hn_embed') === '1'; } catch { return false; }
+}
+
+/** App 内嵌网页里，原生通过网址 ?dev= 带进来的原生设备号（刷脸找回要挂的是原生那台设备，不是内嵌网页自己的） */
+export function nativeDeviceId(): string {
+  try { return sessionStorage.getItem('hn_native_dev') ?? ''; } catch { return ''; }
+}
+
+/** 找回时要挂到账号上的设备号：在 App 里是原生的，在浏览器里是网页自己的 */
+export function loginDeviceId(): string {
+  return nativeDeviceId() || getDeviceId();
 }
 
 export async function api<T = any>(path: string, options: { method?: string; body?: any } = {}): Promise<T> {
@@ -48,21 +79,14 @@ export async function api<T = any>(path: string, options: { method?: string; bod
       setToken(null);
       location.hash = '#/enter';
     }
-    throw new Error(json.msg || t('common.requestFailed'));
+    // reason：服务端给的原因代码（例如 AI 费用的 no_balance / key_invalid），页面按它决定弹哪张提示
+    throw Object.assign(new Error(json.msg || t('common.requestFailed')), { reason: json.reason as string | undefined, code: json.code as number });
   }
-  return localizeServer(json.data as T);
+  return json.data as T;
 }
 
-/** 分 → 积分 显示（100 分 = 1 积分），去掉多余的 0 */
-export function fmtPoints(fen: string | number | bigint | undefined | null): string {
-  const n = Number(fen ?? 0) / 100;
-  return n.toFixed(2).replace(/\.?0+$/, '') || '0';
-}
-
-/** 积分（可含小数）→ 分 */
-export function toFen(points: string | number): number {
-  return Math.round(Number(points || 0) * 100);
-}
+/** 从接口报错里取原因代码（没有就是空字符串） */
+export const reasonOf = (e: unknown): string => (e as { reason?: string })?.reason ?? '';
 
 /** 登录后上传（image | video） */
 export async function uploadFile(kind: 'image' | 'video', file: File): Promise<string> {
@@ -127,7 +151,6 @@ export function uploadChatFile(file: File, onProgress?: (p: number) => void): Pr
 export interface UserProfile {
   id: string;
   shortId?: string;
-  address: string;
   nickname: string;
   avatar: string;
   gender: number;
@@ -136,11 +159,16 @@ export interface UserProfile {
   cityName: string;
   signature: string;
   isGuide: boolean;
-  videoPriceFen?: number;
+  /** 视频见面开关（默认关；双方都打开才能互相发起视频通话） */
+  allowVideo?: boolean;
+  /** 是否已完成资料收集（只有 /user/me 返回） */
+  profileDone?: boolean;
+  /** AI 深聊：none 没聊过 | chatting 聊到一半 | draft 画像等确认 | done 已确认（只有 /user/me 返回） */
+  deepStatus?: 'none' | 'chatting' | 'draft' | 'done';
   realname?: boolean;
   realNameMasked?: string;
-  balance?: string;
-  frozen?: string;
+  /** 注册时间 */
+  createdAt?: string;
   following?: number;
   fans?: number;
   /** 照片墙（最多 8 张） */

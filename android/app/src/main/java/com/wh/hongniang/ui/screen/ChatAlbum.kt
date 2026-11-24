@@ -1,17 +1,11 @@
 package com.wh.hongniang.ui.screen
 
-import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.media.ExifInterface
-import android.media.MediaRecorder
 import android.net.Uri
-import android.os.Build
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -39,16 +33,13 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import com.wh.hongniang.i18n.t
 import com.wh.hongniang.net.Api
-import com.wh.hongniang.ui.WaveformIcon
 import com.wh.hongniang.ui.theme.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -63,7 +54,6 @@ import kotlinx.serialization.json.jsonPrimitive
 import com.wh.hongniang.net.WsClient
 import kotlin.coroutines.resume
 import java.io.ByteArrayOutputStream
-import java.io.File
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -402,61 +392,6 @@ fun singleImageSize(w: Int, h: Int, maxW: Dp, maxH: Dp): Pair<Dp, Dp>? {
     if (w <= 0 || h <= 0) return null
     val s = min(maxW.value / w, maxH.value / h)
     return max(60f, w * s).dp to max(60f, h * s).dp
-}
-
-// ---------- 语音 ----------
-
-/** 按住说话条（频道用；聊天页自己有一套）：松手发出，录到的 m4a 和秒数交给 onSend */
-@Composable
-fun VoiceHoldBar(modifier: Modifier, onSend: (ByteArray, Int) -> Unit) {
-    val ctx = LocalContext.current
-    var recording by remember { mutableStateOf(false) }
-    var recorder by remember { mutableStateOf<MediaRecorder?>(null) }
-    var file by remember { mutableStateOf<File?>(null) }
-    var started by remember { mutableLongStateOf(0L) }
-    val perm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
-    fun start() {
-        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            perm.launch(Manifest.permission.RECORD_AUDIO)
-            return
-        }
-        runCatching {
-            val f = File(ctx.cacheDir, "rec_${System.currentTimeMillis()}.m4a")
-            val r = if (Build.VERSION.SDK_INT >= 31) MediaRecorder(ctx) else @Suppress("DEPRECATION") MediaRecorder()
-            r.setAudioSource(MediaRecorder.AudioSource.MIC)
-            r.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-            r.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-            r.setOutputFile(f.absolutePath)
-            r.prepare(); r.start()
-            recorder = r; file = f; started = System.currentTimeMillis(); recording = true
-        }
-    }
-    fun stop() {
-        if (!recording) return
-        recording = false
-        val ok = runCatching { recorder?.stop() }.isSuccess
-        runCatching { recorder?.release() }
-        recorder = null
-        val f = file ?: return
-        val dur = ((System.currentTimeMillis() - started) / 1000).toInt()
-        if (!ok || dur < 1) { android.widget.Toast.makeText(ctx, t("chat.voice.tooShort"), android.widget.Toast.LENGTH_SHORT).show(); return }
-        onSend(f.readBytes(), dur.coerceAtMost(60))
-        f.delete()
-    }
-    DisposableEffect(Unit) { onDispose { runCatching { recorder?.stop(); recorder?.release() } } }
-    Box(
-        modifier.height(40.dp).clip(RoundedCornerShape(20.dp)).background(if (recording) Accent else Bg3)
-            .pointerInput(Unit) { detectTapGestures(onPress = { start(); tryAwaitRelease(); stop() }) },
-        contentAlignment = Alignment.Center,
-    ) {
-        if (recording) {
-            val trans = rememberInfiniteTransition(label = "rec")
-            val a by trans.animateFloat(0.35f, 1f, infiniteRepeatable(tween(600), RepeatMode.Reverse), label = "a")
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                WaveformIcon(Color.White.copy(alpha = a), 16.dp); Spacer(Modifier.width(8.dp)); Text(t("chat.releaseToSend"), color = Color.White, fontSize = 14.sp)
-            }
-        } else Text(t("chat.holdToTalk"), color = TextMain, fontSize = 14.sp)
-    }
 }
 
 /** 本地选的图（content:// / file://）直接给 Coil；服务器上的补全地址 */

@@ -3,8 +3,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { NotifyService } from '../notify/notify.service';
 import { ConnectionRegistry } from '../im/connection.registry';
 import { IntimacyService } from '../intimacy/intimacy.service';
-import { StickerService, parseStickerJson } from '../sticker/sticker.service';
 import { CommentDto, PublishMomentDto } from './moment.dto';
+import { assertKyc } from '../common/kyc-gate';
 
 @Injectable()
 export class MomentService {
@@ -13,17 +13,13 @@ export class MomentService {
     private readonly notify: NotifyService,
     private readonly registry: ConnectionRegistry,
     private readonly intimacy: IntimacyService,
-    private readonly stickers: StickerService,
   ) {}
 
   async publish(userId: bigint, dto: PublishMomentDto) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user || user.status !== 0) throw new ForbiddenException('账号异常');
-    // 后台开关：女生须实名认证才能发布动态（男生无实名功能，不受约束）
-    if (user.gender === 2 && !user.idCard) {
-      const cfg = await this.prisma.priceConfig.findFirst();
-      if (cfg?.momentNeedRealname) throw new ForbiddenException('请先完成搭子认证后再发布动态');
-    }
+    // 做过实人认证才能发动态（后台开关控制，默认关），见 common/kyc-gate.ts
+    await assertKyc(this.prisma, userId);
     if (dto.type === 1 && !(dto.images?.length || dto.content?.trim())) {
       throw new BadRequestException('请填写内容或选择图片');
     }
@@ -143,13 +139,9 @@ export class MomentService {
     const userIds = [...new Set(moments.map((m) => m.userId.toString()))].map(BigInt);
     const users = await this.prisma.user.findMany({
       where: { id: { in: userIds } },
-      select: { id: true, nickname: true, avatar: true, gender: true, age: true, isGuide: true, latitude: true, longitude: true, videoPriceFen: true, ratingAvg: true },
+      select: { id: true, nickname: true, avatar: true, gender: true, age: true, isGuide: true, latitude: true, longitude: true, ratingAvg: true, allowVideo: true },
     });
     const userMap = new Map(users.map((u) => [u.id.toString(), u]));
-    // 视频每分钟实际价格：自定价高于平台抽成则用自定价，否则用默认价（成本 x5），供视频通话按钮展示
-    const priceCfg = await this.prisma.priceConfig.findFirst();
-    const videoCutFen = (priceCfg?.videoBaseFenPerMin ?? 2) * (priceCfg?.videoPlatformX ?? 2);
-    const videoDefaultFen = (priceCfg?.videoBaseFenPerMin ?? 2) * 5;
     const [liked, follows, onlineSet, busyRows] = await Promise.all([
       this.prisma.momentLike.findMany({
         where: { userId: viewerId, momentId: { in: moments.map((m) => m.id) } },
@@ -192,8 +184,6 @@ export class MomentService {
               // Decimal 显式转数字，避免客户端按字符串解析失败
               latitude: author.latitude != null ? Number(author.latitude) : null,
               longitude: author.longitude != null ? Number(author.longitude) : null,
-              // 女生返回视频通话实际价格（分/分钟），男生为 0
-              videoPriceFen: author.gender === 2 ? (author.videoPriceFen > videoCutFen ? author.videoPriceFen : videoDefaultFen) : 0,
             }
           : author,
         content: m.content,
@@ -265,7 +255,6 @@ export class MomentService {
         user: userMap.get(c.userId.toString()),
         content: c.content,
         imageUrl: c.imageUrl,
-        sticker: parseStickerJson(c.sticker),
         replyToId: c.replyToId,
         replyToNickname: replyTo ? userMap.get(replyTo.userId.toString())?.nickname ?? '' : '',
         createdAt: c.createdAt,
@@ -276,9 +265,10 @@ export class MomentService {
   async addComment(userId: bigint, momentId: bigint, dto: CommentDto) {
     const moment = await this.prisma.moment.findUnique({ where: { id: momentId } });
     if (!moment || moment.status !== 0) throw new NotFoundException('动态不存在');
+    // 做过实人认证才能评论（后台开关控制，默认关）
+    await assertKyc(this.prisma, userId);
     const content = dto.content?.trim() ?? '';
-    const sticker = await this.stickers.payloadOf(dto.stickerId);
-    if (!content && !dto.imageUrl && !sticker) throw new BadRequestException('评论不能为空');
+    if (!content && !dto.imageUrl) throw new BadRequestException('评论不能为空');
 
     let replyToUserId: bigint | null = null;
     if (dto.replyToId) {
@@ -294,7 +284,6 @@ export class MomentService {
           userId,
           content,
           imageUrl: dto.imageUrl ?? '',
-          sticker: sticker ? JSON.stringify(sticker) : '',
           replyToId: dto.replyToId ? BigInt(dto.replyToId) : null,
         },
       }),
@@ -303,7 +292,7 @@ export class MomentService {
 
     // 分类通知：动态作者与被回复人（不通知自己），落库 + 在线推送
     const commenter = await this.prisma.user.findUnique({ where: { id: userId }, select: { nickname: true } });
-    const preview = (content || (sticker ? (sticker.format === 'mp4' ? '[GIF]' : '[表情]') : '[图片]')).slice(0, 60);
+    const preview = (content || '[图片]').slice(0, 60);
     const from = commenter?.nickname ?? '';
     if (moment.userId !== userId) {
       await this.notify.push(moment.userId, 'comment', `${from} 评论了你的动态`, preview, momentId, userId);

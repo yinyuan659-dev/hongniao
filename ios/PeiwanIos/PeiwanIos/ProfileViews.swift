@@ -8,23 +8,36 @@ struct MeView: View {
     @State private var me: UserProfile?
     @State private var camDefaultOn = UserDefaults.standard.bool(forKey: "camDefaultOn")
     @State private var showScan = false
-    @State private var chainWalletVisible = false
     @State private var showLanguage = false
+    /// AI 余额（元）；nil = 还没取到
+    @State private var aiBalance: String?
+    /// 后台要求先做实人认证、而我还没做：显示一行「完成实人认证」（做过才能聊天 / 发动态 / 评论）
+    @State private var needKyc = false
+    /// 能登录这个账号的设备有几台；nil = 还没取到
+    @State private var deviceCount: Int?
 
     var body: some View {
         NavStack {
             content
                 .fullBg()
                 .withRoutes()
-                // 扫一扫（统一处理见 QrViews.swift ScanHandlerModifier）；放在导航栈里面，扫到钱包地址 / 收款码才能 push
+                // 扫一扫（统一处理见 QrViews.swift ScanHandlerModifier）
                 .scanFlow(isPresented: $showScan)
+                // 每次回到这一页（包括从子页面返回）都重新取一次：深聊的状态、AI 余额可能在别的页面里变了
+                .onAppear {
+                    Task {
+                        if let u: UserProfile = try? await Api.request("/user/me") { state.user = u }
+                        if let w: AiWalletBrief = try? await Api.request("/ai-wallet") { aiBalance = w.balance }
+                        if let k: KycStatusBrief = try? await Api.request("/kyc/status") { needKyc = (k.required ?? false) && !(k.realname ?? false) }
+                        if let d: DeviceListBrief = try? await Api.request("/devices") { deviceCount = d.devices?.count }
+                    }
+                }
         }
         .task {
             if let u: UserProfile = try? await Api.request("/user/me") {
                 me = u
                 state.user = u
             }
-            chainWalletVisible = await ChainWallet.visible(me)
         }
     }
 
@@ -32,7 +45,7 @@ struct MeView: View {
     private var content: some View {
         // 优先用全局状态：编辑资料保存后（state.user 已更新）立即生效
         if let u = state.user ?? me {
-            // 头部（头像到积分余额）固定不动，下面的功能分组单独滚动
+            // 头部（头像到相亲资料卡）固定不动，下面的功能分组单独滚动
             VStack(spacing: 0) {
                     // 头部
                     VStack(alignment: .leading, spacing: 0) {
@@ -58,7 +71,7 @@ struct MeView: View {
                             }
                             .padding(.top, 4)
                             Spacer()
-                            // 扫一扫（扫群邀请二维码加群）
+                            // 扫一扫（扫邀请名片二维码开私聊）
                             Button {
                                 showScan = true
                             } label: {
@@ -94,25 +107,9 @@ struct MeView: View {
                         }
                         .padding(.top, 16)
 
-                        // 积分余额：融合进头部（玻璃质感行，点击进钱包）
-                        RouteLink(.wallet) {
-                            HStack(alignment: .center) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(t("me.balance")).font(.system(size: 11)).foregroundStyle(Theme.textSub)
-                                    Text(fmtPoints(u.balance)).font(.system(size: 26, weight: .bold)).foregroundStyle(Theme.accent)
-                                }
-                                Spacer()
-                                VStack(alignment: .trailing, spacing: 6) {
-                                    Text(t("me.frozen", ["n": fmtPoints(u.frozen)])).font(.system(size: 11)).foregroundStyle(Theme.textSub)
-                                    Text(t("me.details")).font(.system(size: 13)).foregroundStyle(Theme.textSub)
-                                }
-                            }
-                            .padding(.horizontal, 16).padding(.vertical, 12)
-                            .background(RoundedRectangle(cornerRadius: 14).fill(Color.black.opacity(0.04)))
-                            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.accent.opacity(0.25), lineWidth: 1))
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.top, 16)
+                        // 我的相亲画像：基本情况（点选问答，必做）+ AI 深聊（可选）。没做完基本情况不能主动找人聊天
+                        MePortraitCard(u: u)
+                            .padding(.top, 16)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(EdgeInsets(top: 28, leading: 20, bottom: 16, trailing: 20))
@@ -129,34 +126,65 @@ struct MeView: View {
         }
     }
 
-    /// 功能分组：我的内容 / 同城搭子 / 工具 / 设置
+    /// 功能分组：我的内容 / 工具 / 设置
     private func menuGroups(_ u: UserProfile) -> some View {
         VStack(spacing: 0) {
             meGroup(t("me.group.content")) {
                 menuRow(t("me.myMoments"), .myMoments, first: true)
-                // 关注的人动态（原主页「关注」tab 移到这里）
-                menuRow(t("me.followMoments"), .followMoments)
-                menuRow(t("me.gifts"), .giftsReceived)
             }
-            meGroup(t("me.group.buddy")) {
-                menuRow(u.gender == 2 ? t("me.myTasksGuide") : t("me.myTasks"), .taskMine, first: true)
-                // 搭子认证已合并实名认证（申请时提交姓名+身份证，审核通过即实名）
-                if !u.isGuide { menuRow(t("me.guideApply"), .guideApply) }
+            // AI 费用：深聊这类 AI 功能按用量花模型费（平台余额或自己的 Key）；点进去是网页
+            meGroup("AI 费用") {
+                RouteLink(.web("/ai-fee")) {
+                    HStack {
+                        Text("AI 余额").font(.system(size: 15)).foregroundStyle(Theme.text)
+                        Spacer()
+                        if let aiBalance { Text("¥\(aiBalance)").font(.system(size: 14)).foregroundStyle(Theme.textSub) }
+                        Text("›").font(.system(size: 18)).foregroundStyle(Theme.textDim)
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 14)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
-            meGroup(t("me.group.tools")) {
-                // 链上钱包：App Store 非中国区 + 后台开关（或本机已有钱包）
-                if chainWalletVisible { menuRow(t("me.chainWallet"), .chainWallet, first: true) }
-                menuRow(t("me.bots"), .bots, first: !chainWalletVisible)
-                // 专属邀请网页（链接 + 二维码）：女生发给男生 / 男生发给女生，下载后自动归因到我
-                if !state.reviewMode { menuRow(t("me.inviteCard"), .inviteCard) }
+            // 账号与安全：实人认证（后台要求且还没做时才出现）、登录设备（换手机刷脸找回后会多出来，可以移除）；点进去都是网页
+            meGroup("账号与安全") {
+                if needKyc {
+                    webRow("完成实人认证", value: "做过才能聊天 · ¥1", route: "/kyc?next=/me")
+                    Rectangle().fill(Theme.line).frame(height: 0.5).padding(.leading, 16)
+                }
+                webRow("登录设备", value: deviceCount.map { "\($0) 台" }, route: "/devices")
+            }
+            // 专属邀请网页（链接 + 二维码）：女生发给男生 / 男生发给女生，下载后自动归因到我
+            if !state.reviewMode {
+                meGroup(t("me.group.tools")) {
+                    menuRow(t("me.inviteCard"), .inviteCard, first: true)
+                }
             }
             meGroup(t("me.group.settings")) {
-                menuRow(t("me.editProfile"), .editProfile, first: true)
+                // 编辑资料 = 进 AI 红娘的资料收集；头像 / 昵称 / 照片墙单独一行
+                menuRow(t("me.editProfile"), .interview, first: true)
+                menuRow(t("hn.basic"), .editProfile)
+                videoMeetRow
                 languageRow
                 // 男方专属：视频通话默认是否开启自己画面（默认关闭；女方无此设置）
                 if u.gender == 1 { camRow }
             }
         }
+    }
+
+    /// 点开是内嵌网页的一行：左边名字，右边一个灰色的值和箭头
+    private func webRow(_ title: String, value: String?, route: String) -> some View {
+        RouteLink(.web(route)) {
+            HStack {
+                Text(title).font(.system(size: 15)).foregroundStyle(Theme.text)
+                Spacer()
+                if let value { Text(value).font(.system(size: 14)).foregroundStyle(Theme.textSub) }
+                Text("›").font(.system(size: 18)).foregroundStyle(Theme.textDim)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 14)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     /// 小标题 + 白色圆角卡片
@@ -173,6 +201,34 @@ struct MeView: View {
     /// 卡片里行与行之间的分隔线（左边缩进，第一行上面不画）
     private var rowDivider: some View {
         Rectangle().fill(Theme.line).frame(height: 0.5).padding(.leading, 16)
+    }
+
+    /// 视频见面：默认关，自己和对方都打开才能互相发起视频通话
+    private var videoMeetRow: some View {
+        VStack(spacing: 0) {
+            rowDivider
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(t("me.videoMeet")).font(.system(size: 15)).foregroundStyle(Theme.text)
+                    Text(t("me.videoMeetSub")).font(.system(size: 11)).foregroundStyle(Theme.textDim)
+                }
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { state.user?.allowVideo == true },
+                    set: { on in
+                        state.user?.allowVideo = on
+                        Task {
+                            // 没存上就拨回去
+                            let saved: UserProfile? = try? await Api.request("/user/me", method: "PUT", body: ["allowVideo": on])
+                            if saved == nil { state.user?.allowVideo = !on }
+                        }
+                    }
+                ))
+                .labelsHidden()
+                .tint(Theme.accent)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10)
+        }
     }
 
     private var camRow: some View {
@@ -238,339 +294,6 @@ struct MeView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-    }
-}
-
-private func txLabel(_ type: String) -> String {
-    switch type {
-    case "admin_grant": return t("wallet.tx.adminGrant")
-    case "gift_send": return t("wallet.tx.giftSend")
-    case "gift_recv": return t("wallet.tx.giftRecv")
-    case "task_freeze": return t("wallet.tx.taskFreeze")
-    case "task_settle": return t("wallet.tx.taskSettle")
-    case "task_refund": return t("wallet.tx.taskRefund")
-    case "msg_fee": return t("wallet.tx.msgFee")
-    case "msg_income": return t("wallet.tx.msgIncome")
-    case "call_fee": return t("wallet.tx.callFee")
-    case "call_income": return t("wallet.tx.callIncome")
-    case "transfer_out": return t("wallet.tx.transferOut")
-    case "transfer_in": return t("wallet.tx.transferIn")
-    case "adjust": return t("wallet.tx.adjust")
-    default: return type
-    }
-}
-
-/// 贡献榜条目
-struct ContribRankItem: Codable, Identifiable {
-    var userId: String = ""
-    var nickname: String? = ""
-    var avatar: String? = ""
-    var totalFen: String? = "0"
-    var giftFen: String? = "0"
-    var callFen: String? = "0"
-    var msgFen: String? = "0"
-    var id: String { userId }
-}
-
-/// 积分明细
-struct WalletView: View {
-    @EnvironmentObject var state: AppState
-    @State private var wallet: WalletData?
-    @State private var txs: [WalletTx] = []
-    @State private var hasMore = false
-    @State private var loadingMore = false
-    @State private var tab = 0 // 0=明细 1=榜单
-    @State private var rank: [ContribRankItem] = []
-    @State private var rankLoaded = false
-
-    private var rankTitle: String { state.user?.gender == 2 ? t("wallet.rankContrib") : t("wallet.rankGifting") }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            // 积分卡固定在顶部，不随流水滚动
-            VStack(spacing: 4) {
-                Text(t("wallet.available")).font(.system(size: 13)).foregroundStyle(Theme.textSub)
-                Text(fmtPoints(wallet?.balance)).font(.system(size: 38, weight: .bold)).foregroundStyle(Theme.text)
-                Text(t("wallet.frozenN", ["n": fmtPoints(wallet?.frozen)])).font(.system(size: 12)).foregroundStyle(Theme.textDim)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(24)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Theme.bg2))
-            .padding(16)
-
-            // 明细 / 榜单切换
-            HStack(spacing: 10) {
-                ForEach(Array([t("wallet.tabTxs"), rankTitle].enumerated()), id: \.offset) { idx, label in
-                    Text(label)
-                        .font(.system(size: 13, weight: tab == idx ? .semibold : .regular))
-                        .foregroundStyle(tab == idx ? .white : Theme.textSub)
-                        .padding(.horizontal, 18).padding(.vertical, 6)
-                        .background(Capsule().fill(tab == idx ? Theme.accent : Theme.bg3))
-                        .onTapGesture {
-                            tab = idx
-                            if idx == 1, !rankLoaded {
-                                Task {
-                                    struct RankResp: Codable { var title: String?; var list: [ContribRankItem]? }
-                                    if let r: RankResp = try? await Api.request("/wallet/contrib-rank") {
-                                        rank = r.list ?? []
-                                        rankLoaded = true
-                                    }
-                                }
-                            }
-                        }
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 16).padding(.bottom, 6)
-
-            if tab == 1 {
-                rankList
-            } else {
-            ScrollView {
-                VStack(spacing: 0) {
-                    ForEach(txs) { tx in
-                        VStack(spacing: 0) {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(txLabel(tx.type ?? "")).font(.system(size: 14)).foregroundStyle(Theme.text)
-                                    Text(tx.remark ?? "").font(.system(size: 11)).foregroundStyle(Theme.textDim)
-                                }
-                                Spacer()
-                                let amount = tx.amount ?? "0"
-                                let neg = amount.hasPrefix("-")
-                                Text((neg ? "-" : "+") + fmtPoints(neg ? String(amount.dropFirst()) : amount))
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundStyle(neg ? Theme.text : Theme.success)
-                            }
-                            .padding(.vertical, 12)
-                            Rectangle().fill(Theme.line).frame(height: 1)
-                        }
-                        .padding(.horizontal, 16)
-                        .onAppear {
-                            // 滚动到最后一条时自动加载下一页
-                            if tx.id == txs.last?.id, hasMore {
-                                Task { await loadMore() }
-                            }
-                        }
-                    }
-
-                    if loadingMore {
-                        ProgressView().padding(14)
-                    }
-                }
-            }
-            }
-        }
-        .fullBg()
-        .navigationTitle(t("wallet.title"))
-        .navigationBarTitleDisplayMode(.inline)
-        .compatNavBarBackground(Theme.bg)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                RouteLink(.transfer) {
-                    Text(t("wallet.transfer")).font(.system(size: 14)).foregroundStyle(Theme.accent)
-                }
-            }
-        }
-        .task {
-            wallet = try? await Api.request("/wallet")
-            txs = (try? await Api.request("/wallet/transactions")) ?? []
-            hasMore = txs.count >= 30
-        }
-    }
-
-    private func loadMore() async {
-        guard !loadingMore, let last = txs.last else { return }
-        loadingMore = true
-        let list: [WalletTx] = (try? await Api.request("/wallet/transactions?beforeId=\(last.id)")) ?? []
-        txs += list
-        hasMore = list.count >= 30
-        loadingMore = false
-    }
-
-    /// 贡献榜 / 送花榜列表
-    private var rankList: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                if rank.isEmpty {
-                    Text(t("wallet.noData")).font(.system(size: 13)).foregroundStyle(Theme.textDim).padding(30)
-                }
-                ForEach(Array(rank.enumerated()), id: \.element.id) { idx, r in
-                    VStack(spacing: 0) {
-                        HStack(spacing: 12) {
-                            Text("\(idx + 1)")
-                                .font(.system(size: idx < 3 ? 17 : 14, weight: .bold).italic())
-                                .foregroundStyle(idx < 3 ? Theme.accent : Theme.textDim)
-                                .frame(width: 24)
-                            AvatarView(url: r.avatar ?? "", size: 40)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(r.nickname ?? t("chatSearch.user")).font(.system(size: 14, weight: .medium)).foregroundStyle(Theme.text)
-                                Text(t("wallet.rankBreakdown", ["gift": fmtPoints(r.giftFen), "call": fmtPoints(r.callFen), "msg": fmtPoints(r.msgFen)]))
-                                    .font(.system(size: 11)).foregroundStyle(Theme.textDim)
-                            }
-                            Spacer()
-                            Text(fmtPoints(r.totalFen))
-                                .font(.system(size: 15, weight: .bold)).foregroundStyle(Theme.accent)
-                        }
-                        .padding(.vertical, 12)
-                        Rectangle().fill(Theme.line).frame(height: 1)
-                    }
-                    .padding(.horizontal, 16)
-                }
-            }
-        }
-    }
-}
-
-/// 积分转赠（支付宝转账式：大号居中输入 + 收款人确认卡）
-struct TransferView: View {
-    @EnvironmentObject var state: AppState
-    @Environment(\.dismiss) private var dismiss
-    private let initialSid: String
-    @State private var sid = ""
-    @State private var target: LookupUser?
-    @State private var amount = ""
-    @State private var balance = "0"
-    @State private var toastMsg: String?
-    @State private var showScan = false
-    @State private var showMyQr = false
-
-    init(initialSid: String = "") {
-        self.initialSid = initialSid
-    }
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 14) {
-                // 收款人
-                VStack(spacing: 12) {
-                    Text(t("transfer.targetId")).font(.system(size: 13)).foregroundStyle(Theme.textSub)
-                    TextField("", text: $sid, prompt: Text(t("transfer.idPlaceholder")).foregroundColor(Theme.textDim))
-                        .keyboardType(.numberPad)
-                        .multilineTextAlignment(.center)
-                        .font(.system(size: 30, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(Theme.text)
-                        .compatTracking(6)
-                        .onChange(of: sid) { v in
-                            let filtered = String(v.filter(\.isNumber).prefix(6))
-                            if filtered != v { sid = filtered }
-                            if filtered.count == 6 {
-                                Task { target = try? await Api.request("/wallet/lookup/\(filtered)") }
-                            } else { target = nil }
-                        }
-                    Rectangle().fill(Theme.line).frame(height: 1).padding(.horizontal, 40)
-
-                    if let tu = target {
-                        HStack(spacing: 10) {
-                            AvatarView(url: tu.avatar, size: 40)
-                            Text(tu.nickname ?? "").font(.system(size: 15, weight: .medium)).foregroundStyle(Theme.text)
-                            Spacer()
-                            HStack(spacing: 4) {
-                                Circle().fill(Theme.success).frame(width: 6, height: 6)
-                                Text(t("transfer.confirmed")).font(.system(size: 12)).foregroundStyle(Theme.success)
-                            }
-                        }
-                        .padding(.horizontal, 4)
-                    } else if sid.count == 6 {
-                        Text(t("transfer.lookingUp")).font(.system(size: 12)).foregroundStyle(Theme.textDim)
-                    } else {
-                        Text(t("transfer.idHint")).font(.system(size: 12)).foregroundStyle(Theme.textDim)
-                    }
-
-                    HStack(spacing: 0) {
-                        Button {
-                            showScan = true
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "qrcode.viewfinder").font(.system(size: 15))
-                                Text(t("me.scan")).font(.system(size: 13))
-                            }
-                            .foregroundStyle(Theme.accent)
-                            .frame(maxWidth: .infinity)
-                        }
-                        Rectangle().fill(Theme.line).frame(width: 1, height: 18)
-                        Button {
-                            showMyQr = true
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "qrcode").font(.system(size: 15))
-                                Text(t("transfer.myQr")).font(.system(size: 13))
-                            }
-                            .foregroundStyle(Theme.accent)
-                            .frame(maxWidth: .infinity)
-                        }
-                    }
-                    .padding(.top, 4)
-                }
-                .padding(18)
-                .frame(maxWidth: .infinity)
-                .background(RoundedRectangle(cornerRadius: 14).fill(Theme.bg2))
-
-                // 金额
-                VStack(spacing: 10) {
-                    Text(t("transfer.amountLabel")).font(.system(size: 13)).foregroundStyle(Theme.textSub)
-                    TextField("", text: $amount, prompt: Text("0").foregroundColor(Theme.textDim))
-                        .keyboardType(.decimalPad)
-                        .multilineTextAlignment(.center)
-                        .font(.system(size: 40, weight: .bold))
-                        .foregroundStyle(Theme.accent)
-                    Rectangle().fill(Theme.line).frame(height: 1).padding(.horizontal, 40)
-                    HStack(spacing: 6) {
-                        Text(t("transfer.available", ["n": fmtPoints(balance)])).font(.system(size: 12)).foregroundStyle(Theme.textSub)
-                        Button(t("transfer.all")) { amount = fmtPoints(balance) }
-                            .font(.system(size: 12)).foregroundStyle(Theme.accent)
-                    }
-                }
-                .padding(18)
-                .frame(maxWidth: .infinity)
-                .background(RoundedRectangle(cornerRadius: 14).fill(Theme.bg2))
-
-                AccentButton(title: t("transfer.submit"), enabled: target != nil && toFen(amount) > 0) {
-                    Task {
-                        let fen = toFen(amount)
-                        do {
-                            struct Empty: Codable { var ok: Bool? }
-                            let _: Empty = try await Api.request("/wallet/transfer", method: "POST", body: [
-                                "toShortId": target?.shortId ?? "",
-                                "amountFen": "\(fen)",
-                            ])
-                            dismiss()
-                        } catch {
-                            toastMsg = error.localizedDescription
-                        }
-                    }
-                }
-                .padding(.top, 6)
-
-                if let mySid = state.user?.shortId {
-                    Text(t("transfer.myIdHint", ["id": mySid]))
-                        .font(.system(size: 12)).foregroundStyle(Theme.textDim)
-                }
-            }
-            .padding(16)
-        }
-        .fullBg()
-        .navigationTitle(t("transfer.title"))
-        .navigationBarTitleDisplayMode(.inline)
-        .compatNavBarBackground(Theme.bg)
-        .toast($toastMsg)
-        .fullScreenCover(isPresented: $showScan) {
-            QrScanView { text in
-                if let s = parsePaySid(text) {
-                    sid = s
-                } else {
-                    toastMsg = t("transfer.badQr")
-                }
-            }
-        }
-        .sheet(isPresented: $showMyQr) {
-            MyQrCodeView().compatDetents(height: 480)
-        }
-        .task {
-            // 从扫一扫进来（扫到收款码）：直接填好，onChange 会去查对方
-            if sid.isEmpty, initialSid.count == 6 { sid = initialSid }
-            if let w: WalletData = try? await Api.request("/wallet") { balance = w.balance ?? "0" }
-        }
     }
 }
 
@@ -667,14 +390,11 @@ struct EditProfileView: View {
     @State private var avatar = ""
     @State private var signature = ""
     @State private var city = ""
-    @State private var videoPrice = ""
     @State private var toastMsg: String?
     @State private var loaded = false
     /// 照片墙（最多 8 张，支持多选）
     @State private var photos: [String] = []
     @State private var uploadingPhoto = false
-    /// 平台手续费（分/分钟）= 流量成本 x 平台倍率
-    @State private var feeCut = 4
     /// 年纪滚轮选择（底部弹层）
     @State private var showAgeSheet = false
     @State private var pendingAge = 18
@@ -732,29 +452,6 @@ struct EditProfileView: View {
                             }
                             .font(.system(size: 13)).foregroundStyle(Theme.accent)
                         }
-                    }
-                }
-
-                // ===== 视频价格（仅女生） =====
-                if state.user?.gender == 2 {
-                    editCard {
-                        editRow(t("profile.videoPrice")) {
-                            HStack(spacing: 8) {
-                                TextField("0", text: $videoPrice)
-                                    .keyboardType(.decimalPad)
-                                    .font(.system(size: 15)).foregroundStyle(Theme.text)
-                                Text(t("profile.perMin")).font(.system(size: 13)).foregroundStyle(Theme.textDim)
-                            }
-                        }
-                        editDivider
-                        // 手续费提示：收入 = 价格 - 手续费，价格须高于手续费
-                        let priceFen = toFen(videoPrice)
-                        let income = max(0, priceFen - feeCut)
-                        Text(t("profile.feeHint", ["fee": fmtPoints(String(feeCut)), "income": fmtPoints(String(income))]))
-                            .font(.system(size: 11)).lineSpacing(3)
-                            .foregroundStyle(priceFen > feeCut ? Theme.textDim : Theme.danger)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.vertical, 10)
                     }
                 }
 
@@ -873,20 +570,6 @@ struct EditProfileView: View {
             nickname = u.nickname; age = max(18, u.age); avatar = u.avatar
             signature = u.signature; city = u.cityName
             photos = (u.albums ?? []).filter { ($0.type ?? 1) == 1 }.map(\.url)
-            if let p = u.videoPriceFen, p > 0 {
-                videoPrice = fmtPoints("\(p)")
-            }
-            // 手续费 = 成本 x 平台倍率；未设置价格时默认价 = 成本 x5
-            Task {
-                struct PriceCfg: Codable { var videoBaseFenPerMin: Int? = 2; var videoPlatformX: Int? = 2 }
-                if let cfg: PriceCfg = try? await Api.request("/call/config") {
-                    let base = cfg.videoBaseFenPerMin ?? 2
-                    feeCut = base * (cfg.videoPlatformX ?? 2)
-                    if videoPrice.isEmpty, u.gender == 2 {
-                        videoPrice = fmtPoints("\(base * 5)")
-                    }
-                }
-            }
             loaded = true
         }
     }
@@ -919,7 +602,7 @@ struct EditProfileView: View {
             return
         }
         Task {
-            var body: [String: Any] = [
+            let body: [String: Any] = [
                 "nickname": nickname.trimmingCharacters(in: .whitespaces),
                 "age": age,
                 "avatar": avatar,
@@ -927,9 +610,6 @@ struct EditProfileView: View {
                 "cityName": city,
                 "cityCode": city,
             ]
-            if state.user?.gender == 2 {
-                body["videoPriceFen"] = videoPrice.isEmpty ? 0 : toFen(videoPrice)
-            }
             do {
                 let _: UserProfile = try await Api.request("/user/me", method: "PUT", body: body)
                 // 照片墙整组保存
@@ -941,175 +621,6 @@ struct EditProfileView: View {
             } catch {
                 toastMsg = error.localizedDescription
             }
-        }
-    }
-}
-
-/// 搭子认证申请
-struct GuideApplyView: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var realName = ""
-    @State private var idCard = ""
-    @State private var intro = ""
-    @State private var toastMsg: String?
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 12) {
-                Text(t("guide.applyHint"))
-                    .font(.system(size: 12)).foregroundStyle(Theme.textDim)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                inputField(t("realname.name"), text: $realName)
-                inputField(t("realname.idCardNo"), text: $idCard)
-                inputField(t("guide.intro"), text: $intro)
-                AccentButton(title: t("guide.submitApply"), enabled: !realName.isEmpty && !idCard.isEmpty) {
-                    Task {
-                        do {
-                            struct Empty: Codable { var ok: Bool? }
-                            let _: Empty = try await Api.request("/guide/apply", method: "POST", body: [
-                                "realName": realName, "idCardNo": idCard, "intro": intro,
-                            ])
-                            dismiss()
-                        } catch {
-                            toastMsg = error.localizedDescription
-                        }
-                    }
-                }
-                .padding(.top, 8)
-            }
-            .padding(16)
-        }
-        .fullBg()
-        .navigationTitle(t("me.guideApply"))
-        .navigationBarTitleDisplayMode(.inline)
-        .compatNavBarBackground(Theme.bg)
-        .toast($toastMsg)
-    }
-
-    private func inputField(_ placeholder: String, text: Binding<String>) -> some View {
-        TextField("", text: text, prompt: Text(placeholder).foregroundColor(Theme.textDim))
-            .foregroundStyle(Theme.text)
-            .padding(14)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Theme.bg2))
-    }
-}
-
-/// 收到的礼物（礼物墙：全部礼物 + 数量）
-struct GiftsReceivedView: View {
-    @State private var gifts: [GiftDef] = []
-
-    var body: some View {
-        ScrollView {
-            let cols = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
-            LazyVGrid(columns: cols, spacing: 14) {
-                ForEach(gifts) { g in
-                    VStack(spacing: 6) {
-                        RemoteImage(url: g.icon ?? "")
-                            .frame(width: 52, height: 52)
-                            .opacity((g.count ?? 0) > 0 ? 1 : 0.3)
-                        Text(g.name).font(.system(size: 12)).foregroundStyle((g.count ?? 0) > 0 ? Theme.text : Theme.textDim)
-                        Text("x\(g.count ?? 0)").font(.system(size: 11)).foregroundStyle((g.count ?? 0) > 0 ? Theme.accent : Theme.textDim)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(Theme.bg2))
-                }
-            }
-            .padding(16)
-        }
-        .fullBg()
-        .navigationTitle(t("me.gifts"))
-        .navigationBarTitleDisplayMode(.inline)
-        .compatNavBarBackground(Theme.bg)
-        .task {
-            gifts = (try? await Api.request("/gifts/received")) ?? []
-        }
-    }
-}
-
-/// 我的动态（双列网格，对齐 Android/Web）
-struct MyMomentsView: View {
-    @State private var items: [Moment] = []
-    @State private var deleting: Moment?
-
-    var body: some View {
-        Group {
-            if items.isEmpty {
-                EmptyHint(text: t("profile.myMomentsEmpty"))
-            } else {
-                ScrollView {
-                    let cols = [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)]
-                    LazyVGrid(columns: cols, spacing: 8) {
-                        ForEach(items) { m in
-                            momentCell(m)
-                        }
-                    }
-                    .padding(12)
-                }
-            }
-        }
-        .fullBg()
-        .navigationTitle(t("me.myMoments"))
-        .navigationBarTitleDisplayMode(.inline)
-        .compatNavBarBackground(Theme.bg)
-        .confirmationDialog(t("moments.deleteConfirm"), isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
-            Button(t("common.delete"), role: .destructive) {
-                guard let m = deleting else { return }
-                Task {
-                    struct OkResp: Codable { var ok: Bool? }
-                    if let _: OkResp = try? await Api.request("/moments/\(m.id)", method: "DELETE") {
-                        items.removeAll { $0.id == m.id }
-                    }
-                    deleting = nil
-                }
-            }
-            Button(t("common.cancel"), role: .cancel) { deleting = nil }
-        }
-        .task {
-            items = (try? await Api.request("/moments/mine")) ?? []
-        }
-    }
-
-    private func momentCell(_ m: Moment) -> some View {
-        let cover = m.type == 2 ? (m.coverUrl ?? "") : (m.images?.first ?? "")
-        return ZStack(alignment: .topTrailing) {
-            RouteLink(.moment(m.id)) {
-                VStack(alignment: .leading, spacing: 0) {
-                    if !cover.isEmpty {
-                        RemoteImage(url: cover)
-                            .frame(maxWidth: .infinity).frame(height: 150)
-                            .clipped()
-                    } else {
-                        Text(m.content ?? "")
-                            .font(.system(size: 14)).foregroundStyle(Theme.text)
-                            .lineLimit(4).multilineTextAlignment(.leading)
-                            .frame(maxWidth: .infinity, minHeight: 110, alignment: .topLeading)
-                            .padding(14)
-                            .background(Theme.bg3)
-                    }
-                    VStack(alignment: .leading, spacing: 4) {
-                        if !cover.isEmpty, let content = m.content, !content.isEmpty {
-                            Text(content).font(.system(size: 13)).foregroundStyle(Theme.text).lineLimit(2)
-                                .multilineTextAlignment(.leading)
-                        }
-                        Text(t("moments.stats", ["likes": m.likeCount ?? 0, "comments": m.commentCount ?? 0]))
-                            .font(.system(size: 11)).foregroundStyle(Theme.textDim)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
-                }
-                .background(Theme.bg2)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-            }
-            .buttonStyle(.plain)
-
-            Button { deleting = m } label: {
-                Text("×").font(.system(size: 16)).foregroundStyle(.white)
-                    .frame(width: 26, height: 26)
-                    .background(Circle().fill(Color.black.opacity(0.55)))
-            }
-            .buttonStyle(.plain)
-            .padding(6)
         }
     }
 }

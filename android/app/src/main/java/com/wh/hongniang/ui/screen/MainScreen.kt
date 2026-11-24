@@ -29,36 +29,36 @@ import kotlinx.coroutines.launch
 @Composable
 fun MainScreen(
     initialUser: UserProfile?,
-    onOpenChat: (convId: String, convType: Int, targetId: String, title: String) -> Unit,
+    onOpenChat: (convId: String, targetId: String, title: String) -> Unit,
     onOpenChatWithUser: (userId: String, nickname: String) -> Unit,
     onNav: (String) -> Unit,
 ) {
-    // rememberSaveable：从详情页等返回时恢复所在 tab（不再总是回到广场）
+    // rememberSaveable：从详情页等返回时恢复所在 tab
     var tab by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(0) }
     var meKey by remember { mutableIntStateOf(0) }
     var unreadTotal by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
     val startScan = rememberQrScan(onNav)
 
-    // 未读总数（私聊+群聊+评论+接单），消息到达实时刷新
+    // 「消息」上的数字 = 没读的消息 + 新喜欢我的人；消息到达、喜欢相关的事有变化时实时刷新
     fun refreshUnread() {
         scope.launch {
             runCatching {
                 val convs = com.wh.hongniang.net.Api.getList<ConversationItem>("/im/conversations")
-                val n = com.wh.hongniang.net.Api.getObj<com.wh.hongniang.net.UnreadCounts>("/notifications/unread")
-                unreadTotal = convs.sumOf { if (it.muted) 0 else it.unread } + n.comment + n.task
+                val likes = runCatching { com.wh.hongniang.net.Api.getObj<MatchSummary>("/match/summary").likedMeNew }.getOrDefault(0)
+                unreadTotal = convs.sumOf { it.unread } + likes
             }
         }
     }
-    LaunchedEffect(tab) {
+    LaunchedEffect(tab, MatchCenter.version, HnEvents.version) {
         refreshUnread()
-        // 切换页面停止列表内正在播放的视频
+        // 切换页面停止广场列表内正在播放的视频
         FeedVideoCenter.current?.pause()
     }
     DisposableEffect(Unit) {
         val remove = com.wh.hongniang.net.WsClient.addListener { frame ->
             val op = (frame["op"] as? kotlinx.serialization.json.JsonPrimitive)?.content
-            if (op == "msg" || op == "notify") refreshUnread()
+            if (op == "msg") refreshUnread()
         }
         onDispose { remove() }
     }
@@ -89,7 +89,7 @@ fun MainScreen(
         // 四个页面常驻保活（对齐 iOS）：切 tab 不销毁重建，状态/数据/滚动位置全保留
         Box(Modifier.padding(pad)) {
             Pane(active = tab == 0) {
-                PlazaScreen(onOpenDetail = { onNav("moment/$it") }, onOpenChat = onOpenChatWithUser, onOpenTiktok = { onNav("tiktok") }, onOpenUser = { onNav("u/$it") }, onNav = onNav)
+                PlazaScreen(onOpenDetail = { onNav("moment/$it") }, onOpenUser = { onNav("u/$it") }, onNav = onNav)
             }
             Pane(active = tab == 1) {
                 // 大厅 H5 内输入框弹键盘：只让网页区域上缩（扣掉底栏已占高度，正好贴着键盘），底栏保持原位不被顶起
@@ -97,10 +97,7 @@ fun MainScreen(
                 HallScreen(
                     modifier = Modifier.padding(bottom = (imeBottom - pad.calculateBottomPadding()).coerceAtLeast(0.dp)),
                     active = tab == 1,
-                    onOpenProject = { entry -> if (entry == "guide") onNav("project/guide") },
-                    onOpenChat = { convId, convType, targetId, title ->
-                        onNav("chatroom/$convId?convType=$convType&targetId=$targetId&title=${android.net.Uri.encode(title)}")
-                    },
+                    onOpenChat = onOpenChat,
                     onOpenWeb = { url, title, landscape ->
                         val route = "web?url=${android.net.Uri.encode(url)}&title=${android.net.Uri.encode(title)}&landscape=$landscape"
                         GameLog.d("main: nav -> $route")
@@ -111,24 +108,16 @@ fun MainScreen(
             Pane(active = tab == 2) {
                 MessagesScreen(
                     onOpenChat = onOpenChat,
-                    onOpenMessage = { convId, convType, targetId, title, msgId ->
-                        onNav("chatroom/$convId?convType=$convType&targetId=$targetId&title=${android.net.Uri.encode(title)}&focusMsgId=$msgId")
+                    onOpenMessage = { convId, targetId, title, msgId ->
+                        onNav("chatroom/$convId?targetId=$targetId&title=${android.net.Uri.encode(title)}&focusMsgId=$msgId")
                     },
-                    onOpenNotices = { onNav("notices/$it") },
                     onOpenUser = onOpenChatWithUser,
                     onScan = startScan,
-                    onCreateGroup = { onNav("create-group") },
-                    onOpenAi = { onNav("aichat") },
-                    onOpenNews = { onNav("music") },
-                    onJoinGroup = { onNav("join-group") },
-                    onOpenChannel = { onNav("channel/$it") },
-                    onOpenChannels = { onNav("channels") },
-                    onCreateChannel = { onNav("create-channel") },
-                    onOpenBots = { onNav("bots") },
+                    onNav = onNav,
                 )
             }
             Pane(active = tab == 3) {
-                // 每次切到「我的」重建刷新（余额/资料保持最新）
+                // 每次切到「我的」重建刷新（资料保持最新）
                 androidx.compose.runtime.key(meKey) {
                     MeScreen(initialUser = initialUser, onNav = onNav)
                 }

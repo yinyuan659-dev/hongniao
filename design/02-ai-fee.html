@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>AI 红娘 · 模块二：模型费用（样稿）</title>
+<!--
+  给用户确认用的界面样稿，不是产品代码。金额都是示意。
+  双击用浏览器打开就能看。网址后面加 ?only=a / b / c 只显示其中一组（截图用）。
+  观感沿用模块一（common.css / common.js）。
+-->
+<link rel="stylesheet" href="common.css">
+<style>
+  .seg { display: flex; gap: 6px; padding: 4px; margin: 4px 16px 0; border-radius: 20px; background: rgba(255, 255, 255, .7); flex-shrink: 0; }
+  .seg span { flex: 1; height: 32px; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 13.5px; color: var(--ink-2); }
+  .seg span.on { background: #fff; color: var(--ink); font-weight: 700; box-shadow: 0 2px 8px rgba(43, 28, 34, .08); }
+  .lg { display: flex; align-items: center; gap: 12px; padding: 13px 14px; }
+  .lg + .lg, .lg.top { border-top: 1px solid var(--line); }
+  .lg .sq { width: 38px; height: 38px; border-radius: 13px; background: var(--soft); color: var(--rose); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .lg .sq.in { background: #e3f7ec; color: #12b76a; }
+  .amt { font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .amt.in { color: #12b76a; }
+  .kv { display: flex; justify-content: space-between; align-items: center; font-size: 13.5px; padding: 7px 0; color: var(--ink-2); }
+  .kv b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .kv.sub { padding: 0 0 7px 14px; font-size: 12px; color: var(--ink-3); }
+  .kv.sub b { color: var(--ink-2); font-weight: 500; }
+  .open { margin: 0 14px 12px; padding: 6px 14px; border-radius: 16px; background: #fff7f5; }
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .tile { height: 66px; border-radius: 18px; background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 19px; font-weight: 800; box-shadow: 0 2px 10px rgba(43, 28, 34, .05); border: 1.5px solid transparent; }
+  .tile.on { border-color: var(--rose); background: #fff5f6; color: var(--rose); box-shadow: 0 6px 16px rgba(255, 61, 99, .14); }
+  .tile small { font-size: 10.5px; font-weight: 500; color: var(--ink-3); margin-top: 2px; }
+  .tile.on small { color: var(--rose); }
+  .banner { margin: 6px 16px 0; padding: 10px 14px; border-radius: 16px; background: #fff4d9; color: #9a5b00; font-size: 12.5px; line-height: 1.55; display: flex; gap: 8px; align-items: flex-start; flex-shrink: 0; }
+  .banner i { margin-top: 2px; }
+  .field { height: 52px; border-radius: 18px; background: #fff; box-shadow: 0 4px 16px rgba(43, 28, 34, .06); display: flex; align-items: center; padding: 0 8px 0 16px; gap: 8px; font-size: 14px; color: var(--ink-3); }
+  .stepn { width: 22px; height: 22px; border-radius: 11px; background: var(--grad); color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 1px; }
+  .switch.on { background: var(--rose); }
+  .switch.on::after { left: 21px; }
+  .payic { width: 36px; height: 36px; border-radius: 12px; color: #fff; font-weight: 800; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; }
+  .ttl { font-size: 14px; font-weight: 700; margin: 18px 20px 2px; }
+  .pad { padding: 0 16px; }
+  .bal { font-size: 38px; font-weight: 800; letter-spacing: .5px; font-variant-numeric: tabular-nums; }
+  .hero-card.fee { margin-top: 6px; }
+  .tabnum { font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+
+<div class="intro">
+  <h1>模块二：模型费用（样稿）</h1>
+  <p>两种付费方式：平台余额（DeepSeek 实际费用 + 10% 手续费）和用户自己的 DeepSeek Key。入口在「我的 → AI 余额」，深聊开始前的说明和聊天里的小胶囊也能点进来。金额都是示意。</p>
+</div>
+
+<!-- ============ A：费用首页 + 明细 ============ -->
+<section data-s="a">
+  <h2><b>1</b>余额和明细</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">AI 费用 <small>「我的 → AI 余额」点进来</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">AI 费用</div><span class="ic-btn"><i data-ic="list"></i></span></div>
+
+        <div class="hero-card fee">
+          <div style="position:relative;z-index:2">
+            <div style="font-size:13px;opacity:.92">平台余额</div>
+            <div class="bal">¥4.88</div>
+            <div style="font-size:12px;opacity:.9;margin-top:2px">只用在 AI 功能上，不影响推荐和聊天</div>
+            <div class="row" style="margin-top:14px"><span class="pill w" style="padding:0 22px">充值</span><span class="pill g"><i data-ic="list" data-s="14"></i>明细</span></div>
+          </div>
+        </div>
+
+        <div class="ttl">AI 功能的费用，用哪种方式付</div>
+        <div class="pad">
+          <div class="pay on">
+            <span class="sq"><i data-ic="wallet" data-s="18"></i></span>
+            <div class="grow"><div style="font-size:14.5px;font-weight:700">平台余额</div><div class="t3" style="margin-top:2px">DeepSeek 实际费用 + 10% 手续费</div></div>
+            <span class="ck"><i data-ic="check" data-s="12"></i></span>
+          </div>
+          <div class="pay">
+            <span class="sq"><i data-ic="key" data-s="18"></i></span>
+            <div class="grow"><div style="font-size:14.5px;font-weight:700">我自己的 DeepSeek Key</div><div class="t3" style="margin-top:2px">用你自己的额度，平台不扣余额</div></div>
+            <span style="font-size:13px;color:var(--rose);font-weight:600">去填写</span>
+          </div>
+        </div>
+
+        <div class="ttl">怎么收费</div>
+        <div class="pad"><div class="glass" style="padding:4px 14px 14px">
+          <div class="feat"><span class="sq"><i data-ic="info" data-s="18"></i></span><span>DeepSeek 收多少就扣多少，另加 10% 手续费</span></div>
+          <div class="feat"><span class="sq"><i data-ic="list" data-s="18"></i></span><span>每用一次 AI 都有明细，模型费和手续费分开写</span></div>
+          <div class="feat"><span class="sq"><i data-ic="shield" data-s="18"></i></span><span>余额用完只是 AI 功能暂停，推荐和聊天照常</span></div>
+        </div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>余额卡片</b>：「充值」→ 充值页；「明细」和右上角图标 → 右边的费用明细。</div>
+        <div><b>用哪种方式付</b>：点哪张选哪种，全 App 的 AI 功能都按这个来（深聊、以后的推荐理由等）。没填 Key 时点第二张 → 去填 Key 页。</div>
+        <div><b>怎么收费</b>：三句话把规则说清楚，常驻在这一页。</div>
+        <div>余额显示到分；实际记账精确到 0.0001 元，因为一次调用只有几厘钱。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">费用明细 <small>一次深聊算一条，点开看细账</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">费用明细</div><span style="width:34px"></span></div>
+        <div class="seg"><span class="on">全部</span><span>花掉的</span><span>充值</span></div>
+        <div class="row" style="padding:14px 22px 10px;flex-shrink:0"><b style="font-size:14px">2026 年 11 月</b><i data-ic="down" data-s="14" style="color:var(--ink-2)"></i><span class="t2 tabnum" style="margin-left:auto;font-size:12px">花掉 ¥0.1222 · 充值 ¥5.00</span></div>
+        <div class="pad"><div class="glass" style="overflow:hidden">
+          <div class="lg">
+            <span class="sq"><i data-ic="spark" data-s="18"></i></span>
+            <div class="grow"><div style="font-size:15px;font-weight:600">生成相亲画像</div><div class="t3" style="margin-top:3px">11-23 21:52</div></div>
+            <span class="amt">−0.0121</span><i data-ic="right" data-s="14" style="color:var(--ink-3)"></i>
+          </div>
+          <div class="lg top">
+            <span class="sq"><i data-ic="chat" data-s="18"></i></span>
+            <div class="grow"><div style="font-size:15px;font-weight:600">AI 深聊 · 14 轮</div><div class="t3" style="margin-top:3px">11-23 21:38</div></div>
+            <span class="amt">−0.1101</span><i data-ic="down" data-s="14" style="color:var(--rose)"></i>
+          </div>
+          <div class="open">
+            <div class="kv"><span>模型费（DeepSeek 实际收费）</span><b>¥0.1001</b></div>
+            <div class="kv"><span>平台手续费 10%</span><b>¥0.0100</b></div>
+            <div class="kv" style="border-top:1px dashed var(--line);margin-top:2px;padding-top:9px"><span style="color:var(--ink);font-weight:700">合计</span><b style="color:var(--rose);font-weight:800">¥0.1101</b></div>
+            <div class="row" style="font-size:12px;color:var(--rose);font-weight:600;padding:4px 0 6px;gap:3px">看用量详情<i data-ic="right" data-s="12"></i></div>
+          </div>
+          <div class="lg top">
+            <span class="sq in"><i data-ic="plus" data-s="18"></i></span>
+            <div class="grow"><div style="font-size:15px;font-weight:600">充值</div><div class="t3" style="margin-top:3px">11-23 20:05 · 测试期平台发放</div></div>
+            <span class="amt in">+5.00</span><span style="width:14px"></span>
+          </div>
+        </div></div>
+        <div class="t3" style="text-align:center;margin-top:14px">用自己的 Key 时也会记一条，金额处写「自己的 Key」</div>
+      </div></div>
+      <div class="notes">
+        <div><b>一次深聊合成一条</b>：实际上聊 14 轮就调了 14 次模型，每次都记了账，但列表里合成一条，不然太碎。</div>
+        <div><b>点一条展开</b>：模型费、手续费、合计分三行写。「看用量详情」→ 第 3 组图的弹层。</div>
+        <div><b>上面三个小标签</b>：全部 / 只看花掉的 / 只看充值。月份可以切换。</div>
+        <div>充值那一条写清楚钱是怎么来的：微信、支付宝，或者测试期平台发放。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ B：充值 + 填 Key ============ -->
+<section data-s="b">
+  <h2><b>2</b>充值，或者填自己的 Key</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">充值 <small>页面先做好，收款以后再接</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">充值</div><span style="width:34px"></span></div>
+        <div class="banner"><i data-ic="info" data-s="15"></i><span>微信 / 支付宝收款还在开通，现在不能自己充值。测试期间的余额由平台发放。</span></div>
+        <div class="row" style="padding:14px 22px 0"><span class="t2">当前余额</span><b class="tabnum" style="font-size:16px">¥4.88</b></div>
+
+        <div class="ttl" style="margin-top:14px">充多少</div>
+        <div class="pad" style="margin-top:8px"><div class="tiles">
+          <div class="tile">¥5</div><div class="tile on">¥10<small>够深聊几十次</small></div><div class="tile">¥30</div>
+          <div class="tile">¥50</div><div class="tile">¥100</div><div class="tile" style="font-size:15px;font-weight:600;color:var(--ink-2)">自己填</div>
+        </div></div>
+        <div class="pad" style="margin-top:12px"><div class="glass" style="padding:11px 14px;border-radius:16px;font-size:12.5px;line-height:1.6;color:var(--ink-2);display:flex;gap:8px"><i data-ic="info" data-s="15" style="color:var(--rose);margin-top:2px"></i><span>深聊一次大约 ¥0.1，平时一个月几毛钱，不用多充。</span></div></div>
+
+        <div class="ttl">怎么付</div>
+        <div class="pad">
+          <div class="pay on"><span class="payic" style="background:#1aad19">微</span><div class="grow" style="font-size:14.5px;font-weight:700">微信支付</div><span class="ck"><i data-ic="check" data-s="12"></i></span></div>
+          <div class="pay"><span class="payic" style="background:#1677ff">支</span><div class="grow" style="font-size:14.5px;font-weight:700">支付宝</div><span class="ck"></span></div>
+        </div>
+        <div class="pad" style="margin-top:18px"><div class="btn" style="opacity:.45">支付 ¥10.00</div></div>
+        <div class="t3" style="text-align:center;margin-top:10px">充的钱只能用在 AI 功能上 · 没用完可以申请退回</div>
+      </div></div>
+      <div class="notes">
+        <div><b>顶上黄色提示</b>：收款接好之前一直挂着，「支付」按钮是灰的。接好以后提示去掉，按钮变亮，别的不用改。</div>
+        <div><b>充多少</b>：几个现成金额加「自己填」。旁边一句话告诉用户不用多充。</div>
+        <div><b>怎么付</b>：微信、支付宝二选一。苹果手机上架时按苹果的规定要换成苹果内购，那是以后的事。</div>
+        <div>这一页现在只能看，点不动；测试期的余额怎么来，下面有一道题请你选。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">我自己的 Key · 还没填</div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">我自己的 Key</div><span style="width:34px"></span></div>
+        <div style="display:flex;flex-direction:column;align-items:center;padding:22px 30px 0;text-align:center">
+          <div class="orb lg"><i data-ic="key" data-s="26"></i></div>
+          <div style="font-size:20px;font-weight:800;margin-top:24px">用我自己的 DeepSeek Key</div>
+          <div class="t2" style="margin-top:8px;line-height:1.6">AI 功能用你自己在 DeepSeek 的额度，<br>平台不扣你的余额</div>
+        </div>
+        <div class="pad" style="margin-top:20px">
+          <div class="field"><i data-ic="key" data-s="16"></i><span class="grow">把 sk- 开头的 Key 粘贴到这里</span><span class="pill ghost" style="height:36px;border-radius:14px;background:var(--soft);color:var(--rose);box-shadow:none"><i data-ic="clip" data-s="13"></i>粘贴</span></div>
+          <div class="btn" style="margin-top:14px">测试并保存</div>
+        </div>
+        <div class="ttl">怎么拿到 Key</div>
+        <div class="pad"><div class="glass" style="padding:14px;font-size:13.5px;line-height:1.6">
+          <div class="row" style="align-items:flex-start"><span class="stepn">1</span><span>打开 platform.deepseek.com，用手机号注册</span></div>
+          <div class="row" style="align-items:flex-start;margin-top:9px"><span class="stepn">2</span><span>在那边充一点钱，几块钱够用很久</span></div>
+          <div class="row" style="align-items:flex-start;margin-top:9px"><span class="stepn">3</span><span>点「API Keys」→「创建」，把那一串复制回来</span></div>
+        </div></div>
+        <div class="row" style="padding:14px 24px 0;align-items:flex-start;gap:7px"><i data-ic="shield" data-s="14" style="color:var(--rose);margin-top:2px"></i><span class="t3" style="font-size:11.5px;line-height:1.6">Key 加密保存，只用来替你调用 AI；页面上只显示最后 4 位，随时能删。</span></div>
+      </div></div>
+      <div class="notes">
+        <div><b>粘贴</b>：一点就把剪贴板里的 Key 填进去，不用手打。</div>
+        <div><b>测试并保存</b>：先拿这个 Key 真的调一次 DeepSeek（花用户自己不到一厘钱）。能用 → 保存，跳到下一张图；不能用 → 当场提示「这个 Key 用不了」，不保存。</div>
+        <div><b>怎么拿到 Key</b>：三步说明，第 1 步的网址可以点开。</div>
+        <div>Key 存在哪，下面有一道题请你选。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ C：Key 已填 + 用量详情 ============ -->
+<section data-s="c">
+  <h2><b>3</b>Key 填好以后，和一笔账的细节</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">我自己的 Key · 已填好</div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">我自己的 Key</div><span style="width:34px"></span></div>
+        <div class="pad" style="margin-top:6px"><div class="glass" style="padding:16px">
+          <div class="row">
+            <span class="lg" style="padding:0"><span class="sq in" style="width:44px;height:44px;border-radius:15px"><i data-ic="check" data-s="22"></i></span></span>
+            <div class="grow"><div style="font-size:17px;font-weight:800">Key 可用</div><div class="t2 tabnum" style="margin-top:3px;font-size:12.5px">sk-············a3f9 · 刚刚测试通过</div></div>
+          </div>
+          <div class="row" style="margin-top:14px"><span class="pill ghost" style="height:36px;border-radius:18px"><i data-ic="refresh" data-s="13"></i>重新测试</span><span class="pill ghost" style="height:36px;border-radius:18px"><i data-ic="pencil" data-s="13"></i>换一个 Key</span></div>
+        </div></div>
+
+        <div class="ttl">现在用哪种方式付</div>
+        <div class="pad">
+          <div class="pay on">
+            <span class="sq"><i data-ic="key" data-s="18"></i></span>
+            <div class="grow"><div style="font-size:14.5px;font-weight:700">我自己的 DeepSeek Key</div><div class="t3" style="margin-top:2px">平台不扣余额</div></div>
+            <span class="ck"><i data-ic="check" data-s="12"></i></span>
+          </div>
+          <div class="pay">
+            <span class="sq"><i data-ic="wallet" data-s="18"></i></span>
+            <div class="grow"><div style="font-size:14.5px;font-weight:700">平台余额 <span class="tabnum" style="font-weight:500;color:var(--ink-2)">¥4.88</span></div><div class="t3" style="margin-top:2px">DeepSeek 实际费用 + 10% 手续费</div></div>
+            <span class="ck"></span>
+          </div>
+        </div>
+
+        <div class="ttl">Key 出问题的时候</div>
+        <div class="pad"><div class="glass" style="overflow:hidden">
+          <div class="lr" style="height:auto;padding:13px 14px"><div class="grow"><div>自动改用平台余额</div><div class="t3" style="margin-top:3px;line-height:1.5">关着：先停下来问你，不会悄悄扣余额</div></div><span class="switch"></span></div>
+        </div></div>
+        <div class="pad" style="margin-top:14px"><div class="glass" style="overflow:hidden"><div class="lr" style="color:#f04438;justify-content:center;font-weight:600"><i data-ic="trash" data-s="15"></i>删除这个 Key</div></div></div>
+        <div class="t3" style="text-align:center;margin-top:12px;line-height:1.6;padding:0 30px">用自己的 Key 花了多少，以 DeepSeek 后台为准</div>
+      </div></div>
+      <div class="notes">
+        <div><b>状态卡片</b>：Key 能不能用一眼看到，只显示最后 4 位。「重新测试」再调一次；「换一个 Key」回到上一张图。</div>
+        <div><b>现在用哪种方式付</b>：和费用首页那两张卡片是同一个开关，在这里也能切。</div>
+        <div><b>自动改用平台余额</b>：默认关。关着时 Key 出问题会停下来弹提示让用户自己选（模块一第 2 组图那张提示卡）；打开后直接转平台余额接着聊，并提示一句「已改用平台余额」。</div>
+        <div><b>删除这个 Key</b>：二次确认后删掉，付费方式自动回到平台余额。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">用量详情 <small>明细里点「看用量详情」弹出</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">费用明细</div><span style="width:34px"></span></div>
+        <div class="seg"><span class="on">全部</span><span>花掉的</span><span>充值</span></div>
+        <div class="dim"></div>
+        <div class="sheet" style="padding-top:22px">
+          <div class="row"><span class="feat" style="margin:0"><span class="sq" style="width:44px;height:44px;border-radius:15px"><i data-ic="chat" data-s="20"></i></span></span><div class="grow"><div style="font-size:18px;font-weight:800">AI 深聊 · 14 轮</div><div class="t2" style="margin-top:2px;font-size:12.5px">2026-11-23 21:38 – 21:51</div></div><span class="ic-btn" style="background:#f5f0f1;box-shadow:none"><i data-ic="x"></i></span></div>
+
+          <div style="margin-top:16px;padding:6px 14px;border-radius:18px;background:#faf6f6">
+            <div class="kv"><span>用的模型</span><b>deepseek-flash</b></div>
+            <div class="kv"><span>AI 读的内容</span><b>78,000 tokens</b></div>
+            <div class="kv sub"><span>其中重复读的（便宜很多）</span><b>52,000</b></div>
+            <div class="kv"><span>AI 写的内容</span><b>5,750 tokens</b></div>
+          </div>
+          <div style="margin-top:10px;padding:6px 14px;border-radius:18px;background:#fff7f5">
+            <div class="kv"><span>模型费（DeepSeek 实际收费）</span><b>¥0.1001</b></div>
+            <div class="kv"><span>平台手续费 10%</span><b>¥0.0100</b></div>
+            <div class="kv" style="border-top:1px dashed var(--line);margin-top:2px;padding-top:10px"><span style="color:var(--ink);font-weight:700;font-size:15px">合计，从余额扣</span><b style="color:var(--rose);font-weight:800;font-size:17px">¥0.1101</b></div>
+          </div>
+          <div class="row" style="margin-top:12px;font-size:12.5px;color:var(--rose);font-weight:600;gap:3px"><i data-ic="link" data-s="13"></i>DeepSeek 官方价格<i data-ic="right" data-s="12"></i></div>
+          <div class="t3" style="margin-top:8px;line-height:1.6">token 是模型算字数的单位，一个汉字大约 0.6 个。</div>
+          <div class="btn ghost" style="margin-top:16px;background:#f5f0f1;box-shadow:none">知道了</div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>上面一块</b>：这次用了哪个模型，AI 读了多少、写了多少。</div>
+        <div><b>下面一块</b>：DeepSeek 实际收了多少、平台加了多少手续费、一共扣多少。用户想核对，点「DeepSeek 官方价格」自己能算出来。</div>
+        <div>用自己的 Key 时，下面一块换成一句「用的是你自己的 Key，平台没有扣费」。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script src="common.js"></script>
+</body>
+</html>

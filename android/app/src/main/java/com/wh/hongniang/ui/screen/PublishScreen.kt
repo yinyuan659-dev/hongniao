@@ -164,7 +164,10 @@ fun PublishScreen(onBack: () -> Unit, onDone: () -> Unit) {
                         LocationCache.lat?.let { put("latitude", JsonPrimitive(it)) }
                         LocationCache.lng?.let { put("longitude", JsonPrimitive(it)) }
                     }
-                    runCatching { Api.request("/moments", "POST", body) }.onSuccess { onDone() }
+                    runCatching { Api.request("/moments", "POST", body) }
+                        .onSuccess { onDone() }
+                        // 没填内容 / 被后台规则拦下时把服务端的原因提示出来，别让按钮点了没反应
+                        .onFailure { android.widget.Toast.makeText(ctx, it.message ?: t("common.fail"), android.widget.Toast.LENGTH_SHORT).show() }
                 }
             }
         }

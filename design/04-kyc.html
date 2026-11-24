@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>AI 红娘 · 模块①：实人认证（并进基础画像）样稿</title>
+<!--
+  给用户确认用的界面样稿，不是产品代码。金额都是示意。
+  双击用浏览器打开就能看。网址后面加 ?only=a / b / c 只显示其中一组（截图用）。
+  观感沿用模块一、二（common.css / common.js）。
+  本模块：实名（身份证）+ 刷脸合成一个「实人认证」步骤，放在基础资料画像（点选问答）流程的最后。
+-->
+<link rel="stylesheet" href="common.css">
+<style>
+  .feat2 { display: flex; gap: 12px; align-items: flex-start; margin-top: 14px; font-size: 14px; line-height: 1.5; }
+  .feat2 .sq { width: 38px; height: 38px; border-radius: 13px; background: var(--soft); color: var(--rose); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .feat2 .t3 { margin-top: 3px; }
+  .camwrap { flex: 1; min-height: 0; margin: 14px 16px 0; border-radius: 28px; background: #17141a; position: relative; overflow: hidden; display: flex; flex-direction: column; align-items: center; }
+  .oval { width: 210px; height: 270px; margin-top: 54px; border-radius: 50% / 46%; border: 3px dashed rgba(255,255,255,.55); position: relative; display: flex; align-items: flex-end; justify-content: center; }
+  .oval .face { font-size: 120px; line-height: 1; opacity: .5; margin-bottom: 10px; }
+  .scanline { position: absolute; left: 10%; right: 10%; height: 2px; background: linear-gradient(90deg, transparent, #ff8469, transparent); top: 42%; box-shadow: 0 0 12px #ff5a66; }
+  .camtip { color: #fff; font-size: 16px; font-weight: 700; margin-top: 26px; }
+  .camtip small { display: block; font-weight: 400; opacity: .7; font-size: 12.5px; margin-top: 6px; }
+  .okring { width: 92px; height: 92px; border-radius: 50%; background: #e3f7ec; color: #12b76a; display: flex; align-items: center; justify-content: center; margin: 0 auto; box-shadow: 0 0 0 10px rgba(18,183,106,.08); }
+  .failring { width: 92px; height: 92px; border-radius: 50%; background: #fdecec; color: #f04438; display: flex; align-items: center; justify-content: center; margin: 0 auto; box-shadow: 0 0 0 10px rgba(240,68,56,.08); }
+  .baldot { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); }
+  .verify { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 10px; border-radius: 12px; font-size: 11.5px; font-weight: 700; color: #fff; background: linear-gradient(135deg,#12b76a,#22c55e); box-shadow: 0 4px 10px rgba(18,183,106,.3); }
+  .steps2 { display: flex; gap: 5px; padding: 8px 16px 2px; flex-shrink: 0; }
+  .steps2 span { flex: 1; height: 24px; border-radius: 12px; font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 3px; background: var(--soft); color: var(--rose); }
+  .steps2 span.on { background: var(--grad); color: #fff; font-weight: 700; box-shadow: 0 4px 10px rgba(255,61,99,.3); }
+</style>
+</head>
+<body>
+
+<div class="intro">
+  <h1>模块①：实人认证（并进基础画像）样稿</h1>
+  <p>实名（身份证）和刷脸合成一个「实人认证」步骤，身份证 + 活体一次做完（阿里云金融级实人认证），放在基础资料画像（「编辑资料」那套点选问答）流程的<b>最后一步</b>。完成基础画像 = 答完题 + 实人认证通过 + 确认，才能聊天 / 发动态 / 评论。只存「是否通过 / 是否成年」，不存证号明文、不存人脸照片。费用 ¥1 从 AI 余额扣，平台不加价。这一步受后台开关控制，默认关（支付上线前用测试号走流程）；金额都是示意。</p>
+</div>
+
+<!-- ============ A：我的页入口 + 资料最后一步说明 ============ -->
+<section data-s="a">
+  <h2><b>1</b>从资料画像走到「最后一步」</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">「我的」页 <small>资料填完了，画像卡片提示还差实人认证</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="row" style="padding:14px 20px 4px"><b style="font-size:22px">我的</b></div>
+
+        <div class="hero-card">
+          <div style="position:relative;z-index:2">
+            <div class="row">
+              <div class="ring"><span>90%</span></div>
+              <div class="grow" style="margin-left:12px">
+                <div style="font-size:17px;font-weight:800">我的相亲画像</div>
+                <div style="font-size:12px;opacity:.92;margin-top:3px">资料都填好了，还差最后一步</div>
+              </div>
+            </div>
+            <div class="row" style="margin-top:14px;gap:8px">
+              <span class="pill w" style="flex:1;justify-content:center;height:38px;border-radius:19px">完成实人认证</span>
+              <span class="pill g" style="height:38px;border-radius:19px">查看画像</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="pad" style="margin-top:14px"><div class="glass" style="padding:11px 14px;border-radius:16px;display:flex;gap:9px;align-items:flex-start;font-size:12.5px;line-height:1.6;color:var(--ink-2)">
+          <i data-ic="info" data-s="15" style="color:var(--rose);margin-top:2px"></i>
+          <span>做过实人认证才能聊天、发动态、评论。浏览、填资料、点喜欢不受影响。</span>
+        </div></div>
+
+        <div class="gt">AI 费用</div>
+        <div class="grp glass"><div class="lr"><span class="sq"><i data-ic="wallet"></i></span>AI 余额<span class="end"><b style="color:var(--ink);font-size:15px">¥4.88</b><i data-ic="right"></i></span></div></div>
+        <div class="gt">设置</div>
+        <div class="grp glass">
+          <div class="lr"><span class="sq"><i data-ic="chat"></i></span>编辑资料<span class="end"><i data-ic="right"></i></span></div>
+          <div class="lr"><span class="sq"><i data-ic="camera"></i></span>基本资料<span class="end"><i data-ic="right"></i></span></div>
+        </div>
+
+        <div class="tabbar"><div class="tab">广场</div><div class="tab">大厅</div><div class="tab"><div class="plus"><i data-ic="plus" data-s="18"></i></div></div><div class="tab">消息</div><div class="tab on">我的</div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>画像卡片</b>：完成度环里资料部分填满了，剩下实人认证。主按钮「完成实人认证」→ 右边那张说明页。</div>
+        <div><b>没有单独的「实名认证」入口</b>：实人认证并进了画像流程，设置里不再有一行实名。「编辑资料」进去就是点选问答，答完题会自然走到实人认证。</div>
+        <div><b>后台开关关着时</b>：这张卡片不出现「完成实人认证」，答完题直接就是 100%、能聊天；支付上线后你在后台打开，才会要求刷脸。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">资料的最后一步 <small>点选问答答完，红娘引导去认证</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">完善资料 <span class="aib">AI 红娘</span></div><span style="width:34px"></span></div>
+        <div class="steps2"><span>基本情况 ✓</span><span>择偶想法 ✓</span><span class="on">实人认证</span></div>
+
+        <div class="body" style="overflow:visible">
+          <div class="br"><div class="orb"><i data-ic="heart" data-s="18"></i></div><div class="bb ai">问题都答完啦 🎉 最后做个实人认证，画像就完成了，之后就能和心动的人聊天。</div></div>
+
+          <div class="glass" style="margin:4px 0 0 47px;padding:16px 18px;border-radius:22px">
+            <div class="row"><span class="orb" style="width:42px;height:42px"><i data-ic="shield" data-s="20"></i></span>
+              <div class="grow" style="margin-left:10px"><div style="font-size:16px;font-weight:800">实人认证</div><div class="t3" style="margin-top:2px">身份证 + 刷脸，一次完成</div></div>
+            </div>
+            <div class="feat2"><span class="sq"><i data-ic="shield" data-s="18"></i></span><div><div style="font-weight:600">确认是你本人、已满 18 岁</div><div class="t3">防骗子、防未成年，相亲更安心</div></div></div>
+            <div class="feat2"><span class="sq"><i data-ic="lock" data-s="18"></i></span><div><div style="font-weight:600">只存「是否通过」</div><div class="t3">不保存身份证号明文，不保存人脸照片</div></div></div>
+            <div class="feat2"><span class="sq"><i data-ic="wallet" data-s="18"></i></span><div><div style="font-weight:600">本次 ¥1.00，从 AI 余额扣</div><div class="t3">按成本价，平台不加价；认证不通过不扣</div></div></div>
+          </div>
+
+          <div class="row" style="margin:12px 16px 0;justify-content:space-between">
+            <span class="baldot"><i data-ic="wallet" data-s="14"></i>AI 余额 <b style="color:var(--ink)">¥4.88</b></span>
+            <span class="t3">认证后剩 ¥3.88</span>
+          </div>
+        </div>
+
+        <div class="dock">
+          <div class="btn"><i data-ic="camera" data-s="18"></i>开始刷脸认证</div>
+          <div class="t3" style="text-align:center;margin-top:8px">点「开始」即同意把姓名、身份证号交给认证服务商核验</div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>顶上进度</b>：基本情况、择偶想法答完，停在「实人认证」这一格——它是资料的最后一步。</div>
+        <div><b>说明卡片</b>：三句话讲清为什么认证、存什么不存什么、扣多少钱。</div>
+        <div><b>余额不够时</b>：按钮下面提示「余额不足 ¥1.00」，点「开始」先去充值页（现在测试期靠后台加余额）。</div>
+        <div><b>开始刷脸</b>：打开认证页（阿里云实人认证 H5，三端统一用网页，App 里内嵌）。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ B：刷脸中 + 结果 ============ -->
+<section data-s="b">
+  <h2><b>2</b>刷脸，和认证结果</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">刷脸中 <small>认证服务商的活体页，内嵌打开</small></div>
+      <div class="phone"><div class="island"></div><div class="screen" style="background:#0e0c11">
+        <div class="status w"><span>9:41</span><span>5G</span></div>
+        <div class="nav" style="color:#fff"><span class="ic-btn" style="background:rgba(255,255,255,.14);color:#fff"><i data-ic="left"></i></span><div class="mid" style="color:#fff">实人认证</div><span style="width:34px"></span></div>
+
+        <div class="camwrap">
+          <div class="oval"><div class="scanline"></div><div class="face">🧑</div></div>
+          <div class="camtip">请把脸对准框内<small>按提示眨一下眼</small></div>
+          <div style="margin-top:auto;margin-bottom:26px;display:flex;gap:8px">
+            <span class="tag" style="background:rgba(255,255,255,.14);color:#fff">● 光线充足</span>
+            <span class="tag" style="background:rgba(255,255,255,.14);color:#fff">● 摘掉口罩</span>
+          </div>
+        </div>
+        <div style="padding:16px;text-align:center"><span class="t3" style="color:rgba(255,255,255,.5)">认证由阿里云实人认证提供</span></div>
+      </div></div>
+      <div class="notes">
+        <div><b>这一屏是认证服务商的页面</b>（阿里云实人认证 H5），不是我们自己画的，长相以服务商为准，这里只是示意。</div>
+        <div><b>流程</b>：先填 / 确认姓名和身份证号 → 刷脸活体（眨眼等动作）→ 服务商把结果回调给我们后端。</div>
+        <div><b>我们只收到结果</b>：是否本人、是否成年、服务商流水号。证号我们不留明文、只留哈希（防一证多号）；不保存人脸照片。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">认证通过 → 画像完成</div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span style="width:34px"></span><div class="mid">实人认证</div><span style="width:34px"></span></div>
+
+        <div style="padding:40px 26px 0;text-align:center">
+          <div class="okring"><i data-ic="check" data-s="46"></i></div>
+          <div style="font-size:22px;font-weight:800;margin-top:22px">认证通过</div>
+          <div class="t2" style="margin-top:8px;line-height:1.6">你的基础画像已经完成，<br>现在可以和心动的人聊天了</div>
+          <div class="verify" style="margin-top:16px"><i data-ic="shield" data-s="13"></i>真人认证</div>
+        </div>
+
+        <div class="pad" style="margin-top:22px"><div class="glass" style="padding:4px 14px 12px">
+          <div class="feat"><span class="sq"><i data-ic="check" data-s="18"></i></span><span>点选问答已完成</span></div>
+          <div class="feat"><span class="sq"><i data-ic="check" data-s="18"></i></span><span>实人认证已通过 · 扣 ¥1.00</span></div>
+          <div class="feat"><span class="sq"><i data-ic="shield" data-s="18"></i></span><span>画像上会显示「真人认证」标</span></div>
+        </div></div>
+
+        <div class="dock" style="margin-top:auto">
+          <div class="btn">确认画像，开始相亲</div>
+          <div class="btn ghost" style="margin-top:10px;background:#fff">和 AI 红娘再深聊一下（可选）</div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>通过后</b>：画像就算完成，落一条「扣 ¥1.00」的 AI 费用明细。点「确认画像」正式生效，之后能聊天 / 发动态 / 评论。</div>
+        <div><b>认证不通过</b>（证号姓名对不上、活体没过、未成年）：这一屏换成红色「认证未通过」+ 原因 + 「重新认证」；没扣钱。未成年直接拦下不让注册用。</div>
+        <div><b>同一个身份证在别的设备 / 网页上认证过</b>：直接进原来那个账号（这台设备并到原账号下），不会重复认证、不会重复扣钱。</div>
+        <div><b>「再深聊」</b>是原来就有的可选项（模块一的 AI 深聊），和实名无关，放这儿顺带引导。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ C：被拦提示 + 画像上的真人标 ============ -->
+<section data-s="c">
+  <h2><b>3</b>没认证时的拦截，和画像上的标</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">还没认证就想聊天 <small>发消息 / 发动态 / 评论时弹出</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">小周 · 29</div><span class="ic-btn"><i data-ic="more"></i></span></div>
+        <div class="body">
+          <div class="br"><div class="me-av photo" style="background-image:url(img/p2.jpg)"></div><div class="bb ai">在的，你平时周末喜欢做什么呀</div></div>
+        </div>
+        <div class="dim"></div>
+        <div class="sheet" style="padding-top:26px">
+          <div style="text-align:center"><div class="orb lg" style="margin:0 auto"><i data-ic="shield" data-s="26"></i></div></div>
+          <div style="text-align:center;font-size:20px;font-weight:800;margin-top:18px">先完成实人认证</div>
+          <div class="t2" style="text-align:center;margin-top:8px;line-height:1.6;padding:0 10px">聊天、发动态、评论都要先做实人认证。<br>身份证 + 刷脸，¥1.00 从 AI 余额扣。</div>
+          <div class="feat"><span class="sq"><i data-ic="shield" data-s="18"></i></span><span>确认本人、满 18 岁，防骗子防托</span></div>
+          <div class="feat"><span class="sq"><i data-ic="lock" data-s="18"></i></span><span>不存证号明文、不存人脸照片</span></div>
+          <div class="btn" style="margin-top:18px"><i data-ic="camera" data-s="18"></i>去完成实人认证</div>
+          <div class="btn ghost" style="margin-top:10px;background:#f5f0f1;box-shadow:none">以后再说</div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>什么时候弹</b>：没完成实人认证的人，点发送消息 / 发动态 / 发评论时弹这张（服务端强制，客户端绕不过去）。</div>
+        <div><b>浏览、填资料、点喜欢不弹</b>：这些不需要实名。所以会有「能点喜欢、但还没认证不能聊天」的中间态。</div>
+        <div><b>「去完成实人认证」</b>→ 回到 A 组右边那张认证说明页。</div>
+        <div><b>后台开关关着时这张不会出现</b>：答完题就能聊；打开后才会拦。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">画像网页上的「真人认证」标 <small>认证过的人，别人能看到</small></div>
+      <div class="phone"><div class="island"></div><div class="screen" style="background:#000">
+        <div class="hero photo" style="background-image:url(img/p2.jpg)">
+          <div class="status w"><span>9:41</span><span>5G</span></div>
+          <div class="top">
+            <span class="gbtn"><i data-ic="left" data-s="16"></i></span>
+            <span class="gbtn"><i data-ic="more" data-s="16"></i></span>
+          </div>
+          <div class="info">
+            <div class="bars"><i class="on"></i><i class="on"></i><i></i></div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div style="font-size:28px;font-weight:800">小周，29</div>
+              <span class="verify"><i data-ic="shield" data-s="13"></i>真人认证</span>
+            </div>
+            <div style="display:flex;gap:7px;margin-top:10px">
+              <span class="chip-g"><i data-ic="pin" data-s="12"></i>成都</span>
+              <span class="chip-g"><i data-ic="cap" data-s="12"></i>本科</span>
+              <span class="chip-g"><i data-ic="bag" data-s="12"></i>工程师</span>
+            </div>
+          </div>
+        </div>
+        <div class="wsheet mesh">
+          <div class="wcard glass">
+            <div class="lbl"><i data-ic="spark" data-s="14"></i>一句话</div>
+            <div class="quote">踏实顾家，周末爱做饭和爬山，想找个一起过日子的人。</div>
+          </div>
+          <div class="row" style="padding:0 2px"><span class="tag"><i data-ic="shield" data-s="12"></i>已通过实人认证</span><span class="t3" style="margin-left:8px">对方的身份经过平台核验</span></div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>「真人认证」标</b>：认证通过的人，画像网页顶部名字旁边、画像里都有一个绿色标，告诉看的人「这个人是真人、身份核验过」。</div>
+        <div><b>这是我按理解加的</b>，你没单独确认过：要不要显示这个标、叫什么名字（真人认证 / 已实名 / 身份已核验），你定。</div>
+        <div><b>只显示「通过了」</b>，不显示姓名、不显示证号。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script src="common.js"></script>
+</body>
+</html>

@@ -4,7 +4,6 @@ import Security
 struct UserProfile: Codable {
     let id: String
     var shortId: String?
-    var address: String?
     var nickname: String
     var avatar: String
     let gender: Int
@@ -13,22 +12,18 @@ struct UserProfile: Codable {
     var cityName: String
     var signature: String
     var isGuide: Bool
-    var videoPriceFen: Int?
+    /// 视频见面开关（默认关；双方都打开才能互相发起视频通话）
+    var allowVideo: Bool?
+    /// 是否已完成资料收集（只有 /user/me 返回）
+    var profileDone: Bool?
+    /// AI 深聊：none 没聊过 | chatting 聊到一半 | draft 画像等确认 | done 已确认（只有 /user/me 返回）
+    var deepStatus: String?
     var realname: Bool?
     var realNameMasked: String?
-    var balance: String?
-    var frozen: String?
     var following: Int?
     var fans: Int?
     /// 照片墙（最多 8 张）
     var albums: [AlbumItem]?
-    /// 功能开关（链上钱包等）
-    var features: UserFeatures?
-}
-
-struct UserFeatures: Codable {
-    var wallet: Bool?
-    var walletUrl: String?
 }
 
 /// 注册归因到的邀请人（通过 TA 的专属邀请页下载安装）；仅异性时返回，客户端据此直接打开 TA 主页
@@ -39,11 +34,32 @@ struct InviterBrief: Codable {
     var gender: Int?
 }
 
+/// 通过刷脸新挂到这个账号上的一台设备（给其它设备的提醒里用）。kind：android | ios | web；label：网页的浏览器名
+struct NewDevice: Codable, Equatable {
+    var id: String
+    var kind: String?
+    var label: String?
+    var at: String?
+
+    /// 设备列表、提醒里怎么称呼它
+    var name: String {
+        switch kind ?? "" {
+        case "android": return "安卓手机"
+        case "ios": return "iPhone"
+        default: return (label ?? "").isEmpty ? "网页" : "网页（\(label ?? "")）"
+        }
+    }
+}
+
 struct EnterResp: Codable {
     let registered: Bool
     let token: String?
     let user: UserProfile?
     var inviter: InviterBrief?
+    /// 这台设备在服务器「登录设备」表里的编号（推送里靠它认出说的是不是本机）
+    var did: String?
+    /// 上次用这台设备之后，通过刷脸新挂到这个账号上的其它设备，提醒一次
+    var newDevices: [NewDevice]?
 }
 
 struct AppModuleItem: Codable, Identifiable {
@@ -57,12 +73,16 @@ struct AppModuleItem: Codable, Identifiable {
 struct ApiError: Error, LocalizedError {
     let code: Int
     let msg: String
+    /// 服务端给的原因代码（例如 AI 费用的 no_balance / key_invalid），页面按它决定弹哪张提示
+    var reason: String? = nil
     var errorDescription: String? { msg }
 }
 
 
 enum Api {
-    static let baseURL = "https://api.yyheart.com"
+    // 测试环境（阿里云杭州），和安卓、网页连的是同一台。域名备案前只能用 IP + HTTP（Info.plist 里已经允许明文）；
+    // 备案后换成 https://域名，正式包不能留这个地址。2026-11-23 之前这里还是心之音的正式服，新功能在那边没有。
+    static let baseURL = "http://120.55.59.158"
 
     // 一机一号：设备 ID 存 Keychain，卸载重装后仍在，凭此恢复账号
     static var deviceId: String {
@@ -80,10 +100,17 @@ enum Api {
         set { UserDefaults.standard.set(newValue, forKey: "pw_token") }
     }
 
+    /// 这台设备在服务器「登录设备」表里的编号（进入 / 注册 / 刷脸找回 / 并号时服务器给的）
+    static var did: String? {
+        get { UserDefaults.standard.string(forKey: "pw_did") }
+        set { UserDefaults.standard.set(newValue, forKey: "pw_did") }
+    }
+
     private struct Envelope<T: Decodable>: Decodable {
         let code: Int
         let msg: String
         let data: T?
+        let reason: String?
     }
 
     /// 注册头像上传（免登录），返回可访问的相对 URL
@@ -233,11 +260,9 @@ enum Api {
         // 服务端按这个语言返回报错 / 配置项文字
         req.setValue(I18nStore.shared.lang, forHTTPHeaderField: "Accept-Language")
         if let body { req.httpBody = try JSONSerialization.data(withJSONObject: body) }
-        let (raw, _) = try await URLSession.shared.data(for: req)
-        // 币群名 / 群公告等服务端生成的中文换成当前语言
-        let data = I18nStore.shared.localizeServerJSON(raw)
+        let (data, _) = try await URLSession.shared.data(for: req)
         let envelope = try JSONDecoder().decode(Envelope<T>.self, from: data)
-        guard envelope.code == 0 else { throw ApiError(code: envelope.code, msg: envelope.msg) }
+        guard envelope.code == 0 else { throw ApiError(code: envelope.code, msg: envelope.msg, reason: envelope.reason) }
         guard let value = envelope.data else { throw ApiError(code: -1, msg: t("common.emptyData")) }
         return value
     }

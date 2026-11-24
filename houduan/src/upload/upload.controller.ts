@@ -33,7 +33,7 @@ export class UploadController {
     return this.uploads.uploadApk(file);
   }
 
-  /** 后台上传图片（管理员 token；后台录入树洞配图等） */
+  /** 后台上传图片（管理员 token） */
   @Post('admin-image')
   @UseGuards(AdminGuard)
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 20 * 1024 * 1024 } }))

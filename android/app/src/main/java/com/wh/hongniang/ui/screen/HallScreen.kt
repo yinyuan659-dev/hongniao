@@ -1,29 +1,17 @@
 package com.wh.hongniang.ui.screen
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.wh.hongniang.i18n.t
 import com.wh.hongniang.net.Api
-import com.wh.hongniang.ui.*
 import com.wh.hongniang.ui.theme.*
-import kotlinx.coroutines.launch
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -36,8 +24,7 @@ import kotlinx.serialization.json.jsonPrimitive
 @Composable
 fun HallScreen(
     modifier: Modifier = Modifier,
-    onOpenProject: (String) -> Unit,
-    onOpenChat: (convId: String, convType: Int, targetId: String, title: String) -> Unit = { _, _, _, _ -> },
+    onOpenChat: (convId: String, targetId: String, title: String) -> Unit = { _, _, _ -> },
     onOpenWeb: (url: String, title: String, landscape: Boolean) -> Unit = { _, _, _ -> },
     /** 大厅 tab 是否当前可见（各 tab 常驻，只有可见时才接管返回键） */
     active: Boolean = true,
@@ -59,10 +46,10 @@ fun HallScreen(
     }
 
     val u = url
-    // 大厅 H5 内有子页面（树洞详情/发布等）：系统返回键先让网页后退，退不了才交给系统
+    // 大厅 H5 内有子页面：系统返回键先让网页后退，退不了才交给系统
     var webView by remember { mutableStateOf<android.webkit.WebView?>(null) }
     var canGoBack by remember { mutableStateOf(false) }
-    // H5 经桥打开的原生媒体查看器（养眼图片：看大图 / 播视频）
+    // H5 经桥打开的原生媒体查看器（看大图 / 播视频）
     var viewer by remember { mutableStateOf<Triple<List<List<com.wh.hongniang.ui.MediaItem>>, Int, Int>?>(null) }
     viewer?.let { (groups, g, idx) ->
         androidx.compose.ui.window.Dialog(
@@ -71,14 +58,6 @@ fun HallScreen(
         ) {
             com.wh.hongniang.ui.MediaViewer(groups, g, idx) { viewer = null }
         }
-    }
-    // 原生播放状态回推给 H5（切歌 / 暂停时），H5 的播放 UI 据此同步：window.PeiwanMusicState({id, playing})
-    val musicCur = MusicCenter.current.value
-    val musicPlaying = MusicCenter.isPlaying.value
-    LaunchedEffect(webView, musicCur?.id, musicPlaying) {
-        val w = webView ?: return@LaunchedEffect
-        val id = musicCur?.id?.let { "\"$it\"" } ?: "null"
-        w.evaluateJavascript("window.PeiwanMusicState&&window.PeiwanMusicState({id:$id,playing:$musicPlaying})", null)
     }
     // App 里切了语言：大厅网页换成新语言重新加载（只改地址里 hash 后的 lang 不会重新加载页面）
     val appLang = com.wh.hongniang.i18n.I18n.lang
@@ -149,20 +128,10 @@ fun withIndexCacheBuster(url: String): String {
     return "$head${sep}_t=${System.currentTimeMillis()}$tail"
 }
 
-/** H5 → 原生播放器的指令（web/src/bridge.ts nativeMusic 发出） */
-@kotlinx.serialization.Serializable
-private data class MusicCmd(
-    val action: String = "",
-    val track: MusicTrack? = null,
-    val queue: List<MusicTrack>? = null,
-    val ratio: Float? = null,
-    val value: Float? = null,
-)
-
-/** 大厅 H5 → 原生 的 JS 桥（JS 侧调用 PeiwanNative.openChat / openWeb / music） */
+/** 大厅 H5 → 原生 的 JS 桥（JS 侧调用 PeiwanNative.openChat / openWeb / viewMediaGroups / shareText） */
 private class HallJsBridge(
     private val ctx: android.content.Context,
-    private val onOpenChat: (String, Int, String, String) -> Unit,
+    private val onOpenChat: (String, String, String) -> Unit,
     private val onOpenWeb: (String, String, Boolean) -> Unit,
     private val onViewMedia: (List<List<com.wh.hongniang.ui.MediaItem>>, Int, Int) -> Unit = { _, _, _ -> },
 ) {
@@ -186,39 +155,16 @@ private class HallJsBridge(
     @android.webkit.JavascriptInterface
     fun viewMedia(itemsJson: String, index: String) = viewMediaGroups("[$itemsJson]", "0", index)
 
-    /**
-     * H5 里播音乐交给原生播放器（后台可播、消息页顶部栏/锁屏可控，与原生音乐页共用 MusicCenter）。
-     * json: {action: play|pause|resume|stop|seek|rate, track?, queue?, ratio?, value?}
-     */
-    @android.webkit.JavascriptInterface
-    fun music(json: String) {
-        val cmd = runCatching { Api.json.decodeFromString(MusicCmd.serializer(), json) }
-            .onFailure { GameLog.w("bridge.music bad json: ${it.message}") }.getOrNull() ?: return
-        GameLog.d("bridge.music ${cmd.action} track=${cmd.track?.title} queue=${cmd.queue?.size}")
-        android.os.Handler(android.os.Looper.getMainLooper()).post {
-            when (cmd.action) {
-                "play" -> {
-                    val t = cmd.track ?: return@post
-                    cmd.queue?.takeIf { it.isNotEmpty() }?.let { MusicCenter.setQueue(it) }
-                    if (MusicCenter.queue.none { it.id == t.id }) MusicCenter.setQueue(MusicCenter.queue + t)
-                    if (MusicCenter.current.value?.id == t.id) { if (!MusicCenter.isPlaying.value) MusicCenter.toggle(ctx) }
-                    else MusicCenter.play(ctx, t)
-                }
-                "pause" -> MusicCenter.pause()
-                "resume" -> if (!MusicCenter.isPlaying.value) MusicCenter.toggle(ctx)
-                "stop" -> MusicCenter.stop()
-                "seek" -> cmd.ratio?.let { MusicCenter.seekTo(it) }
-                "rate" -> cmd.value?.let { MusicCenter.setRate(it) }
-                else -> GameLog.w("bridge.music unknown action ${cmd.action}")
-            }
-        }
-    }
-
+    /** 打开原生单聊页（convType 只认 1） */
     @android.webkit.JavascriptInterface
     fun openChat(convId: String, convType: String, targetId: String, title: String) {
         GameLog.d("bridge.openChat conv=$convId type=$convType target=$targetId title=$title")
+        if ((convType.toIntOrNull() ?: 1) != 1) {
+            GameLog.w("bridge.openChat rejected: only convType=1 is supported")
+            return
+        }
         android.os.Handler(android.os.Looper.getMainLooper()).post {
-            onOpenChat(convId, convType.toIntOrNull() ?: 1, targetId, title)
+            onOpenChat(convId, targetId, title)
         }
     }
 
@@ -241,7 +187,7 @@ private class HallJsBridge(
     @android.webkit.JavascriptInterface
     fun openWeb(url: String, title: String) = openWeb(url, title, null)
 
-    /** H5 分享（养眼图片 / 音乐链接等）：Android WebView 没有 navigator.share，走系统分享面板 */
+    /** H5 分享：Android WebView 没有 navigator.share，走系统分享面板 */
     @android.webkit.JavascriptInterface
     fun shareText(text: String, title: String?) {
         GameLog.d("bridge.shareText ${text.take(60)}")
@@ -282,7 +228,7 @@ object GameLog {
             onCanGoBack?.invoke(view.canGoBack())
         }
 
-        // hash 路由（#/treehole/1）切换不触发 onPageFinished，这里能拿到
+        // hash 路由（#/xxx/1）切换不触发 onPageFinished，这里能拿到
         override fun doUpdateVisitedHistory(view: android.webkit.WebView, url: String?, isReload: Boolean) {
             onCanGoBack?.invoke(view.canGoBack())
         }
@@ -317,97 +263,6 @@ object GameLog {
                 else -> d(line)
             }
             return true
-        }
-    }
-}
-
-/** 地陪项目主页 */
-@Composable
-fun GuideProjectScreen(myGender: Int, onBack: () -> Unit, onNav: (String) -> Unit, onOpenChat: (String, String) -> Unit) {
-    val isFemale = myGender == 2
-    var guides by remember { mutableStateOf<List<com.wh.hongniang.net.Person>>(emptyList()) }
-    val scope = rememberCoroutineScope()
-    LaunchedEffect(Unit) { guides = runCatching { Api.getList<com.wh.hongniang.net.Person>("/guide/list") }.getOrDefault(emptyList()).take(6) }
-
-    val entries = listOf(
-        Triple(t("hall.findBuddy"), t("hall.findBuddySub"), "people/guide"),
-        Triple(t("hall.findPeople"), t("hall.findPeopleSub"), "people/all"),
-        if (isFemale) Triple(t("hall.taskHall"), t("hall.taskHallSub"), "task/hall") else Triple(t("hall.postTask"), t("hall.postTaskSub"), "task/post"),
-        Triple(if (isFemale) t("me.myTasksGuide") else t("me.myTasks"), t("hall.myTasksSub"), "task/mine"),
-    )
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        NavBar(t("hall.localBuddy"), onBack)
-        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                entries.take(2).forEach { EntryCard(it, Modifier.weight(1f)) { onNav(it.third) } }
-            }
-            Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                entries.drop(2).forEach { EntryCard(it, Modifier.weight(1f)) { onNav(it.third) } }
-            }
-            Text(t("hall.recommended"), color = TextMain, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(vertical = 16.dp))
-        }
-        LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp)) {
-            items(guides, key = { it.id }) { p ->
-                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Avatar(p.avatar, 48)
-                    Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
-                        Text("${p.nickname} · ${p.age}", color = TextMain, fontSize = 15.sp)
-                        Text(if (p.signature.isNotEmpty()) p.signature else t("hall.mystery"), color = TextSub, fontSize = 12.sp, maxLines = 1)
-                    }
-                    Box(modifier = Modifier.clip(RoundedCornerShape(15.dp)).background(Accent).clickable { onOpenChat(p.id, p.nickname) }.padding(horizontal = 14.dp, vertical = 6.dp)) {
-                        Text(t("hall.sayHi"), color = Color.White, fontSize = 13.sp)
-                    }
-                }
-            }
-            if (guides.isEmpty()) item { Box(Modifier.fillMaxWidth().padding(40.dp), Alignment.Center) { Text(t("hall.noBuddies"), color = TextSub) } }
-        }
-    }
-}
-
-@Composable
-private fun EntryCard(e: Triple<String, String, String>, modifier: Modifier, onClick: () -> Unit) {
-    Column(modifier = modifier.clip(RoundedCornerShape(14.dp)).background(Bg2).clickable(onClick = onClick).padding(16.dp)) {
-        Text(e.first, color = TextMain, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-        Text(e.second, color = TextSub, fontSize = 12.sp, modifier = Modifier.padding(top = 5.dp))
-    }
-}
-
-/** 找人 / 找搭子 */
-@Composable
-fun PeopleScreen(mode: String, onBack: () -> Unit, onOpenChat: (String, String) -> Unit) {
-    var tab by remember { mutableStateOf(if (mode == "guide") "guide" else "all") }
-    var items by remember { mutableStateOf<List<com.wh.hongniang.net.Person>>(emptyList()) }
-    val scope = rememberCoroutineScope()
-    LaunchedEffect(tab) {
-        items = runCatching { Api.getList<com.wh.hongniang.net.Person>(if (tab == "guide") "/guide/list" else "/guide/discover") }.getOrDefault(emptyList())
-    }
-    Column(modifier = Modifier.fillMaxSize()) {
-        NavBar(if (tab == "guide") t("hall.findBuddy") else t("hall.findPeople"), onBack)
-        Row(modifier = Modifier.padding(16.dp, 0.dp, 16.dp, 10.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-            listOf("guide" to t("me.verified"), "all" to t("hall.all")).forEach { (k, label) ->
-                Text(label, color = if (tab == k) TextMain else TextSub, fontSize = if (tab == k) 17.sp else 16.sp, fontWeight = if (tab == k) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.noRippleClick { tab = k })
-            }
-        }
-        LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp)) {
-            items(items, key = { it.id }) { p ->
-                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Avatar(p.avatar, 56)
-                    Column(modifier = Modifier.weight(1f).padding(start = 12.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("${p.nickname} · ${p.age}", color = TextMain, fontSize = 15.sp)
-                            if (p.isGuide) Text(" " + t("me.verified"), color = Accent, fontSize = 11.sp)
-                        }
-                        Text(if (p.signature.isNotEmpty()) p.signature else t("hall.mystery"), color = TextSub, fontSize = 12.sp, maxLines = 1)
-                        if (p.cityName.isNotEmpty()) Text(p.cityName, color = TextDim, fontSize = 11.sp)
-                    }
-                    Box(modifier = Modifier.clip(RoundedCornerShape(15.dp)).background(Accent).clickable { onOpenChat(p.id, p.nickname) }.padding(horizontal = 14.dp, vertical = 6.dp)) {
-                        Text(t("hall.sayHi"), color = Color.White, fontSize = 13.sp)
-                    }
-                }
-            }
-            if (items.isEmpty()) item { Box(Modifier.fillMaxWidth().padding(40.dp), Alignment.Center) { Text(t("hall.noUsers"), color = TextSub) } }
         }
     }
 }

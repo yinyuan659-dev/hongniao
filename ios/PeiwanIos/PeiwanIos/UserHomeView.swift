@@ -11,7 +11,6 @@ struct UserHomeView: View {
     @State private var following = false
     @State private var tab = 0
     @State private var chatTarget: ChatTarget?
-    @State private var showGift = false
     @State private var toast: String?
     @State private var wallImage: String?
     /// hero 轮播当前页（自动轮播用）
@@ -33,9 +32,6 @@ struct UserHomeView: View {
         .ignoresSafeArea(edges: .top)
         .fullScreenCover(item: $chatTarget) { t in
             ChatRoomSheet(target: t)
-        }
-        .sheet(isPresented: $showGift) {
-            GiftSheetView(toUserId: userId)
         }
         .fullScreenCover(isPresented: Binding(get: { wallImage != nil }, set: { if !$0 { wallImage = nil } })) {
             let urls = (p?.albums ?? []).filter { ($0.type ?? 1) == 1 }.map(\.url)
@@ -68,7 +64,8 @@ struct UserHomeView: View {
     @ViewBuilder
     private func content(_ p: HomeProfile) -> some View {
         let isFemale = p.gender == 2
-        let canVideo = appState.user?.gender == 1 && isFemale
+        // 视频按钮：对方打开了视频见面才显示
+        let canVideo = p.allowVideo == true && p.id != appState.user?.id
         ZStack(alignment: .bottom) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -176,12 +173,6 @@ struct UserHomeView: View {
                             Text(" " + t("userHome.answerRate")).font(.system(size: 12)).foregroundStyle(.white.opacity(0.75))
                         }
                     }
-                    if isFemale, let price = p.videoPriceActualFen, price > 0 {
-                        HStack(alignment: .lastTextBaseline, spacing: 0) {
-                            Text(fmtPoints(String(price))).font(.system(size: 26, weight: .bold)).foregroundStyle(.white)
-                            Text(" " + t("userHome.pointsPerMin")).font(.system(size: 12)).foregroundStyle(.white.opacity(0.75))
-                        }
-                    }
                 }
                 .padding(.leading, 16)
                 .padding(.bottom, 34)
@@ -222,6 +213,10 @@ struct UserHomeView: View {
                 statCell("\(p.fans ?? 0)", t("me.fans"), Theme.text)
             }
             .padding(.top, 16)
+            // ===== 相亲资料（AI 红娘收集的画像）：对方没完成就不显示 =====
+            if let mp = p.matchProfile {
+                MatchProfileCard(p: mp)
+            }
             // ===== 评分：星级总分 + 五维度方格，最高维度渐变高亮 =====
             if isFemale, let r = p.rating, (r.count ?? 0) > 0 {
                 let star = Double(r.avg ?? 0) / 20.0
@@ -358,25 +353,8 @@ struct UserHomeView: View {
     // ===== 底部操作栏 =====
     private func bottomBar(_ p: HomeProfile, canVideo: Bool) -> some View {
         HStack(spacing: 12) {
-            Button {
-                Task {
-                    if let t = await openChatWith(userId: userId, nickname: p.nickname ?? "") {
-                        chatTarget = t
-                    }
-                }
-            } label: {
-                Text(t("userHome.chat")).font(.system(size: 12)).foregroundStyle(Theme.text)
-                    .frame(width: 48, height: 48)
-                    .background(Circle().fill(Theme.bg2))
-            }
-            .buttonStyle(.plain)
-
-            Button { showGift = true } label: {
-                Text(t("userHome.gift")).font(.system(size: 12)).foregroundStyle(Theme.accent2)
-                    .frame(width: 48, height: 48)
-                    .background(Circle().fill(Theme.bg2))
-            }
-            .buttonStyle(.plain)
+            // 原来这里是直接「聊天 / 发消息」；现在要互相喜欢才能聊，换成喜欢按钮（互相喜欢后它会变成「发消息」）
+            LikeChipView(userId: userId, nickname: p.nickname ?? "", height: 48, wide: !canVideo) { chatTarget = $0 }
 
             if canVideo {
                 let busy = p.busy == true
@@ -386,19 +364,13 @@ struct UserHomeView: View {
                     if !online { toast = t("common.peerOffline"); return }
                     CallManager.shared.startCall(calleeId: userId, type: 2, name: p.nickname ?? "", avatar: p.avatar ?? "")
                 } label: {
-                    let priceFen = p.videoPriceActualFen ?? 0
                     let mainColor: Color = busy ? busyOrange : !online ? Theme.textDim : .white
                     VStack(spacing: 1) {
                         Text(busy ? t("common.inCall") : t("userHome.videoChat"))
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(mainColor)
-                        if !busy {
-                            if !online {
-                                Text(t("userHome.peerOffline")).font(.system(size: 10)).foregroundStyle(Theme.textDim)
-                            } else if priceFen > 0 {
-                                Text(t("userHome.pricePerMin", ["price": fmtPoints(String(priceFen))]))
-                                    .font(.system(size: 10)).foregroundStyle(.white.opacity(0.85))
-                            }
+                        if !busy, !online {
+                            Text(t("userHome.peerOffline")).font(.system(size: 10)).foregroundStyle(Theme.textDim)
                         }
                     }
                     .frame(maxWidth: .infinity)
@@ -410,21 +382,6 @@ struct UserHomeView: View {
                                 : AnyShapeStyle(LinearGradient(colors: [Theme.accent, Theme.accent2], startPoint: .leading, endPoint: .trailing))
                         )
                     )
-                }
-                .buttonStyle(.plain)
-            } else {
-                Button {
-                    Task {
-                        if let t = await openChatWith(userId: userId, nickname: p.nickname ?? "") {
-                            chatTarget = t
-                        }
-                    }
-                } label: {
-                    Text(t("userHome.message"))
-                        .font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 48)
-                        .background(Capsule().fill(LinearGradient(colors: [Theme.accent, Theme.accent2], startPoint: .leading, endPoint: .trailing)))
                 }
                 .buttonStyle(.plain)
             }

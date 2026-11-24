@@ -15,7 +15,6 @@ final class I18nStore: @unchecked Sendable {
     let tables: [String: [String: String]]
     private let lock = NSLock()
     private var _choice: String
-    private let serverPatterns: [(key: String, re: NSRegularExpression, names: [String])]
 
     private init() {
         var all: [String: [String: String]] = [:]
@@ -29,10 +28,6 @@ final class I18nStore: @unchecked Sendable {
         }
         tables = all
         _choice = UserDefaults.standard.string(forKey: I18nStore.key) ?? I18nStore.defaultChoice
-        serverPatterns = I18nStore.serverKeys.compactMap { k in
-            guard let zh = all[I18nStore.fallback]?[k] else { return nil }
-            return I18nStore.compile(k, zh)
-        }
     }
 
     /// "system" 或语言代码
@@ -79,52 +74,6 @@ final class I18nStore: @unchecked Sendable {
             out = (out as NSString).replacingCharacters(in: m.range, with: "1 " + word + (suffix == "ies" ? "y" : ""))
         }
         return out
-    }
-
-    // MARK: 服务端生成、全群共用的中文（币群名 / 群公告 / 系统昵称）：按 zh 模板匹配，换成当前语言
-
-    private static let serverKeys = ["coinGroup.name", "coinGroup.perpName", "coinGroup.perpNotice", "coinGroup.notice", "coinGroup.bot"]
-
-    private static func compile(_ key: String, _ zh: String) -> (key: String, re: NSRegularExpression, names: [String])? {
-        guard let holes = try? NSRegularExpression(pattern: "\\{(\\w+)\\}") else { return nil }
-        let ns = zh as NSString
-        var pattern = "^"
-        var names: [String] = []
-        var cursor = 0
-        for m in holes.matches(in: zh, range: NSRange(location: 0, length: ns.length)) {
-            pattern += NSRegularExpression.escapedPattern(for: ns.substring(with: NSRange(location: cursor, length: m.range.location - cursor)))
-            pattern += "(.+?)"
-            names.append(ns.substring(with: m.range(at: 1)))
-            cursor = m.range.location + m.range.length
-        }
-        pattern += NSRegularExpression.escapedPattern(for: ns.substring(from: cursor)) + "$"
-        guard let re = try? NSRegularExpression(pattern: pattern) else { return nil }
-        return (key, re, names)
-    }
-
-    func server(_ s: String) -> String {
-        guard lang != I18nStore.fallback, s.contains("群") else { return s }
-        let ns = s as NSString
-        for p in serverPatterns {
-            guard let m = p.re.firstMatch(in: s, range: NSRange(location: 0, length: ns.length)) else { continue }
-            var args: [String: Any] = [:]
-            for (i, n) in p.names.enumerated() { args[n] = ns.substring(with: m.range(at: i + 1)) }
-            return text(p.key, args)
-        }
-        return s
-    }
-
-    /// 接口返回的 JSON 里把上面这些服务端文字换成当前语言；中文或不含「群」时原样返回
-    func localizeServerJSON(_ data: Data) -> Data {
-        guard lang != I18nStore.fallback, data.range(of: Data("群".utf8)) != nil,
-              let obj = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return data }
-        func walk(_ v: Any) -> Any {
-            if let s = v as? String { return s.count >= 3 && s.count <= 400 ? server(s) : s }
-            if let a = v as? [Any] { return a.map(walk) }
-            if let d = v as? [String: Any] { return d.mapValues(walk) }
-            return v
-        }
-        return (try? JSONSerialization.data(withJSONObject: walk(obj), options: [.fragmentsAllowed])) ?? data
     }
 }
 

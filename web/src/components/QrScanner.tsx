@@ -2,35 +2,11 @@ import { useEffect, useRef } from 'react';
 import jsQR from 'jsqr';
 import { t } from '../i18n';
 
-/** 从扫码结果里提取群邀请码（兼容 peiwan://group?code=xxx 和纯码） */
-export function parseGroupCode(text: string): string | null {
-  const m = text.match(/code=([A-Za-z0-9]{6,12})/);
-  if (m) return m[1].toUpperCase();
-  const t = text.trim().toUpperCase();
-  return /^[A-Z0-9]{6,12}$/.test(t) ? t : null;
-}
-
 /** 从扫码结果里提取邀请名片码（名片二维码内容 https://域名/t/?u=短号） */
 export function parseInviteCode(text: string): string | null {
   if (!text.includes('/t/')) return null;
   const m = text.match(/[?&]u=(\d{1,19})/);
   return m ? m[1] : null;
-}
-
-/**
- * 看起来像链上钱包地址或收款链接（0x / EIP-681、Solana、波场 T…、TON、solana: / tron: / ton:// 链接）。
- * 和 App 里的判断一样；网页版没有钱包，只提示去 App 里转账。
- */
-export function looksLikeWalletPayment(text: string): boolean {
-  const t = text.trim();
-  return (
-    /^(ethereum|solana|tron|ton|tonkeeper):/i.test(t) ||
-    t.startsWith('https://app.tonkeeper.com/transfer/') ||
-    /0x[0-9a-fA-F]{40}(?![0-9a-fA-F])/.test(t) ||
-    /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(t) ||
-    /^[A-Za-z0-9_+/-]{48}$/.test(t) ||
-    /^-?[01]:[0-9a-fA-F]{64}$/.test(t)
-  );
 }
 
 /**

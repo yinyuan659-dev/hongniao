@@ -1,28 +1,22 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { Wallet } from 'ethers';
 import { PrismaService } from '../prisma/prisma.service';
-import { CryptoService } from '../common/crypto.service';
 
 /** App Store 审核用演示账号：账号 11111111111，密码 DEMO_PASSWORD（默认 123456），只在审核模式开着时能登 */
 export const DEMO_USERNAME = '11111111111';
 const demoPassword = () => process.env.DEMO_PASSWORD || '123456';
 export const DEMO_DEVICE_ID = 'demo_' + DEMO_USERNAME;
 const KEY_REVIEW_IOS = 'review_mode_ios';
-const DEMO_BALANCE_FEN = 1_000_000n; // 10000 积分
 
 /**
  * iOS 审核模式：
  * - 开关 review_mode_ios（后台可切，默认开）。开着时 iOS 启动显示「账号 + 密码」登录页；关掉后回到一机一号逻辑。
- * - 演示账号内容从平台第一个男用户复制（昵称/头像/年龄/签名），城市固定成都，充 10000 积分。
+ * - 演示账号内容从平台第一个男用户复制（昵称/头像/年龄/签名），城市固定成都。
  */
 @Injectable()
 export class ReviewService {
   private readonly logger = new Logger('Review');
 
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly crypto: CryptoService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   /** 公开：客户端启动时读取 */
   async publicStatus() {
@@ -33,11 +27,11 @@ export class ReviewService {
 
   async adminStatus() {
     const s = await this.publicStatus();
-    const demo = await this.prisma.user.findUnique({ where: { deviceId: DEMO_DEVICE_ID }, include: { wallet: true } });
+    const demo = await this.prisma.user.findUnique({ where: { deviceId: DEMO_DEVICE_ID } });
     return {
       ...s,
       demo: demo
-        ? { id: demo.id, shortId: demo.shortId, nickname: demo.nickname, cityName: demo.cityName, balance: demo.wallet?.balance ?? 0n, username: DEMO_USERNAME, password: demoPassword() }
+        ? { id: demo.id, shortId: demo.shortId, nickname: demo.nickname, cityName: demo.cityName, username: DEMO_USERNAME, password: demoPassword() }
         : null,
     };
   }
@@ -54,7 +48,7 @@ export class ReviewService {
 
   /** 账号密码登录（仅演示账号；密码不校验，只要账号对） */
   async demoLogin(username: string, password: string) {
-    // 2026-10-14 收紧:以前密码不校验、审核模式关了也能登,任何人都能拿这个号(每次登录补到 10000 积分)。
+    // 2026-10-14 收紧:以前密码不校验、审核模式关了也能登,任何人都能拿这个号。
     // 现在:只在 iOS 审核模式开着时可用,密码要对(环境变量 DEMO_PASSWORD,默认 123456,和 App Store Connect 里给审核员的一致)。
     if (!(await this.publicStatus()).ios) throw new BadRequestException('账号或密码错误');
     if ((username ?? '').trim() !== DEMO_USERNAME) throw new BadRequestException('账号或密码错误');
@@ -65,7 +59,7 @@ export class ReviewService {
     return user;
   }
 
-  /** 创建/刷新演示账号：从第一个男用户复制资料，城市成都，余额补到 10000 积分 */
+  /** 创建/刷新演示账号：从第一个男用户复制资料，城市成都 */
   async ensureDemoUser(refresh = false) {
     let user = await this.prisma.user.findUnique({ where: { deviceId: DEMO_DEVICE_ID } });
     const src = await this.prisma.user.findFirst({ where: { gender: 1, deviceId: { not: DEMO_DEVICE_ID } }, orderBy: { id: 'asc' } });
@@ -80,32 +74,17 @@ export class ReviewService {
       longitude: 104.0668,
     };
     if (!user) {
-      const w = Wallet.createRandom();
       user = await this.prisma.user.create({
         data: {
           deviceId: DEMO_DEVICE_ID,
-          address: w.address,
-          encPrivKey: this.crypto.wrapKey(Buffer.from(w.privateKey.slice(2), 'hex')),
           shortId: await this.genShortId(),
           gender: 1,
           ...profile,
-          wallet: { create: {} },
         },
       });
       this.logger.log(`demo user created #${user.id} from #${src?.id}`);
     } else if (refresh) {
       user = await this.prisma.user.update({ where: { id: user.id }, data: profile });
-    }
-    // 余额不足 10000 积分就补齐
-    const wallet = await this.prisma.wallet.upsert({ where: { userId: user.id }, create: { userId: user.id }, update: {} });
-    if (wallet.balance < DEMO_BALANCE_FEN) {
-      const delta = DEMO_BALANCE_FEN - wallet.balance;
-      await this.prisma.$transaction([
-        this.prisma.wallet.update({ where: { userId: user.id }, data: { balance: DEMO_BALANCE_FEN } }),
-        this.prisma.walletTransaction.create({
-          data: { userId: user.id, type: 'admin_grant', amount: delta, balanceAfter: DEMO_BALANCE_FEN, refKey: `demo_topup_${Date.now()}`, remark: '审核演示账号补足积分' },
-        }),
-      ]);
     }
     // 复制源用户的照片墙（演示账号没有时）
     if (src) {

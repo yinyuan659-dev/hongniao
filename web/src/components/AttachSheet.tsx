@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { t } from '../i18n';
 
-export type AttachAction = 'gift' | 'location' | 'voice' | 'voiceCall' | 'videoCall';
+export type AttachAction = 'location' | 'voiceCall' | 'videoCall';
 
 const MAX_PICK = 9;
 
@@ -20,9 +20,7 @@ const Svg = ({ children, size = 22 }: { children: React.ReactNode; size?: number
 
 const icons = {
   photo: <Svg><rect x="3.5" y="5" width="17" height="14" rx="2.5" /><circle cx="9" cy="10" r="1.6" /><path d="M4.5 17.5l5-5 4 3.5 2.5-2.5 3.5 4" /></Svg>,
-  gift: <Svg><rect x="4.5" y="10" width="15" height="10" rx="1.2" /><path d="M3.5 10h17M12 10v10M12 10c-1.5-3.5-5-4-5-1.8S10 10 12 10zm0 0c1.5-3.5 5-4 5-1.8S14 10 12 10z" /></Svg>,
   pin: <Svg><path d="M12 21s-6.5-6.1-6.5-11a6.5 6.5 0 0113 0c0 4.9-6.5 11-6.5 11z" /><circle cx="12" cy="10" r="2.3" /></Svg>,
-  mic: <Svg><rect x="9" y="3.5" width="6" height="11" rx="3" /><path d="M5.5 11.5a6.5 6.5 0 0013 0M12 18v2.5" /></Svg>,
   phone: <Svg><path d="M6.6 3.8l2.3-.3 1.6 4-1.9 1.4a11 11 0 005.5 5.5l1.4-1.9 4 1.6-.3 2.3a2 2 0 01-2 1.7A15.5 15.5 0 014.9 5.8a2 2 0 011.7-2z" /></Svg>,
   video: <Svg><rect x="3" y="6.5" width="12.5" height="11" rx="2.2" /><path d="M15.5 10.5l5-3v9l-5-3z" /></Svg>,
   file: <Svg><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4M9 13h6M9 16.5h4" /></Svg>,
@@ -40,20 +38,15 @@ const icons = {
 /**
  * 聊天「+」弹框（Telegram 式）：从底部弹出；第一格相机（手机上直接调起拍照，拍完即发），
  * 第二格从相册选（浏览器拿不到相册列表，选进来的图排在后面，可勾选 / 取消）；
- * 底部悬浮胶囊切 相册 / 礼物 / 位置 / 通话，选了图后换成「添加说明 + 发送」。
+ * 底部悬浮胶囊切 相册 / 文件 / 位置 / 通话，选了图后换成「添加说明 + 发送」。
  */
 export function AttachSheet({
-  isSingle,
-  canVoice,
   canVideoCall,
   onClose,
   onSend,
   onFiles,
   onAction,
 }: {
-  isSingle: boolean;
-  /** 群 / 频道：胶囊里放「语音」（单聊的语音在输入框左边，胶囊放不下） */
-  canVoice?: boolean;
   canVideoCall: boolean;
   onClose: () => void;
   onSend: (files: File[], caption: string) => void;
@@ -123,11 +116,9 @@ export function AttachSheet({
   const tabs: { key: string; label: string; icon: React.ReactNode; action?: AttachAction }[] = [
     { key: 'album', label: t('attach.album'), icon: icons.photo },
     ...(onFiles ? [{ key: 'file', label: t('attach.file'), icon: icons.file }] : []),
-    ...(isSingle ? [{ key: 'gift', label: t('attach.gift'), icon: icons.gift, action: 'gift' as const }] : []),
     { key: 'location', label: t('attach.location'), icon: icons.pin, action: 'location' as const },
-    ...(canVoice ? [{ key: 'voiceMsg', label: t('attach.voice'), icon: icons.mic, action: 'voice' as const }] : []),
-    ...(isSingle ? [{ key: 'voice', label: t('attach.voiceCall'), icon: icons.phone, action: 'voiceCall' as const }] : []),
-    ...(isSingle && canVideoCall ? [{ key: 'video', label: t('attach.videoCall'), icon: icons.video, action: 'videoCall' as const }] : []),
+    { key: 'voice', label: t('attach.voiceCall'), icon: icons.phone, action: 'voiceCall' as const },
+    ...(canVideoCall ? [{ key: 'video', label: t('attach.videoCall'), icon: icons.video, action: 'videoCall' as const }] : []),
   ];
 
   return (

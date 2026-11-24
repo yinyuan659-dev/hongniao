@@ -1,6 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
-import { myChainAddress, peerChainAddress, setChainAddress, type ChainAddressBody } from './chain-address';
+import { Body, Controller, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../common/current-user.decorator';
 import { UserService } from './user.service';
@@ -9,31 +7,11 @@ import { UpdateAlbumsDto, UpdateProfileDto } from './user.dto';
 @Controller('user')
 @UseGuards(JwtAuthGuard)
 export class UserController {
-  constructor(
-    private readonly users: UserService,
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly users: UserService) {}
 
   @Get('me')
   me(@CurrentUser() userId: bigint) {
     return this.users.getMe(userId);
-  }
-
-  /** 链上钱包收款地址（钱包里「允许好友给我转账」），见 chain-address.ts */
-  @Get('chain-address')
-  myChainAddress(@CurrentUser() userId: bigint) {
-    return myChainAddress(this.prisma, userId);
-  }
-
-  @Put('chain-address')
-  setChainAddress(@CurrentUser() userId: bigint, @Body() body: ChainAddressBody) {
-    return setChainAddress(this.prisma, userId, body);
-  }
-
-  @Get(':id/chain-address')
-  peerChainAddress(@CurrentUser() userId: bigint, @Param('id') id: string) {
-    if (!/^\d+$/.test(id)) throw new BadRequestException('bad id');
-    return peerChainAddress(this.prisma, userId, BigInt(id));
   }
 
   @Put('me')

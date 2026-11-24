@@ -1,32 +1,28 @@
 package com.wh.hongniang.ui.screen
 
+import android.annotation.SuppressLint
+import android.content.Context
+import android.location.Geocoder
+import android.location.LocationManager
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
@@ -38,181 +34,34 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 import com.wh.hongniang.i18n.t
 import com.wh.hongniang.net.*
 import com.wh.hongniang.ui.*
 import com.wh.hongniang.ui.theme.*
-import com.wh.hongniang.ui.sticker.SmileIcon
-import com.wh.hongniang.ui.sticker.StickerImage
-import com.wh.hongniang.ui.sticker.EmojiPanel
-import com.wh.hongniang.ui.sticker.dropLastGrapheme
-import com.wh.hongniang.ui.sticker.StickerPayload
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import java.util.Locale
 
-@Composable
-fun MomentDetailScreen(id: String, onBack: () -> Unit, onOpenChat: (String, String) -> Unit) {
-    var m by remember { mutableStateOf<Moment?>(null) }
-    var comments by remember { mutableStateOf<List<CommentItem>>(emptyList()) }
-    var input by remember { mutableStateOf("") }
-    /** 待发的贴纸（点贴纸先挂到输入栏，再点发送） */
-    var sticker by remember { mutableStateOf<StickerPayload?>(null) }
-    var showSticker by remember { mutableStateOf(false) }
-    val inputFocus = remember { androidx.compose.ui.focus.FocusRequester() }
-    val ctx = LocalContext.current
-    val focus = androidx.compose.ui.platform.LocalFocusManager.current
-    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    val scope = rememberCoroutineScope()
-    fun loadC() { scope.launch { comments = runCatching { Api.getList<CommentItem>("/moments/$id/comments") }.getOrDefault(emptyList()) } }
-    LaunchedEffect(id) {
-        m = runCatching { Api.getObj<Moment>("/moments/$id") }.getOrNull()
-        loadC()
-    }
-    val moment = m ?: return
-    var fullImage by remember { mutableStateOf<String?>(null) }
-
-    Column(Modifier.fillMaxSize()) {
-        Row(modifier = Modifier.fillMaxWidth().padding(8.dp, 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(40.dp).noRippleClick(onBack), contentAlignment = Alignment.Center) { BackIcon(TextMain, 24.dp) }
-            Avatar(moment.user?.avatar, 34)
-            Text("  ${moment.user?.nickname ?: ""}", color = TextMain, fontSize = 15.sp, modifier = Modifier.weight(1f))
-            // 自己的动态不显示私聊按钮
-            if (moment.user?.id != com.wh.hongniang.net.Session.uid) {
-                Box(modifier = Modifier.clip(RoundedCornerShape(15.dp)).background(Bg3).clickable { moment.user?.let { onOpenChat(it.id, it.nickname) } }.padding(horizontal = 14.dp, vertical = 6.dp)) { Text(t("moments.chat"), color = TextSub, fontSize = 13.sp) }
-            }
-        }
-        LazyColumn(modifier = Modifier.weight(1f).padding(horizontal = 16.dp)) {
-            item {
-                if (moment.content.isNotEmpty()) Text(moment.content, color = TextMain, fontSize = 15.sp, lineHeight = 24.sp)
-                if (moment.type == 2 && moment.videoUrl.isNotEmpty()) {
-                    Spacer(Modifier.height(10.dp))
-                    VideoPlayerBox(Api.fullUrl(moment.videoUrl))
-                }
-                if (moment.images.isNotEmpty()) {
-                    Spacer(Modifier.height(10.dp))
-                    // 普通布局九宫格（嵌套 LazyVerticalGrid 拖慢滚动）
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        moment.images.chunked(3).forEach { rowImages ->
-                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
-                                rowImages.forEach { url ->
-                                    AsyncImage(model = Api.fullUrl(url), contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.weight(1f).height(112.dp).clip(RoundedCornerShape(8.dp)).noRippleClick { fullImage = url })
-                                }
-                                repeat(3 - rowImages.size) { Spacer(Modifier.weight(1f)) }
-                            }
-                        }
-                    }
-                }
-                Text(t("moments.allComments", "n" to comments.size), color = TextMain, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(vertical = 14.dp))
-            }
-            items(comments, key = { it.id }) { c ->
-                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.Top) {
-                    Avatar(c.user?.avatar, 34)
-                    Column(modifier = Modifier.padding(start = 10.dp)) {
-                        Text(c.user?.nickname + (if (c.replyToNickname.isNotEmpty()) " " + t("moments.repliedTo", "name" to c.replyToNickname) else ""), color = TextSub, fontSize = 12.sp)
-                        if (c.content.isNotEmpty()) Text(c.content, color = TextMain, fontSize = 14.sp, modifier = Modifier.padding(top = 2.dp))
-                        if (c.imageUrl.isNotEmpty()) AsyncImage(model = Api.fullUrl(c.imageUrl), contentDescription = null, modifier = Modifier.padding(top = 4.dp).width(120.dp).clip(RoundedCornerShape(8.dp)))
-                        c.sticker?.let { StickerImage(it, if (it.isGif) 160.dp else 96.dp, modifier = Modifier.padding(top = 4.dp)) }
-                    }
-                }
-            }
-        }
-        Column(Modifier.fillMaxWidth().background(Bg).imePadding().navigationBarsPadding()) {
-            sticker?.let { s ->
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box {
-                        StickerImage(s, 56.dp, autoplay = !s.isGif)
-                        Box(
-                            Modifier.align(Alignment.TopEnd).size(18.dp).clip(RoundedCornerShape(9.dp)).background(Color.Black.copy(alpha = 0.6f)).noRippleClick { sticker = null },
-                            contentAlignment = Alignment.Center,
-                        ) { Text("×", color = Color.White, fontSize = 12.sp) }
-                    }
-                }
-            }
-            Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier.size(36.dp).clip(RoundedCornerShape(18.dp)).background(if (showSticker) BubbleMine else Bg3).noRippleClick { focus.clearFocus(); keyboard?.hide(); showSticker = !showSticker },
-                    contentAlignment = Alignment.Center,
-                ) { SmileIcon(if (showSticker) Accent else TextSub, 20.dp) }
-                Spacer(Modifier.width(8.dp))
-                Box(Modifier.weight(1f).clip(RoundedCornerShape(20.dp)).background(Bg3).padding(horizontal = 14.dp, vertical = 10.dp)) {
-                    if (input.isEmpty()) Text(t("moments.saySomething"), color = TextSub, fontSize = 14.sp)
-                    BasicTextField(
-                        value = input, onValueChange = { if (it.length <= 500) input = it },
-                        textStyle = TextStyle(color = TextMain, fontSize = 15.sp),
-                        cursorBrush = SolidColor(Accent),
-                        maxLines = 4,
-                        modifier = Modifier.fillMaxWidth().focusRequester(inputFocus).onFocusChanged { if (it.isFocused) showSticker = false },
-                    )
-                }
-                Spacer(Modifier.width(8.dp))
-                val canSend = input.isNotBlank() || sticker != null
-                Box(modifier = Modifier.clip(RoundedCornerShape(15.dp)).background(if (canSend) Accent else Bg3).clickable {
-                    if (!canSend) return@clickable
-                    scope.launch {
-                        runCatching {
-                            Api.request("/moments/$id/comments", "POST", buildJsonObject {
-                                put("content", JsonPrimitive(input.trim()))
-                                sticker?.let { put("stickerId", JsonPrimitive(it.id)) }
-                            })
-                        }.onSuccess {
-                                                        input = ""; sticker = null; showSticker = false; loadC()
-                        }
-                    }
-                }.padding(horizontal = 16.dp, vertical = 10.dp)) { Text(t("common.send"), color = Color.White, fontSize = 13.sp) }
-            }
-            if (showSticker) EmojiPanel(onPick = { sticker = it }, onEmoji = { input += it }, onDelete = { input = dropLastGrapheme(input) }, onKeyboard = { showSticker = false; inputFocus.requestFocus(); keyboard?.show() })
-        }
-        fullImage?.let { u ->
-            androidx.compose.ui.window.Dialog(onDismissRequest = { fullImage = null }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
-                ImageViewer(moment.images, moment.images.indexOf(u).coerceAtLeast(0)) { fullImage = null }
-            }
-        }
-    }
+/** 最近一次定位（上报位置用） */
+object LocationCache {
+    var lat: Double? = null
+    var lng: Double? = null
 }
 
-@Composable
-fun GiftsReceivedScreen(onBack: () -> Unit) {
-    var items by remember { mutableStateOf<List<GiftDef>>(emptyList()) }
-    LaunchedEffect(Unit) { items = runCatching { Api.getList<GiftDef>("/gifts/received") }.getOrDefault(emptyList()) }
-    Column(Modifier.fillMaxSize()) {
-        NavBar(t("gifts.title"), onBack)
-        LazyVerticalGrid(columns = GridCells.Fixed(3), contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(items, key = { it.id }) { g ->
-                Column(modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(Bg2).alpha(if (g.count > 0) 1f else 0.35f).padding(vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    AsyncImage(model = Api.fullUrl(g.icon), contentDescription = null, modifier = Modifier.size(52.dp))
-                    Text(g.name, color = TextMain, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
-                    Text(t("task.pointsN", "n" to fmtPoints(g.price)), color = TextSub, fontSize = 11.sp)
-                    Text("× ${g.count}", color = if (g.count > 0) Accent else TextDim, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun GuideApplyScreen(onBack: () -> Unit) {
-    var realName by remember { mutableStateOf("") }
-    var idCard by remember { mutableStateOf("") }
-    var intro by remember { mutableStateOf("") }
-    var toast by remember { mutableStateOf("") }
-    val scope = rememberCoroutineScope()
-    Column(Modifier.fillMaxSize()) {
-        NavBar(t("me.guideApply"), onBack)
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(t("guide.applyHint"), color = TextDim, fontSize = 12.sp)
-            OutlinedTextField(realName, { realName = it }, placeholder = { Text(t("realname.name")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(idCard, { idCard = it }, placeholder = { Text(t("realname.idCardNo")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(intro, { intro = it }, placeholder = { Text(t("guide.introHint")) }, modifier = Modifier.fillMaxWidth().height(100.dp))
-            Spacer(Modifier.height(6.dp))
-            AccentButton(t("realname.submit")) {
-                if (realName.isEmpty() || idCard.isEmpty() || intro.isEmpty()) { toast = t("guide.fillAll"); return@AccentButton }
-                scope.launch { runCatching { Api.request("/guide/apply", "POST", buildJsonObject { put("realName", JsonPrimitive(realName)); put("idCardNo", JsonPrimitive(idCard)); put("intro", JsonPrimitive(intro)) }) }.onSuccess { toast = t("guide.submitted"); onBack() }.onFailure { toast = it.message ?: t("common.fail") } }
-            }
-            if (toast.isNotEmpty()) Text(toast, color = Accent, fontSize = 13.sp)
-        }
-    }
+@SuppressLint("MissingPermission")
+suspend fun detectCity(ctx: Context): String? = withContext(Dispatchers.IO) {
+    runCatching {
+        val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val loc = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+            ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER) ?: return@withContext null
+        LocationCache.lat = loc.latitude
+        LocationCache.lng = loc.longitude
+        val addr = Geocoder(ctx, Locale.CHINA).getFromLocation(loc.latitude, loc.longitude, 1)?.firstOrNull()
+        (addr?.locality ?: addr?.subAdminArea ?: addr?.adminArea)?.removeSuffix("市")
+    }.getOrNull()
 }
 
 @Composable
@@ -223,9 +72,6 @@ fun EditProfileScreen(onBack: () -> Unit) {
     var city by remember { mutableStateOf("") }
     var signature by remember { mutableStateOf("") }
     var avatar by remember { mutableStateOf("") }
-    var videoPrice by remember { mutableStateOf("") }
-    // 平台手续费（分/分钟）= 流量成本 x 平台倍率，定价必须高于手续费
-    var feeCut by remember { mutableIntStateOf(4) }
     var photos by remember { mutableStateOf<List<String>>(emptyList()) }
     var uploadingPhoto by remember { mutableStateOf(false) }
     val ctx = LocalContext.current
@@ -234,13 +80,8 @@ fun EditProfileScreen(onBack: () -> Unit) {
         u = runCatching { Api.getObj<UserProfile>("/user/me") }.getOrNull()
         u?.let {
             nickname = it.nickname; age = it.age.toString(); city = it.cityName; signature = it.signature; avatar = it.avatar
-            if (it.videoPriceFen > 0) videoPrice = fmtPoints(it.videoPriceFen.toString())
             photos = it.albums.filter { a -> a.type == 1 }.map { a -> a.url }
         }
-        val cfg = runCatching { Api.getObj<CallConfigData>("/call/config") }.getOrNull()
-        if (cfg != null) feeCut = cfg.videoBaseFenPerMin * cfg.videoPlatformX
-        // 未设置时默认价 = 成本 x5
-        if (videoPrice.isEmpty() && u?.gender == 2 && cfg != null) videoPrice = fmtPoints((cfg.videoBaseFenPerMin * 5).toString())
     }
     val pickAvatar = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) scope.launch { runCatching { val b = ctx.contentResolver.openInputStream(uri)!!.use { it.readBytes() }; avatar = Api.upload("image", b, "a.jpg", "image/jpeg") } }
@@ -285,7 +126,6 @@ fun EditProfileScreen(onBack: () -> Unit) {
                         put("nickname", JsonPrimitive(nickname.trim())); put("age", JsonPrimitive(age.toIntOrNull() ?: 18))
                         put("avatar", JsonPrimitive(avatar)); put("signature", JsonPrimitive(signature.trim()))
                         put("cityName", JsonPrimitive(city)); put("cityCode", JsonPrimitive(city))
-                        if (user.gender == 2) put("videoPriceFen", JsonPrimitive(if (videoPrice.isEmpty()) 0 else ((videoPrice.toDoubleOrNull() ?: 0.0) * 100).toInt()))
                     }
                     runCatching {
                         Api.request("/user/me", "PUT", body)
@@ -337,26 +177,6 @@ fun EditProfileScreen(onBack: () -> Unit) {
                             },
                         )
                     }
-                }
-            }
-            // ===== 视频价格（仅女生） =====
-            if (user.gender == 2) {
-                EditCard {
-                    EditRow(t("profile.videoPrice")) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            EditField(videoPrice, { videoPrice = it.filter { c -> c.isDigit() || c == '.' } }, "0", Modifier.weight(1f), KeyboardType.Decimal)
-                            Text(t("profile.perMin"), color = TextDim, fontSize = 13.sp)
-                        }
-                    }
-                    EditDivider()
-                    // 手续费提示：价格须高于平台手续费，收入 = 价格 - 手续费
-                    val priceFen = ((videoPrice.toDoubleOrNull() ?: 0.0) * 100).toInt()
-                    val incomeFen = (priceFen - feeCut).coerceAtLeast(0)
-                    Text(
-                        t("profile.feeHint", "fee" to fmtPoints(feeCut.toString()), "income" to fmtPoints(incomeFen.toString())),
-                        color = if (priceFen > feeCut) TextDim else Danger, fontSize = 11.sp, lineHeight = 16.sp,
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
-                    )
                 }
             }
             // ===== 签名 =====
@@ -547,57 +367,4 @@ private fun AgeWheel(initial: Int, onCentered: (Int) -> Unit) {
             Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(0.5.dp).background(Line))
         }
     }
-}
-
-/** 全局视频播放中心：保证同时只有一个视频出声 */
-object FeedVideoCenter {
-    var current: androidx.media3.exoplayer.ExoPlayer? = null
-
-    fun register(player: androidx.media3.exoplayer.ExoPlayer) {
-        if (current !== player) current?.pause()
-        current = player
-        // 视频出声时把背景音乐停掉
-        MusicCenter.pause()
-    }
-
-    fun unregister(player: androidx.media3.exoplayer.ExoPlayer) {
-        if (current === player) current = null
-    }
-}
-
-/** 内嵌视频播放器（ExoPlayer），默认自动播放；接入全局互斥（播 A 停其他） */
-@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-@Composable
-fun VideoPlayerBox(url: String, autoPlay: Boolean = true, height: androidx.compose.ui.unit.Dp = 240.dp) {
-    val ctx = LocalContext.current
-    val player = remember {
-        androidx.media3.exoplayer.ExoPlayer.Builder(ctx).build().apply {
-            setMediaItem(androidx.media3.common.MediaItem.fromUri(url))
-            playWhenReady = autoPlay
-            prepare()
-            // 开始播放时暂停其它视频
-            addListener(object : androidx.media3.common.Player.Listener {
-                override fun onIsPlayingChanged(isPlaying: Boolean) {
-                    if (isPlaying) FeedVideoCenter.register(this@apply)
-                }
-            })
-        }
-    }
-    DisposableEffect(Unit) {
-        onDispose {
-            FeedVideoCenter.unregister(player)
-            player.release()
-        }
-    }
-    androidx.compose.ui.viewinterop.AndroidView(
-        factory = {
-            androidx.media3.ui.PlayerView(it).apply {
-                this.player = player
-                useController = true
-                setShowNextButton(false)
-                setShowPreviousButton(false)
-            }
-        },
-        modifier = Modifier.fillMaxWidth().height(height).clip(RoundedCornerShape(10.dp)).background(Color.Black),
-    )
 }

@@ -42,10 +42,9 @@ import coil.compose.AsyncImage
 import com.wh.hongniang.i18n.t
 import com.wh.hongniang.net.Api
 import com.wh.hongniang.net.HomeProfile
-import com.wh.hongniang.net.Moment
 import com.wh.hongniang.net.Session
-import com.wh.hongniang.net.fmtPoints
 import com.wh.hongniang.rtc.CallManager
+import com.wh.hongniang.net.Moment
 import com.wh.hongniang.ui.Avatar
 import com.wh.hongniang.ui.noRippleClick
 import com.wh.hongniang.ui.theme.Accent
@@ -72,11 +71,11 @@ fun UserHomeScreen(
     onBack: () -> Unit,
     onOpenChat: (String, String) -> Unit,
     onOpenMoment: (String) -> Unit,
+    onNav: (String) -> Unit = {},
 ) {
     var p by remember { mutableStateOf<HomeProfile?>(null) }
     var moments by remember { mutableStateOf<List<Moment>>(emptyList()) }
     var following by remember { mutableStateOf(false) }
-    var showGift by remember { mutableStateOf(false) }
     var tab by remember { mutableIntStateOf(0) }
     var wallImage by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -96,7 +95,8 @@ fun UserHomeScreen(
         return
     }
     val isFemale = profile.gender == 2
-    val canVideo = Session.gender == 1 && isFemale
+    // 视频按钮：对方打开了视频见面才显示
+    val canVideo = profile.allowVideo && profile.id != Session.uid
 
     Box(Modifier.fillMaxSize().background(Bg)) {
         LazyColumn(Modifier.fillMaxSize()) {
@@ -155,7 +155,7 @@ fun UserHomeScreen(
                             .noRippleClick(onBack),
                         contentAlignment = Alignment.Center,
                     ) { Text("‹", color = Color.White, fontSize = 22.sp) }
-                    // 左下叠层：接通率 / 视频价格（仅女生）
+                    // 左下叠层：接通率（仅女生）
                     Column(
                         Modifier.align(Alignment.BottomStart).padding(start = 16.dp, bottom = 34.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -166,17 +166,11 @@ fun UserHomeScreen(
                                 Text(" " + t("userHome.answerRate"), color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp, modifier = Modifier.padding(bottom = 4.dp))
                             }
                         }
-                        if (isFemale && profile.videoPriceActualFen > 0) {
-                            Row(verticalAlignment = Alignment.Bottom) {
-                                Text(fmtPoints(profile.videoPriceActualFen.toString()), color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-                                Text(" " + t("userHome.pointsPerMin"), color = Color.White.copy(alpha = 0.75f), fontSize = 12.sp, modifier = Modifier.padding(bottom = 4.dp))
-                            }
-                        }
                     }
                 }
             }
 
-            // ===== 圆角资料卡：tab 行 + 关注按钮 =====
+            // ===== 圆角资料卡：标题行 + 关注按钮 =====
             item {
                 Column(
                     Modifier.fillMaxWidth().offset(y = (-20).dp)
@@ -221,119 +215,122 @@ fun UserHomeScreen(
                 }
             }
 
-            if (tab == 0) {
-                // ===== 关于我 =====
-                item {
-                    Column(Modifier.fillMaxWidth().offset(y = (-20).dp).background(Bg).padding(horizontal = 16.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(profile.nickname, color = TextMain, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                            Spacer(Modifier.width(8.dp))
-                            val (stColor, stText) = when {
-                                profile.busy -> BusyOrange to t("common.inCall")
-                                profile.online -> Success to t("common.online")
-                                else -> TextDim to t("common.offline")
-                            }
-                            Text("● $stText", color = stColor, fontSize = 11.sp)
+            // ===== 关于我 =====
+            if (tab == 0) item {
+                Column(Modifier.fillMaxWidth().offset(y = (-20).dp).background(Bg).padding(horizontal = 16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(profile.nickname, color = TextMain, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.width(8.dp))
+                        val (stColor, stText) = when {
+                            profile.busy -> BusyOrange to t("common.inCall")
+                            profile.online -> Success to t("common.online")
+                            else -> TextDim to t("common.offline")
                         }
-                        Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("● $stText", color = stColor, fontSize = 11.sp)
+                    }
+                    Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            "${if (profile.gender == 1) t("me.male") else t("me.female")} ${profile.age}",
+                            color = if (profile.gender == 1) Color(0xFF6DB3FF) else Color(0xFFFF7A95), fontSize = 11.sp,
+                            modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Color.White.copy(alpha = 0.07f)).padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                        if (profile.cityName.isNotEmpty()) {
                             Text(
-                                "${if (profile.gender == 1) t("me.male") else t("me.female")} ${profile.age}",
-                                color = if (profile.gender == 1) Color(0xFF6DB3FF) else Color(0xFFFF7A95), fontSize = 11.sp,
+                                profile.cityName, color = TextSub, fontSize = 11.sp,
                                 modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Color.White.copy(alpha = 0.07f)).padding(horizontal = 6.dp, vertical = 2.dp),
                             )
-                            if (profile.cityName.isNotEmpty()) {
-                                Text(
-                                    profile.cityName, color = TextSub, fontSize = 11.sp,
-                                    modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Color.White.copy(alpha = 0.07f)).padding(horizontal = 6.dp, vertical = 2.dp),
-                                )
-                            }
                         }
-                        if (profile.signature.isNotEmpty()) {
-                            Text(profile.signature, color = TextSub, fontSize = 13.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 12.dp))
+                    }
+                    if (profile.signature.isNotEmpty()) {
+                        Text(profile.signature, color = TextSub, fontSize = 13.sp, lineHeight = 20.sp, modifier = Modifier.padding(top = 12.dp))
+                    }
+                    // 数据行：关注 / 粉丝（评分独立展示在下方）
+                    Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                        StatCell("${profile.following}", t("me.following"), TextMain)
+                        StatCell("${profile.fans}", t("me.fans"), TextMain)
+                    }
+                    // ===== 相亲资料（AI 红娘收集的画像）：对方没完成就不显示 =====
+                    profile.matchProfile?.let { MatchProfileCard(it) }
+                    // ===== 评分：星级总分 + 五维度方格，最高维度渐变高亮 =====
+                    val r = profile.rating
+                    if (isFemale && r != null && r.count > 0) {
+                        val star = r.avg / 20.0
+                        val filled = Math.round(star).toInt().coerceIn(0, 5)
+                        Row(Modifier.padding(top = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(t("userHome.rating"), color = TextMain, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            Spacer(Modifier.width(8.dp))
+                            Text("★".repeat(filled) + "☆".repeat(5 - filled), color = Accent, fontSize = 13.sp)
+                            Spacer(Modifier.width(6.dp))
+                            Text("%.1f".format(star), color = Accent, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.width(6.dp))
+                            Text(t("userHome.ratingCount", "n" to r.count), color = TextDim, fontSize = 11.sp)
                         }
-                        // 数据行：关注 / 粉丝（评分独立展示在下方）
-                        Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                            StatCell("${profile.following}", t("me.following"), TextMain)
-                            StatCell("${profile.fans}", t("me.fans"), TextMain)
-                        }
-                        // ===== 评分：星级总分 + 五维度方格，最高维度渐变高亮 =====
-                        val r = profile.rating
-                        if (isFemale && r != null && r.count > 0) {
-                            val star = r.avg / 20.0
-                            val filled = Math.round(star).toInt().coerceIn(0, 5)
-                            Row(Modifier.padding(top = 18.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(t("userHome.rating"), color = TextMain, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                                Spacer(Modifier.width(8.dp))
-                                Text("★".repeat(filled) + "☆".repeat(5 - filled), color = Accent, fontSize = 13.sp)
-                                Spacer(Modifier.width(6.dp))
-                                Text("%.1f".format(star), color = Accent, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                                Spacer(Modifier.width(6.dp))
-                                Text(t("userHome.ratingCount", "n" to r.count), color = TextDim, fontSize = 11.sp)
-                            }
-                            // 按分从高到低排成 3+2 方格，第一格（她最突出的）用渐变填充
-                            val dims = listOf(
-                                t("userHome.ratingPhoto") to r.photo, t("userHome.ratingObedience") to r.obedience,
-                                t("userHome.ratingLegs") to r.legs, t("userHome.ratingChest") to r.chest, t("userHome.ratingSkin") to r.skin,
-                            ).sortedByDescending { it.second }
-                            dims.chunked(3).forEachIndexed { rowI, rowItems ->
-                                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    rowItems.forEachIndexed { colI, (label, score) ->
-                                        val best = rowI == 0 && colI == 0 && score > 0
-                                        Column(
-                                            Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
-                                                .then(
-                                                    if (best) Modifier.background(Brush.horizontalGradient(listOf(Accent, Accent2)))
-                                                    else Modifier.background(Color.White.copy(alpha = 0.06f)),
-                                                )
-                                                .padding(vertical = 10.dp),
-                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                        ) {
-                                            Text(
-                                                "%.1f".format(score / 20.0),
-                                                color = if (best) Color.White else TextMain,
-                                                fontSize = 16.sp, fontWeight = FontWeight.Bold,
+                        // 按分从高到低排成 3+2 方格，第一格（她最突出的）用渐变填充
+                        val dims = listOf(
+                            t("userHome.ratingPhoto") to r.photo, t("userHome.ratingObedience") to r.obedience,
+                            t("userHome.ratingLegs") to r.legs, t("userHome.ratingChest") to r.chest, t("userHome.ratingSkin") to r.skin,
+                        ).sortedByDescending { it.second }
+                        dims.chunked(3).forEachIndexed { rowI, rowItems ->
+                            Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                rowItems.forEachIndexed { colI, (label, score) ->
+                                    val best = rowI == 0 && colI == 0 && score > 0
+                                    Column(
+                                        Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
+                                            .then(
+                                                if (best) Modifier.background(Brush.horizontalGradient(listOf(Accent, Accent2)))
+                                                else Modifier.background(Color.White.copy(alpha = 0.06f)),
                                             )
-                                            Text(
-                                                label,
-                                                color = if (best) Color.White.copy(alpha = 0.9f) else TextSub,
-                                                fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp),
-                                            )
-                                        }
-                                    }
-                                    repeat(3 - rowItems.size) { Spacer(Modifier.weight(1f)) }
-                                }
-                            }
-                        }
-                        // 照片墙（最多 8 张）
-                        val wall = profile.albums.filter { it.type == 1 }
-                        if (wall.isNotEmpty()) {
-                            Text(t("userHome.photoWall"), color = TextMain, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 18.dp))
-                            wall.chunked(4).forEach { rowItems ->
-                                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    rowItems.forEach { a ->
-                                        AsyncImage(
-                                            model = Api.fullUrl(a.url), contentDescription = null,
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.weight(1f).aspectRatio(1f)
-                                                .clip(RoundedCornerShape(10.dp))
-                                                .noRippleClick { wallImage = a.url },
+                                            .padding(vertical = 10.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                    ) {
+                                        Text(
+                                            "%.1f".format(score / 20.0),
+                                            color = if (best) Color.White else TextMain,
+                                            fontSize = 16.sp, fontWeight = FontWeight.Bold,
+                                        )
+                                        Text(
+                                            label,
+                                            color = if (best) Color.White.copy(alpha = 0.9f) else TextSub,
+                                            fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp),
                                         )
                                     }
-                                    repeat(4 - rowItems.size) { Spacer(Modifier.weight(1f)) }
                                 }
+                                repeat(3 - rowItems.size) { Spacer(Modifier.weight(1f)) }
                             }
                         }
-                        // 认证信息：简约行，无背景卡
+                    }
+                    // 照片墙（最多 8 张）
+                    val wall = profile.albums.filter { it.type == 1 }
+                    if (wall.isNotEmpty()) {
+                        Text(t("userHome.photoWall"), color = TextMain, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 18.dp))
+                        wall.chunked(4).forEach { rowItems ->
+                            Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                rowItems.forEach { a ->
+                                    AsyncImage(
+                                        model = Api.fullUrl(a.url), contentDescription = null,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.weight(1f).aspectRatio(1f)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .noRippleClick { wallImage = a.url },
+                                    )
+                                }
+                                repeat(4 - rowItems.size) { Spacer(Modifier.weight(1f)) }
+                            }
+                        }
+                    }
+                    // 认证信息：简约行，无背景卡
+                    if (isFemale) {
                         Text(t("userHome.certs"), color = TextMain, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 18.dp))
                         Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-                            CertLine(t("userHome.platformCert"), profile.isGuide)
-                            if (isFemale) CertLine(t("userHome.realnameCert"), profile.realnameVerified)
+                            CertLine(t("userHome.realnameCert"), profile.realnameVerified)
                         }
-                        Spacer(Modifier.height(120.dp))
                     }
+                    Spacer(Modifier.height(120.dp))
                 }
-            } else {
-                // ===== 我的动态：列表式（参考样式） =====
+            }
+
+            // ===== 我的动态：列表式 =====
+            if (tab == 1) {
                 if (moments.isEmpty()) {
                     item {
                         Box(Modifier.fillMaxWidth().offset(y = (-20).dp).background(Bg).padding(40.dp), contentAlignment = Alignment.Center) {
@@ -407,7 +404,7 @@ fun UserHomeScreen(
             }
         }
 
-        // ===== 底部操作栏：聊天圆钮 + 礼物圆钮 + 视频聊天大按钮 =====
+        // ===== 底部操作栏：聊天圆钮 + 视频聊天大按钮 =====
         Row(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth()
                 .background(Brush.verticalGradient(listOf(Color.Transparent, Bg.copy(alpha = 0.95f), Bg)))
@@ -416,16 +413,12 @@ fun UserHomeScreen(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                Modifier.size(48.dp).clip(CircleShape).background(Bg2)
-                    .noRippleClick { onOpenChat(profile.id, profile.nickname) },
-                contentAlignment = Alignment.Center,
-            ) { Text(t("userHome.chat"), color = TextMain, fontSize = 12.sp) }
-            Box(
-                Modifier.size(48.dp).clip(CircleShape).background(Bg2)
-                    .noRippleClick { showGift = true },
-                contentAlignment = Alignment.Center,
-            ) { Text(t("userHome.gift"), color = Accent2, fontSize = 12.sp) }
+            // 原来这里是直接「聊天 / 发消息」；现在要互相喜欢才能聊，换成喜欢按钮（互相喜欢后它会变成「发消息」）
+            LikeChip(
+                profile.id, profile.nickname,
+                modifier = if (canVideo) Modifier else Modifier.weight(1f),
+                height = 48.dp, onChat = onOpenChat, onNav = onNav,
+            )
             if (canVideo) {
                 val busy = profile.busy
                 val online = profile.online
@@ -460,30 +453,11 @@ fun UserHomeScreen(
                             if (busy) t("common.inCall") else t("userHome.videoChat"),
                             color = mainColor, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
                         )
-                        if (!busy) {
-                            when {
-                                !online -> Text(t("userHome.peerOffline"), color = TextDim, fontSize = 10.sp)
-                                profile.videoPriceActualFen > 0 -> Text(
-                                    t("userHome.pricePerMin", "price" to fmtPoints(profile.videoPriceActualFen.toString())),
-                                    color = Color.White.copy(alpha = 0.85f), fontSize = 10.sp,
-                                )
-                            }
-                        }
+                        if (!busy && !online) Text(t("userHome.peerOffline"), color = TextDim, fontSize = 10.sp)
                     }
                 }
-            } else {
-                Box(
-                    Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(50))
-                        .background(Brush.horizontalGradient(listOf(Accent, Accent2)))
-                        .noRippleClick { onOpenChat(profile.id, profile.nickname) },
-                    contentAlignment = Alignment.Center,
-                ) { Text(t("userHome.message"), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold) }
             }
         }
-    }
-
-    if (showGift) {
-        GiftSheet(toUserId = profile.id, onClose = { showGift = false })
     }
 
     // 照片墙大图查看

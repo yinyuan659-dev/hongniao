@@ -11,6 +11,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const req = host.switchToHttp().getRequest<Request>();
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let msg = '服务器内部错误';
+    /** 给客户端看的原因代码（例如 AI 费用相关的 no_balance / key_invalid），没有就不带 */
+    let reason: string | undefined;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -20,11 +22,17 @@ export class AllExceptionsFilter implements ExceptionFilter {
       } else if (typeof body === 'object' && body !== null) {
         const m = (body as any).message;
         msg = Array.isArray(m) ? m[0] : m || msg;
+        if (typeof (body as any).reason === 'string') reason = (body as any).reason;
       }
     } else {
       this.logger.error(exception);
     }
 
-    res.status(status >= 500 ? 500 : 200).json({ code: status, msg: translate(msg, langOf(req?.headers?.['accept-language'])), data: null });
+    res.status(status >= 500 ? 500 : 200).json({
+      code: status,
+      msg: translate(msg, langOf(req?.headers?.['accept-language'])),
+      data: null,
+      ...(reason ? { reason } : {}),
+    });
   }
 }

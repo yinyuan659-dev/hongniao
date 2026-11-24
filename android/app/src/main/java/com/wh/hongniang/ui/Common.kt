@@ -56,7 +56,7 @@ import com.wh.hongniang.ui.theme.TextSub
 
 val AccentBrush = Brush.horizontalGradient(listOf(Accent, Accent2))
 
-/** 内部网页全屏预览（共用：AI 生成的 HTML 或新闻原文 url） */
+/** 内部网页全屏预览（共用：AI 生成的 HTML 或聊天里的链接 url） */
 @Composable
 fun WebPreviewDialog(html: String? = null, url: String? = null, title: String = t("web.preview"), onClose: () -> Unit) {
     androidx.compose.ui.window.Dialog(
@@ -202,24 +202,6 @@ fun ScanIcon(tint: Color, size: androidx.compose.ui.unit.Dp = 20.dp) {
     }
 }
 
-/** 眼睛图标（线性：杏仁形轮廓 + 实心瞳孔），用于阅读数，替代显示效果不稳定的 👁 emoji */
-@Composable
-fun EyeIcon(tint: Color, size: androidx.compose.ui.unit.Dp = 14.dp) {
-    androidx.compose.foundation.Canvas(Modifier.size(size, size * 0.7f)) {
-        val w = this.size.width
-        val h = this.size.height
-        val sw = w * 0.09f
-        val outline = androidx.compose.ui.graphics.Path().apply {
-            moveTo(w * 0.04f, h * 0.5f)
-            quadraticBezierTo(w * 0.5f, -h * 0.12f, w * 0.96f, h * 0.5f)
-            quadraticBezierTo(w * 0.5f, h * 1.12f, w * 0.04f, h * 0.5f)
-            close()
-        }
-        drawPath(outline, tint, style = androidx.compose.ui.graphics.drawscope.Stroke(width = sw, join = androidx.compose.ui.graphics.StrokeJoin.Round))
-        drawCircle(tint, radius = w * 0.15f, center = androidx.compose.ui.geometry.Offset(w * 0.5f, h * 0.5f))
-    }
-}
-
 /** 混合媒体项（图片 / 视频），大厅 H5 经桥传来 */
 @kotlinx.serialization.Serializable
 data class MediaItem(val type: String = "image", val url: String = "", val cover: String? = null)
@@ -227,7 +209,7 @@ data class MediaItem(val type: String = "image", val url: String = "", val cover
 /**
  * 全屏混合媒体查看器（像 Telegram / 抖音）：**上下滑切帖子**（VerticalPager），**左右滑切同一帖里的多张图**（HorizontalPager）；
  * 图片用 Telephoto 缩放，视频用 ExoPlayer（原生控制条），滑到哪个播哪个；单击图片关闭。
- * 大厅 H5 的「养眼图片」点图/点视频经 PeiwanNative.viewMediaGroups 走这里。
+ * 大厅 H5 点图/点视频经 PeiwanNative.viewMediaGroups 走这里。
  */
 @Composable
 fun MediaViewer(groups: List<List<MediaItem>>, startGroup: Int = 0, startIndex: Int = 0, onClose: () -> Unit) {
@@ -279,7 +261,7 @@ private fun MediaVideoPage(url: String, active: Boolean) {
         }
     }
     LaunchedEffect(active) {
-        if (active) { com.wh.hongniang.ui.screen.MusicCenter.pause(); player.play() } else player.pause()
+        if (active) player.play() else player.pause()
     }
     androidx.compose.runtime.DisposableEffect(url) { onDispose { player.release() } }
     androidx.compose.ui.viewinterop.AndroidView(

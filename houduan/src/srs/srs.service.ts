@@ -1,7 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
-import { RedisService } from '../redis/redis.service';
 
 /** 下发给客户端的媒体入口（所有节点安装路径/端口一致，只有 IP 不同） */
 export interface SrsEndpoint {
@@ -11,8 +10,6 @@ export interface SrsEndpoint {
   whepUrl: string;
 }
 
-/** 语音房 → 节点 映射（hash: field=groupId value=ip），用于统计各节点上的语音房人数 */
-const VROOM_NODE_KEY = 'srs:vroom_nodes';
 /** 呼叫中记录的有效期（与 CallService.busySet 一致）：超过视为异常残留，不计负载 */
 const RINGING_VALID_MS = 90_000;
 
@@ -20,7 +17,7 @@ const RINGING_VALID_MS = 90_000;
  * SRS 节点调度：
  * - 节点由后台维护（增删、优先级、最大连接数、启用、默认）
  * - 选节点：启用节点按 priority,id 排序，取第一个 当前连接数 < maxConnections 的；全满则取负载率最低者
- * - 连接数 = 该节点上进行中/呼叫中通话的人数（每路 2 人）+ 语音房在房人数
+ * - 连接数 = 该节点上进行中/呼叫中通话的人数（每路 2 人）
  * - 表为空时退回环境变量 SRS_SERVER / SRS_API（兼容旧部署）
  */
 @Injectable()
@@ -31,7 +28,6 @@ export class SrsService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly redis: RedisService,
     config: ConfigService,
   ) {
     this.envServer = (config.get<string>('SRS_SERVER') ?? '').trim();
@@ -76,24 +72,12 @@ export class SrsService {
       if (!c.srsNode) continue;
       load.set(c.srsNode, (load.get(c.srsNode) ?? 0) + c._count._all * 2);
     }
-    // 语音房：hash 里每个群的节点 + 房内人数
-    const rooms = await this.redis.client.hgetall(VROOM_NODE_KEY);
-    const stale: string[] = [];
-    for (const [groupId, ip] of Object.entries(rooms)) {
-      const n = await this.redis.client.hlen(`vroom:${groupId}`);
-      if (n <= 0) {
-        stale.push(groupId);
-        continue;
-      }
-      load.set(ip, (load.get(ip) ?? 0) + n);
-    }
-    if (stale.length) await this.redis.client.hdel(VROOM_NODE_KEY, ...stale);
     return load;
   }
 
   // ---------- 选节点 ----------
 
-  /** 为一次新通话/新语音房场次分配节点 */
+  /** 为一次新通话分配节点 */
   async pick(scene: string): Promise<SrsEndpoint> {
     const nodes = await this.prisma.srsNode.findMany({
       where: { enabled: true },
@@ -118,22 +102,6 @@ export class SrsService {
       .sort((a, b) => a.ratio - b.ratio)[0].n;
     this.logger.warn(`${scene}: 所有 SRS 节点已满，选负载率最低的 ${least.ip}（${load.get(least.ip) ?? 0}/${least.maxConnections}）`);
     return this.endpoint(least.ip, least.apiPort);
-  }
-
-  /** 语音房：新场次开始时分配并记录；已有场次直接复用 */
-  async pickForVoiceRoom(groupId: bigint, newSession: boolean): Promise<SrsEndpoint> {
-    const key = groupId.toString();
-    if (!newSession) {
-      const ip = await this.redis.client.hget(VROOM_NODE_KEY, key);
-      if (ip) return this.endpointFor(ip);
-    }
-    const ep = await this.pick(`vroom group=${groupId}`);
-    if (ep.srsServer) await this.redis.client.hset(VROOM_NODE_KEY, key, ep.srsServer);
-    return ep;
-  }
-
-  async releaseVoiceRoom(groupId: bigint) {
-    await this.redis.client.hdel(VROOM_NODE_KEY, groupId.toString());
   }
 
   // ---------- 后台管理 ----------
