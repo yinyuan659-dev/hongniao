@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>一线牵 · 大厅的两个模块 样稿</title>
+<!--
+  给用户确认用的界面样稿，不是产品代码。文字、数字都是示意。
+  双击用浏览器打开就能看。网址后面加 ?only=a / b 只显示其中一组（截图用）。
+  外框、截图办法沿用前面几个模块（common.css / common.js）。
+  本模块：大厅里放两块内容——① 活动「前 10 对结婚的新人送旅行」（现在先占位）② 小游戏「相亲物语」的入口。
+  游戏本身的样稿在 08-wuyu.html。入口卡片上的封面是游戏原型的真实画面（wuyu/shots/cover.png）。
+-->
+<link rel="stylesheet" href="common.css">
+<style>
+  .hall { background: #fff; }
+  .hall .hd { padding: 6px 20px 2px; font-size: 26px; font-weight: 800; flex-shrink: 0; }
+  .hall .lab { font-size: 13px; color: var(--ink-2); margin: 16px 20px 8px; }
+  .act { margin: 0 16px; border-radius: 22px; padding: 18px 18px 16px; color: #fff; position: relative; overflow: hidden;
+         background: radial-gradient(70% 110% at 100% 0%, rgba(255, 214, 150, .6) 0%, transparent 62%), var(--grad); box-shadow: 0 14px 28px rgba(255, 61, 99, .26); }
+  .act .tg { display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 11px; font-size: 11.5px; font-weight: 700; background: rgba(255, 255, 255, .24); border: 1px solid rgba(255, 255, 255, .45); }
+  .act h3 { font-size: 21px; font-weight: 800; margin-top: 10px; letter-spacing: .5px; }
+  .act p { font-size: 13px; line-height: 1.6; opacity: .94; margin-top: 5px; max-width: 232px; }
+  .act .go { display: inline-flex; align-items: center; gap: 3px; height: 32px; padding: 0 15px; border-radius: 16px; background: #fff; color: var(--rose); font-size: 13.5px; font-weight: 700; margin-top: 13px; }
+  .act .deco { position: absolute; right: -8px; bottom: -14px; opacity: .26; color: #fff; }
+  .game { margin: 0 16px; border-radius: 22px; overflow: hidden; position: relative; height: 268px; background: #2a2236 url(wuyu/shots/cover.png) center 62% / 100% auto no-repeat; box-shadow: 0 14px 28px rgba(60, 30, 60, .24); }
+  .game::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 46%, rgba(30, 14, 30, .86) 100%); }
+  .game .txt { position: absolute; left: 18px; right: 96px; bottom: 16px; z-index: 2; color: #fff; image-rendering: auto; }
+  .game .txt b { font-size: 21px; letter-spacing: 1px; display: block; }
+  .game .txt span { font-size: 12.5px; opacity: .88; display: block; margin-top: 4px; }
+  .game .go { position: absolute; right: 16px; bottom: 18px; z-index: 2; height: 34px; padding: 0 20px; border-radius: 17px; background: #fff; color: var(--ink); font-size: 14px; font-weight: 700; display: flex; align-items: center; }
+  .game .tg { position: absolute; left: 14px; top: 14px; z-index: 2; height: 22px; padding: 0 9px; border-radius: 11px; font-size: 11.5px; font-weight: 700; color: #fff; background: rgba(30, 14, 30, .5); border: 1px solid rgba(255, 255, 255, .35); display: flex; align-items: center; }
+  /* 活动页 */
+  .ap { background: #fff8f4; }
+  .ap .hero2 { margin: 6px 16px 0; border-radius: 22px; padding: 22px 18px; color: #fff; position: relative; overflow: hidden; flex-shrink: 0;
+               background: radial-gradient(70% 110% at 100% 0%, rgba(255, 214, 150, .6) 0%, transparent 62%), var(--grad); }
+  .ap .hero2 h3 { font-size: 23px; font-weight: 800; line-height: 1.35; }
+  .ap .hero2 p { font-size: 13px; opacity: .94; margin-top: 8px; line-height: 1.6; }
+  .ap .box { margin: 12px 16px 0; background: #fff; border-radius: 18px; padding: 14px 16px; box-shadow: 0 4px 16px rgba(43, 28, 34, .05); }
+  .ap .box h4 { font-size: 15px; font-weight: 800; display: flex; align-items: center; gap: 7px; }
+  .ap .box h4 i { color: var(--rose); }
+  .ap .box p { font-size: 13.5px; line-height: 1.7; color: #4b3d43; margin-top: 6px; }
+  .ap .rule { display: flex; gap: 9px; font-size: 13.5px; line-height: 1.6; color: #4b3d43; margin-top: 8px; }
+  .ap .rule b { flex-shrink: 0; width: 19px; height: 19px; border-radius: 10px; background: var(--soft); color: var(--rose); font-size: 11.5px; display: flex; align-items: center; justify-content: center; margin-top: 2px; }
+  .ap .cnt { display: flex; align-items: center; gap: 10px; margin-top: 14px; position: relative; z-index: 1; }
+  .ap .cnt .bar { flex: 1; height: 8px; border-radius: 4px; background: rgba(255, 255, 255, .32); overflow: hidden; }
+  .ap .cnt .bar i { display: block; height: 100%; width: 0; background: #fff; border-radius: 4px; }
+  .ap .cnt span { font-size: 12.5px; font-weight: 700; }
+  .tbd { color: #b54708; background: #fff4e5; border: 1px dashed #f0b56a; border-radius: 5px; padding: 0 5px; font-weight: 600; white-space: nowrap; }
+  .mine { color: #b54708; background: #fff4e5; border-radius: 4px; padding: 0 4px; font-weight: 600; }
+  .need { margin-top: 44px; background: rgba(255, 255, 255, .8); border-radius: 22px; padding: 20px 22px; font-size: 13.5px; line-height: 1.8; color: #4b3d43; box-shadow: 0 8px 26px rgba(255, 90, 120, .10); }
+  .need h3 { font-size: 16px; color: var(--ink); margin-bottom: 8px; }
+  .need ol { padding-left: 20px; }
+  .need li { margin-bottom: 6px; }
+  .need b { color: var(--ink); }
+</style>
+</head>
+<body>
+
+<div class="intro">
+  <h1>大厅的两个模块 样稿</h1>
+  <p><b>现在</b>：大厅里一条内容都没有，只写着「游戏正在筹备中 敬请期待」。</p>
+  <p><b>改成</b>：放两块内容——上面是活动「前 10 对结婚的新人，平台送旅行」，下面是小游戏「相亲物语」的入口。两块都<b>直接写在大厅网页的代码里</b>，不走后台配置、不动数据库（你选的）。游戏的样子看 <b>08-wuyu.html</b>。</p>
+  <p>注释里标了 <span class="mine">我定的</span> 的是没问过你、我按理解先定的；标了 <span class="tbd">待定</span> 的是要你给内容的地方。</p>
+</div>
+
+<!-- ============ A：大厅 + 活动页（现在：占位） ============ -->
+<section data-s="a">
+  <h2><b>1</b>大厅两块内容；活动页现在先占位</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">大厅 <small>两块内容，从上到下</small></div>
+      <div class="phone"><div class="island"></div><div class="screen hall">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="hd">大厅</div>
+
+        <div class="lab">活动</div>
+        <div class="act">
+          <span class="tg">名额 10 对</span>
+          <h3>一线牵成，送你们去旅行</h3>
+          <p>通过一线牵认识并结婚的前 10 对新人，平台送一次双人旅行。</p>
+          <span class="go">看看活动 <i data-x="chev" data-s="13"></i></span>
+          <span class="deco"><i data-x="plane" data-s="120"></i></span>
+        </div>
+
+        <div class="lab">小游戏</div>
+        <div class="game">
+          <span class="tg">320 人在樱花道</span>
+          <div class="txt"><b>相亲物语</b><span>走进樱花道，两旁都是等你认识的人</span></div>
+          <span class="go">进入</span>
+        </div>
+
+        <div class="tabbar"><div class="tab">广场</div><div class="tab on">大厅</div><div class="tab"><div class="plus"><i data-ic="plus" data-s="18"></i></div></div><div class="tab">消息</div><div class="tab">我的</div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>顶上加了大标题「大厅」</b> <span class="mine">我定的</span>，和「我的」页一个做法。不要也行。</div>
+        <div><b>活动卡</b>：用 App 的主色。右上小标写「名额 10 对」，点了进右边的活动页。活动名字「一线牵成，送你们去旅行」是 <span class="mine">我定的</span>。</div>
+        <div><b>游戏卡</b>：封面是游戏里的真实画面（不是另画的宣传图），点「进入」全屏打开游戏。左上角的人数小标和下面那句话是 <span class="mine">我定的</span>；人数以后接真实数据，现在是假的。</div>
+        <div><b>两块都写在网页代码里</b>：后台没有开关能让它们出现或消失。以后大厅要加别的活动，改代码、发新版本。</div>
+        <div><b>「游戏正在筹备中 敬请期待」那句话去掉</b>，三端翻译文件里对应的两条也删掉。</div>
+        <div>安卓、iOS 的大厅本来就是内嵌这个网页，所以<b>预计原生代码不用改</b>，改网页就三端一起变。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">活动页 · 现在 <small>占位：只说有这件事，规则还没有</small></div>
+      <div class="phone"><div class="island"></div><div class="screen ap">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">新婚旅行礼</div><span style="width:34px"></span></div>
+        <div class="hero2">
+          <h3>一线牵成，<br>送你们去旅行</h3>
+          <p>通过一线牵认识并结婚的前 10 对新人，<br>平台送一次双人旅行。</p>
+          <span class="deco" style="position:absolute;right:-10px;bottom:-18px;opacity:.24"><i data-x="plane" data-s="130"></i></span>
+        </div>
+        <div class="box">
+          <h4><i data-ic="info" data-s="17"></i>活动规则</h4>
+          <p>怎么参加、怎么确认、送什么，规则正在制定，确定后在这一页公布。</p>
+        </div>
+        <div class="box">
+          <h4><i data-ic="heart" data-s="17"></i>现在可以做的</h4>
+          <p>把相亲资料填完整、做完真人认证，认真认识每一位推荐给你的人。</p>
+        </div>
+        <div style="margin:auto 16px 26px"><div class="btn" style="opacity:.45;box-shadow:none">规则公布后开放报名</div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>这就是「先占位」</b>：只有一句介绍，没有规则，按钮是灰的、点不了。</div>
+        <div><b>这个样子不能拿去送审</b>：苹果不接受没有实际内容的占位页。你已经选了「送审前做成有规则的真实活动页」，真实的样子见下面第 2 组。</div>
+        <div>页面名字「新婚旅行礼」是 <span class="mine">我定的</span>。</div>
+        <div>这一页是我们自己的网页（和大厅在同一个站），所以 App 里能正常打开。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ B：送审前要变成的样子 ============ -->
+<section data-s="b">
+  <h2><b>2</b>活动页 · 送审前要变成的样子（规则等你给）</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">活动页 · 送审时 <small>有完整规则，橙色虚线框是等你给的内容</small></div>
+      <div class="phone"><div class="island"></div><div class="screen ap">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">新婚旅行礼</div><span style="width:34px"></span></div>
+        <div class="hero2" style="padding:18px">
+          <h3 style="font-size:20px">一线牵成，送你们去旅行</h3>
+          <div class="cnt"><span>已送出 0 / 10 对</span><div class="bar"><i></i></div></div>
+        </div>
+        <div class="box">
+          <h4><i data-ic="users" data-s="17"></i>谁能参加</h4>
+          <div class="rule"><b>1</b><span>两个人都是一线牵的用户，都做过真人认证。</span></div>
+          <div class="rule"><b>2</b><span>两个人是在一线牵里互相喜欢后认识的。</span></div>
+          <div class="rule"><b>3</b><span>在 <span class="tbd">活动开始日期</span> 之后领了结婚证。</span></div>
+        </div>
+        <div class="box">
+          <h4><i data-ic="clip" data-s="17"></i>怎么参加</h4>
+          <div class="rule"><b>1</b><span>领证后在这一页报名，<span class="tbd">怎么证明已结婚</span>。</span></div>
+          <div class="rule"><b>2</b><span>平台在 <span class="tbd">几</span> 个工作日内核对，按核对通过的先后算前 10 对。</span></div>
+        </div>
+        <div class="box">
+          <h4><i data-ic="star" data-s="17"></i>送什么</h4>
+          <p><span class="tbd">旅行的内容、价值、有效期</span>。不能折现、不能转让。</p>
+        </div>
+        <div class="box" style="padding:11px 16px">
+          <p style="margin:0;font-size:12px;color:#8c7d83">活动时间 <span class="tbd">起止日期</span>，10 对送完即止。本活动由 <span class="tbd">举办方</span> 举办，与 Apple 公司无关。</p>
+        </div>
+        <div style="margin:auto 16px 22px"><div class="btn">我们领证了，去报名</div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>和占位页的区别</b>：有名额进度、谁能参加、怎么参加、送什么、活动时间和举办方。这样送审时它是一个真实的活动。</div>
+        <div><b>黑字的规则是我按常理先写的示意</b> <span class="mine">我定的</span>，比如「两个人都做过真人认证」「按核对通过的先后算前 10 对」，不合适你直接改。</div>
+        <div><b>最后那句「与 Apple 公司无关」</b>：苹果对 App 里的抽奖、赠品活动要求把正式规则写在 App 里，并写明苹果不是赞助方。这一条是我凭记忆说的，没核对原文，送审前要核对。</div>
+        <div><b>「去报名」点进去是什么</b>还没画，要等你定了「怎么证明已结婚」才能画。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="need">
+        <h3>要你给的内容（送审前给就行，现在不急）</h3>
+        <ol>
+          <li><b>怎么算「通过一线牵结婚」</b>：是不是两个人必须在 App 里互相喜欢过？互相喜欢到领证之间要不要隔够多少天（防止本来就是夫妻的来领）？</li>
+          <li><b>怎么证明</b>：传结婚证照片？结婚证上有两个人的姓名、身份证号、照片，属于敏感信息，按现在「身份证不存明文」的规矩，要定清楚存不存、存多久、谁能看。也可以改成线下核对、不在 App 里传。</li>
+          <li><b>活动开始和截止日期</b>；10 对送完以后这一页怎么显示。</li>
+          <li><b>旅行是什么</b>：去哪、几天、价值多少、是给旅行套餐还是报销、有效期多久；税费谁出。</li>
+          <li><b>怎么领</b>：平台联系新人，还是新人联系客服（客服联系方式现在还没有）。</li>
+          <li><b>举办方写谁</b>：公司，还是个人（苹果开发者账号是个人的）。</li>
+        </ol>
+        <p style="margin-top:10px">活动规则属于对用户的承诺，写上去就要兑现；建议和用户协议一起找律师看一眼。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script src="common.js"></script>
+<script>
+  (function () {
+    var X = {
+      chev: '<path d="m9 18 6-6-6-6"/>',
+      plane: '<path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.500 1.500L13 8 4.800 6.200c-.5-.1-.9.1-1.100.5l-.3.5c-.2.5-.1 1 .3 1.300L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.500 5.300c.3.4.8.5 1.300.3l.5-.2c.4-.3.6-.7.5-1.200z"/>'
+    };
+    document.querySelectorAll('i[data-x]').forEach(function (el) {
+      var s = el.dataset.s || 16;
+      el.style.display = 'inline-flex';
+      el.innerHTML = '<svg viewBox="0 0 24 24" width="' + s + '" height="' + s + '" fill="none" stroke="currentColor" stroke-width="' + (el.dataset.x === 'chev' ? 2.6 : 1.6) + '" stroke-linecap="round" stroke-linejoin="round">' + X[el.dataset.x] + '</svg>';
+    });
+  })();
+</script>
+</body>
+</html>

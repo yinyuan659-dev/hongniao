@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<title>相亲物语</title>
+<link rel="icon" type="image/png" href="/favicon.png" />
+<!--
+  大厅里的小游戏「相亲物语」，单独的一页。App 里由大厅用「全屏网页」打开，竖屏。程序在 src/wuyu/。
+  画面全部由代码生成，没有图片素材。现在的人是假数据（src/wuyu/data.js）。
+-->
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; overflow: hidden; background: #1b1622; font-family: -apple-system, "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif; -webkit-font-smoothing: antialiased; }
+  #game { position: fixed; inset: 0; margin: 0 auto; max-width: 520px; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; background: #2a2236; }
+  #cv { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: crisp-edges; image-rendering: pixelated; }
+  #ov { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+
+  /* 每个人头顶：圆头像（离得越远越小）；离你几步以内的才显示名字 */
+  .npc { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center; transform-origin: 50% 100%; will-change: transform; }
+  .npc .avw { position: relative; pointer-events: auto; cursor: pointer; }
+  .npc .av { width: 40px; height: 40px; border-radius: 50%; border: 2.5px solid #fff; background-color: #f1ecee; background-size: cover; background-position: center 22%; box-shadow: 0 3px 8px rgba(30, 12, 24, .4); }
+  .npc .av.px { image-rendering: pixelated; background-position: center; }
+  .npc .real { position: absolute; right: -2px; bottom: -1px; width: 13px; height: 13px; border-radius: 50%; background: #34c759; border: 2px solid #fff; }
+  .npc.tiny .real { display: none; }
+  .npc.tiny .av { border-width: 3.5px; box-shadow: none; }
+  .npc .nm { display: none; margin-top: 3px; padding: 1px 8px 2px; border-radius: 9px; background: rgba(255, 255, 255, .92); color: #2b1c22; font-size: 11.5px; font-weight: 700; white-space: nowrap; max-width: 120px; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 2px 5px rgba(30, 12, 24, .3); }
+  .npc.nm-on .nm { display: block; }
+  .npc.near .av { border-color: #ff5c7c; box-shadow: 0 0 0 3px rgba(255, 92, 124, .35), 0 3px 8px rgba(30, 12, 24, .4); }
+  /* 站住时冒出来的气泡（全场只有一个，跟着离你最近的那个人） */
+  .bub { display: none; position: absolute; left: 0; top: 0; width: 204px; padding: 10px 12px 11px; border-radius: 16px; background: rgba(255, 255, 255, .97); box-shadow: 0 8px 22px rgba(30, 12, 24, .38); pointer-events: auto; z-index: 9500; }
+  .bub::after { content: ""; position: absolute; left: 50%; bottom: -6px; width: 12px; height: 12px; margin-left: calc(-6px + var(--tail, 0px)); background: rgba(255, 255, 255, .97); transform: rotate(45deg); border-radius: 2px; }
+  .bub .say { font-size: 13px; line-height: 1.5; color: #2b1c22; font-weight: 600; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .bub .tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; align-items: center; padding-right: 70px; min-height: 24px; }
+  .bub .tags span { height: 20px; padding: 0 8px; border-radius: 10px; background: rgba(255, 61, 99, .1); color: #ff3d63; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; white-space: nowrap; }
+  .bub .hi { position: absolute; right: 10px; bottom: 9px; height: 24px; padding: 0 11px; border-radius: 12px; background: linear-gradient(135deg, #ff3d63, #ff8469); color: #fff; font-size: 12px; font-weight: 700; display: flex; align-items: center; white-space: nowrap; box-shadow: 0 4px 10px rgba(255, 61, 99, .35); cursor: pointer; }
+  .me { position: absolute; left: 0; top: 0; padding: 0 6px 1px; border-radius: 8px; background: #ff3d63; color: #fff; font-size: 10.5px; font-weight: 700; white-space: nowrap; box-shadow: 0 2px 5px rgba(30, 12, 24, .35); z-index: 9400; }
+
+  /* 左上：现在在哪个城市、有多少人，点开换城市；右上：时间和天气 */
+  #hud { position: absolute; left: 10px; right: 10px; top: calc(10px + env(safe-area-inset-top, 0px)); display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; pointer-events: none; z-index: 9600; }
+  .chip { height: 30px; padding: 0 11px 0 9px; border-radius: 15px; background: rgba(255, 255, 255, .92); color: #2b1c22; font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 6px; white-space: nowrap; box-shadow: 0 3px 10px rgba(30, 12, 24, .25); }
+  .chip svg { display: block; flex-shrink: 0; }
+  #hud-place { pointer-events: auto; cursor: pointer; min-width: 0; }
+  #hud-name { overflow: hidden; text-overflow: ellipsis; }
+  #hud-count { font-size: 11px; font-weight: 600; color: #8c7d83; }
+  #menu { display: none; position: absolute; left: 10px; top: calc(46px + env(safe-area-inset-top, 0px)); min-width: 210px; max-width: calc(100% - 20px); max-height: 60%; overflow-y: auto; padding: 6px; border-radius: 16px; background: rgba(255, 255, 255, .97); box-shadow: 0 10px 28px rgba(30, 12, 24, .35); z-index: 9700; }
+  #menu.on { display: block; }
+  #menu .it { height: 44px; padding: 0 10px; border-radius: 11px; display: flex; align-items: center; gap: 8px; font-size: 14px; color: #2b1c22; white-space: nowrap; cursor: pointer; }
+  #menu .it i { width: 16px; height: 16px; border-radius: 5px; flex-shrink: 0; }
+  #menu .it b { font-weight: 600; }
+  #menu .it em { font-style: normal; font-size: 11.5px; color: #8c7d83; }
+  #menu .it span { margin-left: auto; padding-left: 10px; font-size: 11.5px; color: #8c7d83; }
+  #menu .it.on { background: rgba(255, 61, 99, .09); }
+  #menu .it.on b { color: #ff3d63; font-weight: 800; }
+  .ic { width: 16px; height: 16px; position: relative; display: inline-block; flex-shrink: 0; }
+  .ic.sun::before { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: #ff9f2e; box-shadow: 0 0 0 2px rgba(255, 159, 46, .3); }
+  .ic.moon::before { content: ""; position: absolute; inset: 2px; border-radius: 50%; box-shadow: inset -4px -2px 0 0 #6b6fc8; }
+  .ic.rain::before, .ic.snow::before { content: ""; position: absolute; left: 1px; right: 1px; top: 2px; height: 7px; border-radius: 4px; background: #8fa3c2; }
+  .ic.rain::after { content: ""; position: absolute; left: 3px; top: 10px; width: 2px; height: 4px; background: #4a90d9; box-shadow: 4px 0 0 #4a90d9, 8px 0 0 #4a90d9; transform: skewX(-18deg); }
+  .ic.snow::after { content: ""; position: absolute; left: 3px; top: 11px; width: 2px; height: 2px; background: #8fb4e6; box-shadow: 4px 2px 0 #8fb4e6, 8px 0 0 #8fb4e6; }
+
+  /* 摇杆：按住拖动时出现在手指按下的地方 */
+  #joy { position: absolute; width: 96px; height: 96px; margin: -48px 0 0 -48px; border-radius: 50%; background: rgba(255, 255, 255, .18); border: 2px solid rgba(255, 255, 255, .6); display: none; pointer-events: none; z-index: 9800; }
+  #joy.on { display: block; }
+  #joy i { position: absolute; left: 50%; top: 50%; width: 42px; height: 42px; margin: -21px 0 0 -21px; border-radius: 50%; background: rgba(255, 255, 255, .92); box-shadow: 0 3px 10px rgba(30, 12, 24, .35); }
+  #hint { position: absolute; left: 50%; bottom: calc(28px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: max-content; max-width: calc(100% - 24px); padding: 7px 14px; border-radius: 16px; background: rgba(43, 28, 34, .72); color: #fff; font-size: 12.5px; line-height: 1.5; text-align: center; transition: opacity .4s; pointer-events: none; z-index: 9800; }
+  #hint.off { opacity: 0; }
+  #toast { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); width: max-content; max-width: 78%; padding: 10px 16px; border-radius: 12px; background: rgba(43, 28, 34, .88); color: #fff; font-size: 13px; line-height: 1.5; text-align: center; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 9900; }
+  #toast.on { opacity: 1; }
+</style>
+</head>
+<body>
+<div id="game">
+  <canvas id="cv"></canvas>
+  <div id="ov"></div>
+  <div id="hud">
+    <div class="chip" id="hud-place"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ff3d63" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg><span id="hud-name"></span><span id="hud-count"></span><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#8c7d83" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></div>
+    <div class="chip"><i id="hud-ic" class="ic sun"></i><span id="hud-w"></span></div>
+  </div>
+  <div id="menu"></div>
+  <div id="joy"><i></i></div>
+  <div id="hint"></div>
+  <div id="toast"></div>
+</div>
+<script type="module" src="/src/wuyu/main.js"></script>
+</body>
+</html>

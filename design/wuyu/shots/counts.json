@@ -1,0 +1,138 @@
+{
+ "world": {
+  "onScreen": 191,
+  "clear": 109,
+  "named": 20,
+  "total": 320,
+  "w": 362,
+  "h": 690
+ },
+ "cover": {
+  "onScreen": 191,
+  "clear": 109,
+  "named": 20,
+  "total": 320,
+  "w": 362,
+  "h": 690
+ },
+ "near": {
+  "onScreen": 191,
+  "clear": 109,
+  "named": 20,
+  "total": 320,
+  "w": 362,
+  "h": 690
+ },
+ "walk-tap": {
+  "onScreen": 205,
+  "clear": 105,
+  "named": 18,
+  "total": 320,
+  "w": 362,
+  "h": 690
+ },
+ "walk-joy": {
+  "onScreen": 191,
+  "clear": 109,
+  "named": 20,
+  "total": 320,
+  "w": 362,
+  "h": 690
+ },
+ "menu": {
+  "onScreen": 191,
+  "clear": 109,
+  "named": 20,
+  "total": 320,
+  "w": 362,
+  "h": 690
+ },
+ "ginkgo": {
+  "onScreen": 123,
+  "clear": 106,
+  "named": 17,
+  "total": 240,
+  "w": 362,
+  "h": 690
+ },
+ "pine": {
+  "onScreen": 80,
+  "clear": 77,
+  "named": 17,
+  "total": 180,
+  "w": 362,
+  "h": 690
+ },
+ "lantern": {
+  "onScreen": 146,
+  "clear": 106,
+  "named": 17,
+  "total": 260,
+  "w": 362,
+  "h": 690
+ },
+ "rain": {
+  "onScreen": 191,
+  "clear": 109,
+  "named": 20,
+  "total": 320,
+  "w": 362,
+  "h": 690
+ },
+ "dusk": {
+  "onScreen": 191,
+  "clear": 109,
+  "named": 20,
+  "total": 320,
+  "w": 362,
+  "h": 690
+ },
+ "night": {
+  "onScreen": 191,
+  "clear": 109,
+  "named": 20,
+  "total": 320,
+  "w": 362,
+  "h": 690
+ },
+ "end": {
+  "onScreen": 12,
+  "clear": 12,
+  "named": 12,
+  "total": 320,
+  "w": 362,
+  "h": 690
+ },
+ "land": {
+  "onScreen": 161,
+  "clear": 124,
+  "named": 20,
+  "total": 320,
+  "w": 780,
+  "h": 360
+ },
+ "world-360": {
+  "onScreen": 200,
+  "clear": 95,
+  "named": 20,
+  "total": 320,
+  "w": 360,
+  "h": 640
+ },
+ "near-360": {
+  "onScreen": 200,
+  "clear": 95,
+  "named": 20,
+  "total": 320,
+  "w": 360,
+  "h": 640
+ },
+ "land-640": {
+  "onScreen": 154,
+  "clear": 117,
+  "named": 20,
+  "total": 320,
+  "w": 640,
+  "h": 360
+ }
+}

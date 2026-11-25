@@ -7,7 +7,7 @@ import { LinkHost } from './components/LinkText';
 import { EnterPage } from './pages/Enter';
 import { RegisterPage } from './pages/Register';
 import { PlazaPage } from './pages/Plaza';
-import { HallPage } from './pages/Hall';
+import { HallPage, TripPage } from './pages/Hall';
 import { ChatListPage } from './pages/ChatList';
 import { ChatRoomPage } from './pages/ChatRoom';
 import { InterviewPage } from './pages/Interview';
@@ -94,7 +94,7 @@ function Shell() {
 /**
  * App 内嵌大厅（原生大厅 tab 的 WebView 入口）：
  * URL 带 ?token= 免登录（用 App 的身份），无底部导航（App 已有原生 tab 栏）。
- * 以后大厅新增业务模块只改网页，无需客户端发版。
+ * 大厅里的内容写在 pages/Hall.tsx 里：送审时大厅里有什么，上线后就是什么；要加内容跟着新版本一起送审。
  */
 function EmbedHallPage() {
   const [params] = useSearchParams();
@@ -196,6 +196,8 @@ export function App() {
           <Route path="/chat" element={<ChatListPage />} />
           <Route path="/me" element={<MePage />} />
         </Route>
+        {/* 大厅里的活动页「新婚旅行礼」（现在是占位版） */}
+        <Route path="/activity/trip" element={<TripPage />} />
         <Route path="/publish" element={<PublishPage />} />
         <Route path="/my-moments" element={<MyMomentsPage />} />
         <Route path="/moment/:id" element={<MomentDetailPage />} />

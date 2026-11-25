@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>一线牵 · 小游戏「相亲物语」样稿</title>
+<!--
+  给用户确认用的界面样稿，不是产品代码。人名、话都是编的假数据；头像除了三张示意照片，其余是代码画的像素头像。
+  双击用浏览器打开就能看。网址后面加 ?only=a / b / c / d / e / f 只显示其中一组（截图用）。
+  外框、截图办法沿用前面几个模块（common.css / common.js）。
+  这一页和前面不一样的地方：手机里的游戏画面不是画出来的示意图，而是一个能实际跑的小原型（wuyu/index.html）截出来的真实画面，
+  截图和每张图上的头像数在 wuyu/shots/（重截：在 wuyu 目录下运行 python shot.py）。原型里的画面全部由代码生成，没有用任何外部图片素材。
+  想自己走一走：双击 wuyu/index.html（电脑上用鼠标点路面 / 按住拖动；左上角换场景；最下面一条是样稿专用的调试条，可以切时间和天气）。
+-->
+<link rel="stylesheet" href="common.css">
+<style>
+  .gm { background: #fff; }
+  .gm .gbar { height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; position: relative; font-size: 16.5px; font-weight: 700; border-bottom: 1px solid rgba(43, 28, 34, .08); }
+  .gm .gbar i { position: absolute; left: 14px; top: 11px; color: var(--ink); }
+  .gm .shot { width: 362px; height: 690px; display: block; flex-shrink: 0; }
+  .gm .wrap { position: relative; flex-shrink: 0; }
+  .finger { position: absolute; width: 46px; height: 46px; margin: -23px 0 0 -23px; border-radius: 50%; background: rgba(255, 255, 255, .38); border: 2px solid #fff; box-shadow: 0 0 0 6px rgba(255, 255, 255, .18), 0 4px 12px rgba(30, 12, 24, .35); z-index: 5; }
+  .callout { position: absolute; padding: 5px 10px; border-radius: 10px; background: #2b1c22; color: #fff; font-size: 12px; font-weight: 600; white-space: nowrap; box-shadow: 0 4px 12px rgba(30, 12, 24, .35); z-index: 6; }
+  .callout::after { content: ""; position: absolute; width: 9px; height: 9px; background: #2b1c22; transform: rotate(45deg); }
+  .callout.d::after { left: 50%; bottom: -4px; margin-left: -4px; }
+  .callout.u::after { left: 24px; top: -4px; }
+  .callout.l::after { left: -4px; top: 50%; margin-top: -4px; }
+  .callout.r::after { right: -4px; top: 50%; margin-top: -4px; }
+  .mine { color: #b54708; background: #fff4e5; border-radius: 4px; padding: 0 4px; font-weight: 600; }
+  .tbd { color: #b54708; background: #fff4e5; border: 1px dashed #f0b56a; border-radius: 5px; padding: 0 5px; font-weight: 600; }
+  .was { color: #6d5f65; background: #f1ecee; border-radius: 4px; padding: 0 4px; }
+  /* 大厅（和 07-hall.html 一样的两张卡，这里只为了说明从哪进） */
+  .hall { background: #fff; }
+  .hall .hd { padding: 6px 20px 2px; font-size: 26px; font-weight: 800; flex-shrink: 0; }
+  .hall .lab { font-size: 13px; color: var(--ink-2); margin: 16px 20px 8px; }
+  .act { margin: 0 16px; border-radius: 22px; padding: 18px 18px 16px; color: #fff; position: relative; overflow: hidden; background: radial-gradient(70% 110% at 100% 0%, rgba(255, 214, 150, .6) 0%, transparent 62%), var(--grad); opacity: .55; }
+  .act h3 { font-size: 21px; font-weight: 800; }
+  .act p { font-size: 13px; line-height: 1.6; opacity: .94; margin-top: 5px; max-width: 232px; }
+  .game { margin: 0 16px; border-radius: 22px; overflow: hidden; position: relative; height: 268px; background: #2a2236 url(wuyu/shots/cover.png) center 62% / 100% auto no-repeat; box-shadow: 0 0 0 3px #ff3d63, 0 14px 28px rgba(60, 30, 60, .24); }
+  .game::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 46%, rgba(30, 14, 30, .86) 100%); }
+  .game .txt { position: absolute; left: 18px; right: 96px; bottom: 16px; z-index: 2; color: #fff; }
+  .game .txt b { font-size: 21px; letter-spacing: 1px; display: block; }
+  .game .txt span { font-size: 12.5px; opacity: .88; display: block; margin-top: 4px; }
+  .game .go { position: absolute; right: 16px; bottom: 18px; z-index: 2; height: 34px; padding: 0 20px; border-radius: 17px; background: #fff; color: var(--ink); font-size: 14px; font-weight: 700; display: flex; align-items: center; }
+  /* 横屏的手机框 */
+  .phone.land { width: 800px; height: 380px; border-radius: 44px; }
+  .phone.land .screen { border-radius: 35px; }
+  .phone.land .island { top: 50%; left: 19px; width: 26px; height: 92px; transform: translateY(-50%); }
+  .phone.land img { width: 782px; height: 362px; display: block; }
+  .stat { margin-top: 6px; border-radius: 20px; background: rgba(255, 255, 255, .82); box-shadow: 0 8px 26px rgba(255, 90, 120, .10); padding: 16px 18px; font-size: 13.5px; line-height: 1.7; color: #4b3d43; }
+  .stat table { width: 100%; border-collapse: collapse; margin: 8px 0 4px; }
+  .stat th, .stat td { text-align: left; padding: 7px 6px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .stat th { color: var(--ink-2); font-weight: 500; font-size: 12px; }
+  .stat td b { font-size: 17px; color: var(--rose); }
+  .stat h3 { font-size: 15.5px; color: var(--ink); }
+  /* 聊天页 */
+  .lim { margin: 6px 14px 14px; padding: 11px 14px; border-radius: 16px; font-size: 12.5px; line-height: 1.6; color: var(--ink-2); text-align: center; background: rgba(255, 255, 255, .8); }
+  .lim b { color: var(--rose); }
+  .st { font-size: 12px; color: var(--ink-2); margin: 12px 20px 6px; display: flex; align-items: center; gap: 6px; }
+  .st b { width: 18px; height: 18px; border-radius: 9px; background: var(--grad); color: #fff; font-size: 11px; display: inline-flex; align-items: center; justify-content: center; }
+  .full { margin: 0 14px; padding: 13px 14px; border-radius: 20px; background: #fff; box-shadow: 0 4px 16px rgba(43, 28, 34, .07); display: flex; align-items: center; gap: 10px; font-size: 13px; line-height: 1.5; color: var(--ink-2); }
+  /* 场景、天气：四张小图排一行 */
+  .strip { display: flex; gap: 14px; }
+  .strip figure { width: 189px; }
+  .strip img { width: 189px; height: 360px; display: block; border-radius: 18px; box-shadow: 0 12px 26px rgba(120, 40, 70, .2); }
+  .strip figcaption { font-size: 13px; line-height: 1.6; color: #4b3d43; margin-top: 9px; }
+  .strip figcaption b { color: var(--ink); display: block; font-size: 14px; }
+  .wide { margin-top: 16px; font-size: 13px; line-height: 1.75; color: #4b3d43; }
+  .wide div { position: relative; padding-left: 14px; margin-bottom: 5px; }
+  .wide div::before { content: ""; position: absolute; left: 0; top: 9px; width: 6px; height: 6px; border-radius: 3px; background: var(--grad); }
+  .wide b { color: var(--ink); }
+</style>
+</head>
+<body>
+
+<div class="intro">
+  <h1>小游戏「相亲物语」样稿</h1>
+  <p><b>一句话</b>：几条像素风的大道（比如樱花道）。你站在路中间，<b>路两边站的都是异性用户</b>，每个人头顶是自己的头像。往前走就是往后翻；看中谁，点头像进她的完整画像，也可以先打个招呼。左上角换场景。游戏只是一个入口，画像页和聊天页还是现有的。</p>
+  <p><b>为什么这样排</b>：为了一眼看到的人比列表多得多。一屏能看到大约 190 个头像，其中 100 个左右能看清长相（第 2 组有数字和横竖屏对比）。</p>
+  <p><b>手机里的游戏画面是真实截图</b>，不是示意图：我在 <b>design/wuyu/</b> 里写了一个能跑的小原型，画面都是它截出来的，全部由代码生成、没有用任何外部图片素材。你可以<b>双击 design/wuyu/index.html</b> 自己走一走。原型只是为了出样稿，不是产品代码；人名、话是假数据；头像除了三张示意照片，其余是代码画的像素头像——<b>真实用户这里显示的是他们自己的照片</b>。</p>
+  <p>标了 <span class="mine">我定的</span> 的是没问过你、我按理解先定的；标了 <span class="tbd">待定</span> 的是接真实用户之前要你定的。</p>
+</div>
+
+<!-- ============ A：从大厅进去 ============ -->
+<section data-s="a">
+  <h2><b>1</b>从大厅怎么进去；进去以后的样子</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">大厅 <small>点「相亲物语」那张卡</small></div>
+      <div class="phone"><div class="island"></div><div class="screen hall">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="hd">大厅</div>
+        <div class="lab">活动</div>
+        <div class="act"><h3>一线牵成，送你们去旅行</h3><p>通过一线牵认识并结婚的前 10 对新人，平台送一次双人旅行。</p><div style="height:45px"></div></div>
+        <div class="lab">小游戏</div>
+        <div class="game">
+          <div class="txt"><b>相亲物语</b><span>走进樱花道，两旁都是等你认识的人</span></div>
+          <span class="go">进入</span>
+        </div>
+        <div class="finger" style="left:292px;top:602px"></div>
+        <div class="tabbar"><div class="tab">广场</div><div class="tab on">大厅</div><div class="tab"><div class="plus"><i data-ic="plus" data-s="18"></i></div></div><div class="tab">消息</div><div class="tab">我的</div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>入口在大厅的第二张卡</b>（大厅整页的样稿是 07-hall.html）。封面就是游戏里的真实画面。</div>
+        <div><b>点「进入」</b>：App 里用现成的「全屏网页」打开游戏；浏览器里是新开一页。游戏是我们自己网站上的一个网页，符合「大厅只能打开自己网页」那条限制。</div>
+        <div><b>没填完相亲资料、没做真人认证的人能不能进</b> <span class="tbd">待定</span>：样稿按「能进去看，但打招呼时按现有规矩拦」画的。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">进来以后 <small>樱花道，你在路中间</small></div>
+      <div class="phone"><div class="island"></div><div class="screen gm">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="gbar"><i data-ic="left" data-s="22"></i>相亲物语</div>
+        <img class="shot" src="wuyu/shots/world.png" alt="">
+      </div></div>
+      <div class="notes">
+        <div><b>最上面一条「‹ 相亲物语」</b>是 App 现成的全屏网页标题栏，点「‹」回大厅。下面整块都是游戏。</div>
+        <div><b>你</b>在路中间：脚下一个玫红色的圈，头上一个「我」字。只能在路上走，走不进人群。</div>
+        <div><b>路两边</b>：每边 6 排人，前后错开半个身位排（像蜂窝那样，互相挡得最少）。地是平的。</div>
+        <div><b>头像</b>：离你越近越大；做过真人认证的右下角有绿点；<b>离你几步以内的才显示昵称和年龄</b>，远处只有头像，不然全是字。</div>
+        <div><b>左上角</b>：现在在哪个场景、这里有多少人，点开换场景；<b>右上角</b>：时间和天气。</div>
+        <div>树种在人群中间和外面，飘着花瓣。头像永远在最上面，树挡不住头像。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ B：一屏能看到多少人；横屏还是竖屏 ============ -->
+<section data-s="b">
+  <h2><b>2</b>一屏能看到多少人；横屏还是竖屏</h2>
+  <div class="phones">
+    <div class="col">
+      <div class="cap">竖屏 <small>推荐</small></div>
+      <div class="phone"><div class="island"></div><div class="screen gm">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="gbar"><i data-ic="left" data-s="22"></i>相亲物语</div>
+        <img class="shot" src="wuyu/shots/world.png" alt="">
+      </div></div>
+    </div>
+    <div class="col">
+      <div class="stat">
+        <h3>实际数出来的（樱花道，320 人）</h3>
+        <table>
+          <tr><th></th><th>屏幕上的头像</th><th>其中看得清的</th></tr>
+          <tr><td>竖屏（左图）</td><td><b>191</b> 个</td><td><b>109</b> 个</td></tr>
+          <tr><td>竖屏 · 小屏手机 360×640</td><td>200 个</td><td>95 个</td></tr>
+          <tr><td>横屏（下图）</td><td><b>161</b> 个</td><td><b>124</b> 个</td></tr>
+          <tr><td>横屏 · 小屏手机 640×360</td><td>154 个</td><td>117 个</td></tr>
+        </table>
+        <p style="font-size:12.5px;color:#8c7d83">「看得清」= 头像直径不小于 22 点，而且被前面的头像挡住不到四成。是原型里的程序数的，不是我估的。</p>
+      </div>
+      <div class="notes" style="margin-top:14px">
+        <div><b>结论：两种差不多，我建议竖屏。</b>横屏看得清的多一成左右，但屏幕上的总数反而少。</div>
+        <div><b>建议竖屏的原因不在数量</b>：画像页、聊天页、整个 App 都是竖的。横屏的话，每点一个头像就要把手机转回来，看完再转回去；而且横屏要两只手拿。</div>
+        <div><b>排法是怎么定的</b>：我试了 30 多种组合（头像大小、前后左右间距、镜头俯多少）。镜头太平时远处的头像全叠在一起，竖屏只能看清 50 个左右；镜头俯到现在这个角度、头像比身子略大，看清的就到 100 以上了。代价是<b>看不到天空和远山</b>，树也大多被头像盖住——和你发的参考视频比，更像「俯视」而不是「平视」。</div>
+        <div><b>和列表比</b>：现在「遇见」是两列大图，一屏只有几个人（我没有逐屏数过）。</div>
+        <div>你要是更看重风景，可以把每个场景的人放少一点、镜头放平一点，告诉我偏哪边。</div>
+      </div>
+    </div>
+  </div>
+  <div class="cap" style="margin-top:26px">横屏 <small>同一个场景、同一个位置</small></div>
+  <div class="phone land"><div class="island"></div><div class="screen"><img src="wuyu/shots/land.png" alt=""></div></div>
+  <div class="wide">
+    <div><b>横屏的好处</b>：两边的樱花树看得见，更像一条「道」。<b>坏处</b>：上面说的转手机；原型里横屏时人物的气泡、名字会更挤。</div>
+    <div>安卓和 iOS 的全屏网页代码里本来就有「这个游戏用横屏」的选项（旧项目留下的，我只看了代码，没在手机上试过），所以两种技术上都能做，只是要你选一种——选横屏的话，画像页、聊天页也得跟着做横屏版，不然每次都要转手机。</div>
+  </div>
+</section>
+
+<!-- ============ C：选场景 ============ -->
+<section data-s="c">
+  <h2><b>3</b>左上角选场景</h2>
+  <div class="phones">
+    <div class="col">
+      <div class="cap">点左上角 <small>列出所有场景和人数</small></div>
+      <div class="phone"><div class="island"></div><div class="screen gm">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="gbar"><i data-ic="left" data-s="22"></i>相亲物语</div>
+        <div class="wrap">
+          <img class="shot" src="wuyu/shots/menu.png" alt="">
+          <div class="finger" style="left:70px;top:25px"></div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>点左上角的名字</b>，下面展开一个小菜单：每个场景一行，写着名字和里面有多少人，当前的那个标成玫红色。点一下就换过去。</div>
+        <div><b>四个场景和名字是我先定的</b> <span class="mine">我定的</span>：樱花道、银杏道、雪松道、灯笼街。你要别的（比如海边、古镇、校园）告诉我名字就行，换一套树、路和配色，不用重新做。</div>
+        <div><b>每个场景里放哪些人</b> <span class="tbd">待定</span>，这是最要紧的一件，见这一组最下面。</div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="cap">走到路的尽头 <small>一棵大树，没有人了</small></div>
+      <div class="phone"><div class="island"></div><div class="screen gm">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="gbar"><i data-ic="left" data-s="22"></i>相亲物语</div>
+        <img class="shot" src="wuyu/shots/end.png" alt="">
+      </div></div>
+      <div class="notes">
+        <div><b>路有多长，看这个场景里有多少人</b>：每往前 2.8 米站 12 个人，320 人的樱花道大约 76 米长，走到头要十几秒。</div>
+        <div><b>路的尽头是一棵挂红绸带的大树</b> <span class="mine">我定的</span>，走到这就看完了这个场景里所有的人。这里风景最完整。</div>
+        <div>人特别多的时候（比如几千人）路会很长。到时是分批放（每次进来一批）、还是分成多条路，<span class="tbd">待定</span>。</div>
+      </div>
+    </div>
+  </div>
+  <div class="cap" style="margin-top:26px">另外三个场景</div>
+  <div class="strip">
+    <figure><img src="wuyu/shots/ginkgo.png" alt=""><figcaption><b>银杏道</b>黄昏，金黄的树，飘落叶。</figcaption></figure>
+    <figure><img src="wuyu/shots/pine.png" alt=""><figcaption><b>雪松道</b>下雪，地面和树梢积雪。</figcaption></figure>
+    <figure><img src="wuyu/shots/lantern.png" alt=""><figcaption><b>灯笼街</b>夜晚，两边是摊位和灯笼，灯照亮路面。</figcaption></figure>
+    <figure><img src="wuyu/shots/dusk.png" alt=""><figcaption><b>樱花道 · 黄昏</b>同一个场景，换个时间。</figcaption></figure>
+  </div>
+  <div class="wide">
+    <div><b>每个场景里放哪些人，要你定</b> <span class="tbd">待定</span>。几种可能：① 按现有的分类——推荐 / 同城 / 新人 / 全部，各对应一个场景；② 按城市——「选位置」就是选城市，一个城市一条道；③ 按爱好——你上一轮选过「人按爱好出现在不同地方」，比如爱旅行的在樱花道；④ 所有场景都是同一批人，只是换风景。</div>
+    <div><b>谁排在前面</b>（离入口近的先被看到）<span class="tbd">待定</span>：样稿是随机的。可以按匹配度、按最近上线、或者今天推荐给你的那几位站在最前排。</div>
+    <div><b>只放异性</b>：按你说的画的。对方能不能选择「不出现在游戏里」<span class="tbd">待定</span>。</div>
+  </div>
+</section>
+
+<!-- ============ D：怎么走、气泡 ============ -->
+<section data-s="d">
+  <h2><b>4</b>怎么走；站住看一个人</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">点路面，或者按住拖动</div>
+      <div class="phone"><div class="island"></div><div class="screen gm">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="gbar"><i data-ic="left" data-s="22"></i>相亲物语</div>
+        <div class="wrap">
+          <img class="shot" src="wuyu/shots/walk-tap.png" alt="">
+          <div class="finger" style="left:201px;top:393px"></div>
+          <div class="callout d" style="left:110px;top:330px">点路面：出现一个圈，人走过去</div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>点一下路面</b>：点的地方出现一个玫红色的圈，人自己走过去，走到路的尽头就停。</div>
+        <div><b>按住屏幕拖动</b>：手指按下的地方出现一个摇杆，往哪拖往哪走，松手就停。左手右手都行。</div>
+        <div><b>两种同时有效</b> <span class="mine">我定的</span>。因为路是直的，其实就是「往前 / 往后」，像翻一个很长的列表，只是一屏能看到的人多得多。</div>
+        <div><b>镜头不能转、不能缩放</b>，一直朝前、斜着往下看，只跟着人走。一根手指就能玩。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">站住半秒 <small>离你最近的那位冒出气泡</small></div>
+      <div class="phone"><div class="island"></div><div class="screen gm">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="gbar"><i data-ic="left" data-s="22"></i>相亲物语</div>
+        <div class="wrap">
+          <img class="shot" src="wuyu/shots/near.png" alt="">
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>走着的时候不冒气泡</b>（不挡人群）。<b>站住半秒</b>，离你最近的那位头上冒出气泡：上面是 <b>AI 红娘写她的那句话</b>，小标签是<b>你和她的共同点</b>。她的头像同时变大、描上玫红色的边。</div>
+        <div><b>点头像</b>：直接进她的完整画像页——你选的，不弹半屏卡片。近处的头像大、好点；<b>远处的头像小、互相压着，点不准</b>（我试过，点到的常常是压在上面的另一个人），要看远处的人得先走过去。</div>
+        <div><b>点气泡里的「打招呼」</b>：进和她的聊天页（见下一组）。</div>
+        <div>气泡里这两样东西现有的画像接口都有，接真实数据时<b>不用再多调一次 AI</b>。</div>
+        <div>「站住才冒气泡」「一次只冒一个」是 <span class="mine">我定的</span>。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ E：画像页、打招呼 ============ -->
+<section data-s="e">
+  <h2><b>5</b>点头像进画像页；打招呼最多先发 3 条</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">她的完整画像 <small>现有的页面，底部多一个「打招呼」</small></div>
+      <div class="phone"><div class="island"></div><div class="screen">
+        <div class="status w"><span>9:41</span><span>5G</span></div>
+        <div class="hero photo" style="background-image:url(img/f2.jpg);height:400px;background-position:center 20%">
+          <div class="top"><span class="gbtn"><i data-ic="left" data-s="18"></i></span><span class="gbtn"><i data-ic="more" data-s="18"></i></span></div>
+          <div class="info">
+            <div class="bars"><i class="on"></i><i></i><i></i></div>
+            <div class="row" style="align-items:baseline;gap:10px"><span style="font-size:32px;font-weight:800">晓雯</span><span style="font-size:24px;font-weight:500">28</span></div>
+            <div class="row" style="gap:6px;margin-top:10px;flex-wrap:wrap"><span class="chip-g">成都</span><span class="chip-g">165cm</span><span class="chip-g">本科</span><span class="chip-g">设计师</span><span class="chip-g">未婚</span></div>
+          </div>
+        </div>
+        <div class="wsheet mesh">
+          <div class="wcard" style="background:linear-gradient(135deg,#fff0f2,#fff6ec);border:1px solid #fff;box-shadow:0 8px 26px rgba(255,90,120,.10)">
+            <div class="lbl"><span class="orb sm"><i data-ic="heart" data-s="13"></i></span>你们的共同点</div>
+            <div style="font-size:14.5px;line-height:1.65;margin-top:8px">你们都在成都，都喜欢自己做饭。</div>
+          </div>
+          <div class="wcard glass">
+            <div class="lbl"><span class="orb sm"><i data-ic="heart" data-s="13"></i></span>AI 红娘眼里的她</div>
+            <div class="quote" style="font-size:17px">爱热闹，朋友多，周末常约人逛集市。</div>
+          </div>
+        </div>
+        <div class="wdock glass" style="padding:8px;gap:8px">
+          <div class="btn ghost" style="flex:.9;height:48px;box-shadow:none;background:transparent;font-size:15px"><i data-ic="x" data-s="16"></i>跳过</div>
+          <div class="btn ghost" style="flex:1.25;height:48px;font-size:15px;color:var(--rose);border:1.5px solid rgba(255,61,99,.35);box-shadow:none"><i data-ic="chat" data-s="16"></i>打招呼</div>
+          <div class="btn" style="flex:1.25;height:48px;font-size:15px"><i data-ic="heart" data-s="16"></i>喜欢</div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>就是现在的画像网页</b>，内容不变。从游戏里点头像进来，左上角返回要回到游戏、回到刚才站的位置（原型里没做，点头像只弹一句提示）。</div>
+        <div><b>底部多了中间的「打招呼」</b> <span class="mine">我定的</span>：<span class="was">原来</span>还没互相喜欢时只有「跳过 / 喜欢」，哪里都不能直接发消息（模块三、四定的）。现在你要放宽成「可以先发最多 3 条」。</div>
+        <div><b>这个「打招呼」是只在从游戏进来时有，还是以后从推荐、遇见进来也有</b> <span class="tbd">待定</span>。这是一条全局规则的改动，不只是游戏的事。</div>
+        <div>在画像页点了「跳过」的人，回到游戏里还站不站在那 <span class="tbd">待定</span>（样稿没画）。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">聊天页 <small>还没互相喜欢时的两种样子</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">晓雯</div><span class="ic-btn"><i data-ic="more"></i></span></div>
+        <div class="st"><b>1</b>还能发</div>
+        <div class="lim">你们还没有互相喜欢，你最多可以先给她发 <b>3 条</b>消息。<br>已发 1 条，<b>还能发 2 条</b>。</div>
+        <div style="padding:0 16px">
+          <div class="br me"><div class="bb me">你好，我也常去逛集市，你一般买什么菜？</div><div class="me-av photo" style="background-image:url(img/p2.jpg)"></div></div>
+        </div>
+        <div style="padding:0 14px"><div class="ibar" style="margin-top:0"><div class="box">发消息…（还能发 2 条）</div><div class="send"><i data-ic="up" data-s="20"></i></div></div></div>
+
+        <div class="st" style="margin-top:26px"><b>2</b>3 条发完了</div>
+        <div class="lim" style="margin-bottom:10px">3 条已经发完。<br>等她回复，或者互相喜欢后就能继续聊。</div>
+        <div class="full"><span class="grow">想让她更快注意到你？</span><span class="pill" style="height:36px;border-radius:18px"><i data-ic="heart" data-s="14"></i>喜欢她</span></div>
+      </div></div>
+      <div class="notes">
+        <div><b>聊天页还是现在的样子</b>，这里只画了多出来的提示。数字 3 后台可以改——你说的。</div>
+        <div><b>没发满</b>：顶上一条提示写还能发几条，输入框里也写着。<b>发满了</b>：输入框换成一行提示 + 「喜欢她」按钮。</div>
+        <div><b>下面这些规则还没定</b> <span class="tbd">待定</span>，样稿是按括号里的理解画的：
+          3 条是对每个人各算各的（是）；她回了以后还限不限（不限了）；她能不能不想收（能，在她那边可以拉黑、举报，和现在一样）；这种「还没互相喜欢的招呼」在她的消息列表里怎么显示（和普通聊天放一起，标一个「打招呼」）；语音、图片算不算 1 条（算，或者只许发文字）。</div>
+        <div>一屏能看到一百多人、每人能发 3 条，<b>受欢迎的人可能一天收到很多招呼</b>。要不要给每个人每天能发出的招呼总数也设个上限 <span class="tbd">待定</span>。</div>
+        <div>用户协议里「互相喜欢后才能聊天」那句话要跟着改。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ F：天气 ============ -->
+<section data-s="f">
+  <h2><b>6</b>天气和昼夜</h2>
+  <div class="strip">
+    <figure><img src="wuyu/shots/world.png" alt=""><figcaption><b>白天 · 晴</b>樱花道默认的样子，飘花瓣。</figcaption></figure>
+    <figure><img src="wuyu/shots/rain.png" alt=""><figcaption><b>下雨</b>天变灰，斜着的雨丝，地面颜色变深，花瓣不飘了。</figcaption></figure>
+    <figure><img src="wuyu/shots/night.png" alt=""><figcaption><b>夜晚</b>路灯照亮路面，你自己也提着一盏灯。</figcaption></figure>
+    <figure><img src="wuyu/shots/pine.png" alt=""><figcaption><b>下雪</b>雪花分远近三层飘，地面和树梢积雪。</figcaption></figure>
+  </div>
+  <div class="wide">
+    <div><b>时间有三档</b>（白天、黄昏、夜晚），<b>天气有三种</b>（晴、雨、雪），任何场景都可以任意组合，切换时是几秒钟慢慢变过去的。每个场景有自己默认的时间和天气。</div>
+    <div><b>正式做的时候打算：时间跟着手机的钟走；天气由游戏自己隔一阵随机换</b>，不是真实天气 <span class="mine">我定的</span>。原型里还没做自动切换，是用最下面的调试条手动切的。要跟真实天气一致得接天气数据（要用到用户所在城市），可以以后再加。</div>
+    <div>头像不受天气和昼夜影响，夜里也一样亮，保证看得清。</div>
+    <div><b>和原型的差距</b>：原型没有声音、没有进游戏时的加载画面；路两边的人是站着不动的；换场景是直接切过去，没有过场。这些正式做的时候再定要不要。</div>
+  </div>
+</section>
+
+<script src="common.js"></script>
+</body>
+</html>
