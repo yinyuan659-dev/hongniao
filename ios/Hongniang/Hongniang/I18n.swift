@@ -8,8 +8,8 @@ final class I18nStore: @unchecked Sendable {
     static let shared = I18nStore()
     static let system = "system"
     static let fallback = "zh"
-    /// 没在「我的 → 语言」里选过时用英文（不跟随系统）；选过「跟随系统」的照旧
-    static let defaultChoice = "en"
+    /// 没在「我的 → 语言」里选过时用中文（不跟随系统）；选过「跟随系统」的照旧
+    static let defaultChoice = "zh"
     private static let key = "appLang"
 
     let tables: [String: [String: String]]
