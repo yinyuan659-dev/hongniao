@@ -178,7 +178,7 @@ fun MePortraitCard(u: UserProfile, modifier: Modifier = Modifier, onNav: (String
     val deep = u.deepStatus
     // 完成度：只做完点选问答 62%，深聊也确认了 100%
     val percent = when (deep) { "done" -> 100; "draft" -> 90; "chatting" -> 75; else -> 62 }
-    val shape = RoundedCornerShape(26.dp)
+    val shape = RoundedCornerShape(18.dp)
     Column(
         modifier.fillMaxWidth().shadow(12.dp, shape, ambientColor = HnRose, spotColor = HnRose).clip(shape)
             .background(Brush.linearGradient(listOf(HnRose, HnCoral, Color(0xFFFFA77A)))).padding(18.dp),

@@ -224,7 +224,7 @@ struct MePortraitCard: View {
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 26)
+            RoundedRectangle(cornerRadius: 18)
                 .fill(LinearGradient(colors: [HnTheme.rose, HnTheme.coral, Color(red: 1.0, green: 0.655, blue: 0.478)], startPoint: .topLeading, endPoint: .bottomTrailing))
         )
         .shadow(color: HnTheme.rose.opacity(0.3), radius: 14, x: 0, y: 10)
