@@ -3,7 +3,7 @@
 用户协议、隐私政策的正文只写在这里，运行一次同步到三端的翻译文件和网页的两个静态页：
   web/src/i18n/locales/{zh,en}.json          agreement.web.user / agreement.web.privacy
   android/app/src/main/assets/i18n/{zh,en}.json   agreement.userBody / agreement.privacyBody
-  ios/PeiwanIos/PeiwanIos/i18n/i18n_{zh,en}.json  agreement.userBody / agreement.privacyBody
+  ios/Hongniang/Hongniang/i18n/i18n_{zh,en}.json  agreement.userBody / agreement.privacyBody
   web/public/terms.html、privacy.html         中英两段正文
 顺手改掉几条还提到已删功能的文案（扫码提示、转发提示、保活通知标题）。
 
@@ -221,7 +221,7 @@ FIXES = {
 TARGETS = [
     ('web/src/i18n/locales/%s.json', 'agreement.web.user', 'agreement.web.privacy'),
     ('android/app/src/main/assets/i18n/%s.json', 'agreement.userBody', 'agreement.privacyBody'),
-    ('ios/PeiwanIos/PeiwanIos/i18n/i18n_%s.json', 'agreement.userBody', 'agreement.privacyBody'),
+    ('ios/Hongniang/Hongniang/i18n/i18n_%s.json', 'agreement.userBody', 'agreement.privacyBody'),
 ]
 
 

@@ -96,7 +96,7 @@ enum OrientationLock {
 }
 
 @main
-struct PeiwanIosApp: App {
+struct HongniangApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     init() {

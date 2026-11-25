@@ -20,6 +20,8 @@ deploy/m1_final.sh
 *.keystore
 *.p12
 *.mobileprovision
+# 苹果发布证书的私钥、证书请求、证书（丢了或泄露了都很麻烦），只放在本机
+ios/signing/
 
 # ---- 构建产物 ----
 dist/

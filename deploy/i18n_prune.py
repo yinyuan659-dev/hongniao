@@ -35,8 +35,8 @@ PLATFORMS = {
         'files': ['android/app/src/main/assets/i18n/zh.json', 'android/app/src/main/assets/i18n/en.json'],
     },
     'ios': {
-        'src': 'ios/PeiwanIos/PeiwanIos', 'ext': ('.swift',), 'skip': (),
-        'files': ['ios/PeiwanIos/PeiwanIos/i18n/i18n_zh.json', 'ios/PeiwanIos/PeiwanIos/i18n/i18n_en.json'],
+        'src': 'ios/Hongniang/Hongniang', 'ext': ('.swift',), 'skip': (),
+        'files': ['ios/Hongniang/Hongniang/i18n/i18n_zh.json', 'ios/Hongniang/Hongniang/i18n/i18n_en.json'],
     },
 }
 

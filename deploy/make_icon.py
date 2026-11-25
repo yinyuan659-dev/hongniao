@@ -13,7 +13,7 @@
 用法（在仓库根目录，Windows，需要 Pillow）：python deploy/make_icon.py
 输出：
   android/app/src/main/res/drawable/ic_launcher_{background,foreground}.png、mipmap-*/ic_launcher{,_round}.png
-  ios/PeiwanIos/PeiwanIos/Assets.xcassets/AppIcon.appiconset/AppIcon.png
+  ios/Hongniang/Hongniang/Assets.xcassets/AppIcon.appiconset/AppIcon.png
   web/public/favicon.png、apple-touch-icon.png
   design/icon/app-icon-1024.png、-512.png（备案、应用商店上传用）、app-icon-preview.png（三种裁法的预览）
 """
@@ -154,7 +154,7 @@ def main():
         save(masked(small, 'round'), '%s/mipmap-%s/ic_launcher_round.png' % (res, name))
 
     print('iOS：')
-    save(icon, 'ios/PeiwanIos/PeiwanIos/Assets.xcassets/AppIcon.appiconset/AppIcon.png', 'RGB')
+    save(icon, 'ios/Hongniang/Hongniang/Assets.xcassets/AppIcon.appiconset/AppIcon.png', 'RGB')
 
     print('网页：')
     save(masked(icon.resize((192, 192), Image.LANCZOS), 'squircle'), 'web/public/favicon.png')

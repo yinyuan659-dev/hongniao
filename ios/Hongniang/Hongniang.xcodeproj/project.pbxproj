@@ -12,13 +12,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		2C0F5136302C0B5C00BEC97F /* PeiwanIos.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PeiwanIos.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		2C0F5136302C0B5C00BEC97F /* Hongniang.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Hongniang.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		2C0F5138302C0B5C00BEC97F /* PeiwanIos */ = {
+		2C0F5138302C0B5C00BEC97F /* Hongniang */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = PeiwanIos;
+			path = Hongniang;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -39,7 +39,7 @@
 		2C0F512D302C0B5C00BEC97F = {
 			isa = PBXGroup;
 			children = (
-				2C0F5138302C0B5C00BEC97F /* PeiwanIos */,
+				2C0F5138302C0B5C00BEC97F /* Hongniang */,
 				2C0F5137302C0B5C00BEC97F /* Products */,
 			);
 			sourceTree = "<group>";
@@ -47,7 +47,7 @@
 		2C0F5137302C0B5C00BEC97F /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				2C0F5136302C0B5C00BEC97F /* PeiwanIos.app */,
+				2C0F5136302C0B5C00BEC97F /* Hongniang.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -55,9 +55,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		2C0F5135302C0B5C00BEC97F /* PeiwanIos */ = {
+		2C0F5135302C0B5C00BEC97F /* Hongniang */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 2C0F5141302C0B5D00BEC97F /* Build configuration list for PBXNativeTarget "PeiwanIos" */;
+			buildConfigurationList = 2C0F5141302C0B5D00BEC97F /* Build configuration list for PBXNativeTarget "Hongniang" */;
 			buildPhases = (
 				2C0F5132302C0B5C00BEC97F /* Sources */,
 				2C0F5133302C0B5C00BEC97F /* Frameworks */,
@@ -68,15 +68,15 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				2C0F5138302C0B5C00BEC97F /* PeiwanIos */,
+				2C0F5138302C0B5C00BEC97F /* Hongniang */,
 			);
-			name = PeiwanIos;
+			name = Hongniang;
 			packageProductDependencies = (
 				2C0F51AB302C0B5D00BEC902 /* WebRTC */,
 				2C0F51B1302C0B5D00BEC908 /* Lottie */,
 			);
-			productName = PeiwanIos;
-			productReference = 2C0F5136302C0B5C00BEC97F /* PeiwanIos.app */;
+			productName = Hongniang;
+			productReference = 2C0F5136302C0B5C00BEC97F /* Hongniang.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -94,7 +94,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 2C0F5131302C0B5C00BEC97F /* Build configuration list for PBXProject "PeiwanIos" */;
+			buildConfigurationList = 2C0F5131302C0B5C00BEC97F /* Build configuration list for PBXProject "Hongniang" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -112,7 +112,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				2C0F5135302C0B5C00BEC97F /* PeiwanIos */,
+				2C0F5135302C0B5C00BEC97F /* Hongniang */,
 			);
 		};
 /* End PBXProject section */
@@ -330,7 +330,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		2C0F5131302C0B5C00BEC97F /* Build configuration list for PBXProject "PeiwanIos" */ = {
+		2C0F5131302C0B5C00BEC97F /* Build configuration list for PBXProject "Hongniang" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				2C0F513F302C0B5D00BEC97F /* Debug */,
@@ -339,7 +339,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		2C0F5141302C0B5D00BEC97F /* Build configuration list for PBXNativeTarget "PeiwanIos" */ = {
+		2C0F5141302C0B5D00BEC97F /* Build configuration list for PBXNativeTarget "Hongniang" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				2C0F5142302C0B5D00BEC97F /* Debug */,

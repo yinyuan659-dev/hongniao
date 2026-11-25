@@ -15,7 +15,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FILES = {
     'web': 'web/src/i18n/locales/%s.json',
     'android': 'android/app/src/main/assets/i18n/%s.json',
-    'ios': 'ios/PeiwanIos/PeiwanIos/i18n/i18n_%s.json',
+    'ios': 'ios/Hongniang/Hongniang/i18n/i18n_%s.json',
 }
 ZH = re.compile(r'钱包|转账|提现|积分|礼物|群聊|群码|频道|机器人|语音房|搭子|陪玩|地陪|树洞|USDC|链上|区块链|助记词|私钥|金币|打赏|约单|仲裁|小游戏|游戏')
 EN = re.compile(r'wallet|withdraw|\bpoints\b|gift|group chat|group code|channel|\bbots?\b|voice room|buddy|treehole|USDC|blockchain|mnemonic|private key|\bcoins?\b|tipping|\bgames?\b', re.I)

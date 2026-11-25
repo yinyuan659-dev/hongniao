@@ -12,7 +12,7 @@ import os
 import re
 import sys
 
-DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'ios', 'PeiwanIos', 'PeiwanIos')
+DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'ios', 'Hongniang', 'Hongniang')
 BS, DQ = chr(92), chr(34)
 # 删掉以后不应该再出现的名字
 GONE = ('LoginView', 'reviewMode', 'ReviewMode', 'demo-login', 'review-mode')
