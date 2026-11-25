@@ -1,13 +1,15 @@
 // 相亲物语 —— 游戏主程序（大厅里的小游戏，单独的一页 /wuyu.html，竖屏）。
-// 玩法：左上角选城市，一个城市一条大道；你在路中间，路两边站的都是这个城市的异性用户，头顶是头像。
+// 玩法：左上角选城市，一个城市一条大道；你在路中间，路两边是这个城市的异性用户——只有头像，不画小人。
+//   你自己：男用户是一只大公鸡（隔一阵打鸣两声，声音是 sound.js 合成的），女用户是穿裙子的像素小人。
 //   点路面走过去 / 按住拖动是摇杆；站住半秒，离你最近的人冒出气泡；点头像看画像，点气泡里的按钮打招呼。
 // 画面：three.js。地面是平的，镜头固定朝前、斜着往下看；人和树是始终朝着镜头的像素贴片（全部由 pix.js 用代码画出来）；
 //   整幅画面按屏幕的一半分辨率画，再放大成像素块，最后一遍做点阵过渡。
 // 数据：现在全部是假数据（data.js）。网址参数：g=1|2 看的人的性别（1 男 2 女，路两边放异性；大厅打开时带上）  lang=zh|en
 import * as THREE from 'three';
-import { Atlas, PAL, roundTree, pine, wishTree, flower, tuft, litter, stall, lantern, person, portrait, toURL, rgb, rng } from './pix.js';
+import { Atlas, PAL, roundTree, pine, wishTree, flower, tuft, litter, stall, lantern, person, rooster, portrait, toURL, rgb } from './pix.js';
 import { SCENES, buildScene, heightAt } from './scenes.js';
 import { CITIES, people, makeT } from './data.js';
+import { unlockAudio, crowTwice, CROW_LEN, CROW_GAP } from './sound.js';
 
 THREE.ColorManagement.enabled = false;
 const Q = new URLSearchParams(location.search);
@@ -141,7 +143,7 @@ const worldMat = new THREE.ShaderMaterial({
         float dm = length(vW.xz - uMark.xy);
         alb = mix(alb, vec3(1.0, 0.24, 0.39), uMark.w * max(step(abs(dm - uMark.z), 0.2), step(dm, 0.26)));
         float de = length(vW.xz - uMe.xy);
-        alb = mix(alb, vec3(1.0, 0.24, 0.39), uMe.w * step(abs(de - 0.95), 0.11));
+        alb = mix(alb, vec3(1.0, 0.24, 0.39), uMe.w * step(abs(de - uMe.z), 0.11));
         // 地面加一点颗粒，不然大片颜色太糊
         if (paved < 0.5) alb *= 1.0 + (hash(floor(vW.xz * 2.6)) - 0.5) * 0.1 + (hash(floor(vW.xz * 0.9) + 7.0) - 0.5) * 0.05;
       }
@@ -214,7 +216,7 @@ const spriteMat = new THREE.ShaderMaterial({
         float sn = uSnow * (1.0 - isPerson) * smoothstep(0.55, 0.95, vLy + (fract(sin(dot(floor(vUv * 1024.0), vec2(12.9, 78.2))) * 43758.5) - 0.5) * 0.35);
         c = mix(c, vec3(0.93, 0.94, 0.99), sn * 0.85);
         c *= 1.0 - uWet * 0.15;
-        c = c * (uSprLight + vPl);
+        c = c * min(uSprLight + vPl, vec3(1.2));   // 夜里站在灯下也不至于亮得发白
       }
       float f = smoothstep(uFogNear, uFogFar, vD);
       gl_FragColor = vec4(mix(c, uFogCol, f), 1.0);
@@ -311,30 +313,19 @@ atlas.add('petal', litter(41, '#ffd3e0', '#f7a8c0')); atlas.add('leaf', litter(4
 atlas.add('stall0', stall(1, '#d9534a')); atlas.add('stall1', stall(2, '#3f8f96', ['#f6ead0', '#e2c13e', '#d96b8f'])); atlas.add('stall2', stall(3, '#d99a2b', ['#7fae4a', '#e2483a', '#b98552']));
 atlas.add('lantern', lantern());
 
-// 人物的长相。第 0 个是玩家自己，后面 10 个是路两边的人（都是异性：看的人是男的，这 10 个就是女的，反过来也一样）
-const NLOOK = 10;
-const LOOKS = [VIEWER_MALE
-  ? { skin: '#f2c9a4', hair: '#2e2530', top: '#4a78b8', bottom: '#3a4460', female: false }
-  : { skin: '#f6d3b4', hair: '#33262a', top: '#f6ead0', bottom: '#d96b8f', female: true }];
-{
-  const r = rng(99), pick = (a) => a[(r() * a.length) | 0], female = VIEWER_MALE;
-  for (let i = 0; i < NLOOK; i++) LOOKS.push({
-    skin: pick(['#f6d3b4', '#f3ccaa', '#f8d8bd', '#efc6a2']), hair: pick(['#33262a', '#5a3a2e', '#2a2430', '#3a2c36', '#6b3f2e', '#7a4a32']),
-    top: pick(female ? ['#f6ead0', '#7fae8a', '#f39a5a', '#b79ad6', '#ffd24a', '#ffffff', '#f093ad', '#8fc3e6'] : ['#4a78b8', '#5f8f6a', '#8a6fb8', '#c9773a', '#e6e2d6', '#3f8f96', '#7a8496', '#b8503f']),
-    bottom: pick(female ? ['#d96b8f', '#f6ead0', '#3f5f8f', '#5a4a7a', '#e2683a', '#3f8f96', '#c9a227'] : ['#3a4460', '#4a4038', '#2f3a4a', '#5a5248', '#3f4a3a']), female,
-  });
+// 玩家自己的样子（路两边的人只有头像，不画小人）：男用户是一只大公鸡，女用户是穿裙子的小人。
+// 贴片名 me_朝向_动作：朝向 0 正面 1 背面 2 朝右 3 朝左；动作 0 站 1、2 走，公鸡多一个 3 打鸣
+const ME_LOOK = { skin: '#f6d3b4', hair: '#33262a', top: '#f6ead0', bottom: '#d96b8f', female: true };
+for (let f = 0; f < (VIEWER_MALE ? 4 : 3); f++) {
+  const draw = (dir) => (VIEWER_MALE ? rooster(dir, f) : person(ME_LOOK, dir, f));
+  atlas.add(`me_0_${f}`, draw(0)); atlas.add(`me_1_${f}`, draw(1));
+  const side = draw(2); atlas.add(`me_2_${f}`, side); atlas.add(`me_3_${f}`, side.mirrored());
 }
-LOOKS.forEach((lk, ci) => {
-  for (let f = 0; f < 3; f++) {
-    atlas.add(`ch${ci}_0_${f}`, person(lk, 0, f)); atlas.add(`ch${ci}_1_${f}`, person(lk, 1, f));
-    const side = person(lk, 2, f); atlas.add(`ch${ci}_2_${f}`, side); atlas.add(`ch${ci}_3_${f}`, side.mirrored());
-  }
-});
 const tex = new THREE.CanvasTexture(atlas.canvas);
 tex.magFilter = tex.minFilter = THREE.NearestFilter; tex.generateMipmaps = false;
 spriteMat.uniforms.uTex.value = tex;
 /** 每种贴片：图上多少个像素等于世界里 1 米 */
-const density = (n) => (n.startsWith('ch') ? 10.5 : n === 'wish' || n === 'gk_big' || n === 'pine_big' ? 8 : n.startsWith('tree') || n.startsWith('pine') || n.startsWith('sak') ? 9 : n.startsWith('fl') || n.startsWith('tuft') || n === 'petal' || n === 'leaf' ? 11 : 9);
+const density = (n) => (n.startsWith('me_') ? 10.5 : n === 'wish' || n === 'gk_big' || n === 'pine_big' ? 8 : n.startsWith('tree') || n.startsWith('pine') || n.startsWith('sak') ? 9 : n.startsWith('fl') || n.startsWith('tuft') || n === 'petal' || n === 'leaf' ? 11 : 9);
 
 function billboards(count, dynamic) {
   const g = new THREE.InstancedBufferGeometry();
@@ -361,7 +352,7 @@ function mesh(d, indexed) {
 // ---------- 城市（一个城市一条道） ----------
 const MAX_PEOPLE = 400;                            // 一条道上最多站这么多人（每边 2 排，400 人的路大约 260 米；真实数据超过时要分批）
 let world = null, terrainMesh = null, buildMesh = null, statics = null, NPCS = [];
-const chars = billboards(MAX_PEOPLE + 1, true);
+const chars = billboards(1, true);                 // 会动的贴片只有玩家自己一个
 const ov = document.getElementById('ov');
 const bub = document.createElement('div'); bub.className = 'bub'; bub.innerHTML = '<div class="say"></div><div class="tags"></div><div class="hi"></div>'; ov.appendChild(bub);
 bub.querySelector('.hi').textContent = T('hi');
@@ -390,10 +381,10 @@ function loadCity(city) {
   terrainMesh = mesh(world.terrain, true); buildMesh = mesh(world.build, false);
   statics = billboards(world.sprites.length, false);
   world.sprites.forEach((s, i) => setBB(statics, i, s.s, s.x, heightAt(s.x, s.z, world.cz, world.flatR) + (s.dy || 0), s.z, s.k, s.flag));
-  const r = rng(31 + list.length), frag = document.createDocumentFragment();
+  const frag = document.createDocumentFragment();
   NPCS = list.map((d, i) => {
     const p = world.people[i];
-    const n = { ...d, i, x: p.x, z: p.z, look: 1 + ((r() * NLOOK) | 0), shown: false, cls: '', tf: '', size: 0, sx: 0, sy: 0, cy: 0, r: 0 };
+    const n = { ...d, i, x: p.x, z: p.z, shown: false, cls: '', tf: '', size: 0, sx: 0, sy: 0, cy: 0, r: 0 };
     const el = document.createElement('div'); el.className = 'npc'; el.style.display = 'none'; n.shown = false;
     el.style.zIndex = String(6000 + Math.round(p.z * 10));   // 谁盖住谁只看前后位置：镜头不转，这个顺序永远不变，所以只定一次（每帧改它在手机上很卡）
     const avw = document.createElement('div'); avw.className = 'avw';
@@ -405,8 +396,6 @@ function loadCity(city) {
     return n;
   });
   ov.appendChild(frag);
-  NPCS.forEach((n, i) => setBB(chars, i + 1, `ch${n.look}_0_0`, n.x, 1, n.z, 1, 2));
-  chars.g.instanceCount = NPCS.length + 1;
   const U = sharedU, R = world.road;
   U.uRoad.value.set(R.hw, R.zS, R.zN, 1); U.uRoadA.value.fromArray(rgb(SC.roadA)); U.uRoadB.value.fromArray(rgb(SC.roadB)); U.uEnd.value.set(R.endX, R.endZ, R.endR);
   player.x = 0; player.z = START_Z; player.dir = 1; player.target = null;
@@ -474,6 +463,8 @@ root.addEventListener('pointerdown', (e) => {
   if (e.target.closest('#hud,#menu')) return;
   input.down = true; input.sx = e.clientX; input.sy = e.clientY; input.joy = false; input.id = e.pointerId;
   hintEl.classList.add('off'); menu.classList.remove('on');
+  // 手机上要点过屏幕才允许出声：第一次点的时候把声音打开，公鸡过几秒叫第一回
+  if (VIEWER_MALE) { unlockAudio(); if (crowAt === Infinity) crowAt = performance.now() + 5000 + Math.random() * 4000; }
 });
 root.addEventListener('pointermove', (e) => {
   if (!input.down || e.pointerId !== input.id) return;
@@ -520,8 +511,12 @@ function project(x, y, z) { v.set(x, y, z).project(camera); return { x: (v.x * 0
 const AV = 1.9;                                    // 头像在世界里相当于多大（米）：离得越远越小
 const NAME_R = 8.5;                                // 离玩家这么近的人才显示名字，远处只有头像
 const NEAR_R = 4.7;                                // 离玩家这么近才算「走近了」，站住时冒气泡
+const AV_Y = 1.3;                                  // 头像的下沿离地多高（地面是 1）：贴着地面站在路边
+const ME_H = atlas.map.me_1_0.h / 10.5;            // 玩家贴片有多高（米）
+const ME_K = VIEWER_MALE ? 1.5 : 1;                // 公鸡画大一号（「大」公鸡），在一堆头像中间才显眼
 let focal = 600, near = null, still = 0, tick = 0, envAt = 0;
-let shadowList = [];
+// 公鸡打鸣（只有男用户）：第一次点屏幕后过几秒叫第一回，以后隔半分钟到一分钟、站着不动的时候再叫；一回连叫两声
+let crowAt = Infinity, crowT = -1;
 
 function frame(dt, time, now) {
   update(dt);
@@ -539,7 +534,17 @@ function frame(dt, time, now) {
   camera.position.set(tx, ty + CAM.dist * Math.sin(PITCH), tz + CAM.dist * Math.cos(PITCH));
   camera.lookAt(tx, ty, tz); camera.updateMatrixWorld();
 
-  setBB(chars, 0, `ch${player.look}_${player.dir}_${player.frame}`, player.x, 1, player.z, 1, 2);
+  if (VIEWER_MALE) {
+    if (crowT < 0 && now > crowAt && !player.moving) { crowT = 0; crowTwice(); crowAt = now + (30 + Math.random() * 35) * 1000; }
+    if (crowT >= 0) {
+      crowT += dt;
+      const calling = crowT < CROW_LEN || (crowT > CROW_LEN + CROW_GAP && crowT < CROW_LEN * 2 + CROW_GAP);   // 两声之间歇一下
+      if (!player.moving) player.frame = calling ? 3 : 0;                                                    // 叫的时候抬头张嘴
+      const txt = calling ? T('crow') : T('me'); if (meEl.textContent !== txt) meEl.textContent = txt;
+      if (crowT > CROW_LEN * 2 + CROW_GAP) crowT = -1;
+    }
+  }
+  setBB(chars, 0, `me_${player.dir}_${player.frame}`, player.x, 1, player.z, ME_K, 2);
   chars.a.iPos.needsUpdate = chars.a.iUV.needsUpdate = chars.a.iSize.needsUpdate = true;
 
   const s = env.s, U = sharedU;
@@ -553,13 +558,11 @@ function frame(dt, time, now) {
   if (tick++ % 6 === 0) {
     const ls = world.lights.map((l) => [l, Math.hypot(l[0] - player.x, l[2] - (player.z - 8))]).sort((a, b) => a[1] - b[1]);
     for (let i = 0; i < 7; i++) { const l = ls[i] ? ls[i][0] : [0, -99, 0, 1]; U.uLights.value[i].set(l[0], l[1], l[2], l[3]); }
-    shadowList = NPCS.map((n) => [n, Math.hypot(n.x - player.x, n.z - (player.z - 4))]).sort((a, b) => a[1] - b[1]).slice(0, 11).map((a) => a[0]);
-    for (let i = 1; i < 12; i++) { const n = shadowList[i - 1]; if (n) U.uShadows.value[i].set(n.x + 0.25, n.z, 0.62); else U.uShadows.value[i].set(0, 0, -1); }
   }
   U.uLights.value[7].set(player.x, 2.6, player.z + 0.3, Math.max(0.01, 8.5 * Math.max(0, s[8] - 0.5) * 2));
-  U.uShadows.value[0].set(player.x + 0.25, player.z, 0.62);
+  U.uShadows.value[0].set(player.x + 0.25, player.z, VIEWER_MALE ? 1.1 : 0.62);
   U.uMark.value.set(mark.x, mark.z, 1.05 + 0.2 * Math.sin(time * 6), mark.a);
-  U.uMe.value.set(player.x, player.z, 0, 1);
+  U.uMe.value.set(player.x, player.z, VIEWER_MALE ? 1.35 : 0.95, 1);   // 脚下那个圈的半径：公鸡大一号
   const pp = project(player.x, 2.1, player.z);
   v.set(player.x, 1, player.z).applyMatrix4(camera.matrixWorldInverse);
   spriteMat.uniforms.uPlayer.value.set(pp.x / W, 1 - pp.y / H, -v.z, 1); U.uPD.value = -v.z;
@@ -570,12 +573,12 @@ function frame(dt, time, now) {
   // 盖在画面上的网页元素：每个人头顶的头像（离得越远越小，够近才显示名字）。位置没变就不动它，站着不走时这一层不花力气
   near = null; let nd = NEAR_R;
   for (const n of NPCS) { const d = Math.hypot(n.x - player.x, n.z - player.z); if (d < nd) { nd = d; near = n; } }
-  const me = camera.matrixWorldInverse.elements, headY = 1.2 + 2.3 * sharedU.uStretch.value;   // 头顶的高度（贴片被拉高了，头像跟着抬高）
+  const me = camera.matrixWorldInverse.elements;
   for (const n of NPCS) {
     const depth = -(me[2] * n.x + me[6] * 3.5 + me[10] * n.z + me[14]);
     let show = depth > 4, p = null, size = 0;
     if (show) { size = Math.min(46, (AV * focal) / depth); show = size >= minAv; }   // 太远的（头像小到认不出）不放头像，只剩路边的小人
-    if (show) { p = project(n.x, headY, n.z); show = p.ok && p.x > -size && p.x < W + size && p.y > 0 && p.y < H + size * 2; }
+    if (show) { p = project(n.x, AV_Y, n.z); show = p.ok && p.x > -size && p.x < W + size && p.y > 0 && p.y < H + size * 2; }
     if (show !== n.shown) { n.el.style.display = show ? '' : 'none'; n.shown = show; }
     n.size = show ? size : 0;
     if (!show) continue;
@@ -598,7 +601,8 @@ function frame(dt, time, now) {
     bub.style.display = 'block'; bub.style.transform = `translate(${cx.toFixed(1)}px,${top.toFixed(1)}px) translate(-50%,-100%)`;
     bub.style.setProperty('--tail', Math.max(-84, Math.min(84, near.sx - cx)).toFixed(1) + 'px');
   } else if (bubFor) { bub.style.display = 'none'; bubFor = null; }
-  const mp = project(player.x, headY, player.z); meEl.style.transform = `translate(${mp.x.toFixed(1)}px,${mp.y.toFixed(1)}px) translate(-50%,-100%)`;
+  // 「我」字在玩家头顶（贴片按镜头角度拉高过）
+  const mp = project(player.x, 1.2 + ME_H * ME_K * sharedU.uStretch.value, player.z); meEl.style.transform = `translate(${mp.x.toFixed(1)}px,${mp.y.toFixed(1)}px) translate(-50%,-100%)`;
 }
 
 function resize() {

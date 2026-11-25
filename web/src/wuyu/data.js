@@ -8,7 +8,7 @@ import { rng } from './pix.js';
 /** 界面文字（游戏页是单独的一页，不走 App 的翻译文件；只有这十几句） */
 const TEXT = {
   zh: {
-    title: '相亲物语', people: '{n} 人', me: '我', hi: '打招呼',
+    title: '相亲物语', people: '{n} 人', me: '我', hi: '打招呼', crow: '喔喔喔～',
     hint: '点路面走过去 · 按住拖动也能走 · 左上角换城市',
     demoCard: '示例人物。接入真实用户后，点头像会打开 TA 的画像',
     demoChat: '示例人物。接入真实用户后，这里可以给 TA 发消息',
@@ -17,7 +17,7 @@ const TEXT = {
     noGl: '这台设备打不开游戏画面（不支持 WebGL）',
   },
   en: {
-    title: 'Love Story', people: '{n} people', me: 'Me', hi: 'Say hi',
+    title: 'Love Story', people: '{n} people', me: 'Me', hi: 'Say hi', crow: 'Cock-a-doodle-doo!',
     hint: 'Tap the road to walk · drag to steer · pick a city at top left',
     demoCard: 'Sample person. With real members, tapping opens their profile',
     demoChat: 'Sample person. With real members, you can message them here',

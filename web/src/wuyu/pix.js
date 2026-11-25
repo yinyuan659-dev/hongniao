@@ -378,6 +378,66 @@ export function person(look, dir, frame) {
   return p.outlined(DARK);
 }
 
+/**
+ * 大公鸡（男用户在游戏里的样子）：24×24（描边后 26×26）。
+ * dir：0 正面（朝屏幕外） 1 背面 2 朝右；frame：0 站 1、2 走 3 打鸣（抬头、张嘴）
+ */
+export function rooster(dir, frame) {
+  const p = new Pix(24, 24);
+  const RED = '#e23b3b', REDD = '#b52a34', BEAK = '#f6c13a', BEAKD = '#d9952b', LEG = '#e6a422';
+  const BODY = '#c9772f', BODYL = '#e8a650', BODYD = '#9a5524', WING = '#7d4324', NECK = '#f3c04a', NECKD = '#d99a2b', HEAD = '#f7d06a';
+  const TAIL = ['#16302e', '#1f4a44', '#2f6f5f', '#58a07a'];
+  const ell = (cx, cy, rx, ry, c) => { for (let y = Math.floor(cy - ry); y <= cy + ry; y++) for (let x = Math.floor(cx - rx); x <= cx + rx; x++) { const nx = (x + 0.5 - cx) / rx, ny = (y + 0.5 - cy) / ry; if (nx * nx + ny * ny <= 1) p.set(x, y, typeof c === 'function' ? c(x, y) : c); } };
+  const crow = frame === 3, up = crow ? -2 : 0;
+  // 两条腿：走的时候一前一后、轮流抬起
+  const leg = (x, lift, fwd) => { p.rect(x, 19, 1, 4 - lift, LEG); p.rect(x - 1 + fwd, 23 - lift, 3, 1, LEG); };
+
+  if (dir === 2) {
+    // ---- 侧面（朝右）：左边是翘起来的尾巴，右边是头 ----
+    ell(3.5, 9.5, 3.2, 6, (x, y) => ((x + y) % 3 === 0 ? TAIL[2] : TAIL[1]));
+    ell(5.5, 8, 2.6, 5.5, (x, y) => ((x + y) % 3 === 1 ? TAIL[3] : TAIL[2]));
+    ell(2.5, 12, 2.3, 3.6, TAIL[0]);
+    if (frame === 1) { leg(9, 1, -1); leg(14, 0, 1); } else if (frame === 2) { leg(10, 0, 1); leg(13, 1, -1); } else { leg(10, 0, 0); leg(13, 0, 0); }
+    ell(11.5, 15, 6.6, 4.6, BODY);
+    ell(13.5, 16.6, 3.6, 2.6, BODYL);
+    ell(10, 15, 3.8, 2.7, (x, y) => (y < 14 ? BODYD : WING));
+    for (let y = 13; y <= 16; y++) if ((y & 1) === 0) p.set(8 + (y - 13), y, BODYD);
+    ell(15.6, 10.5 + up * 0.5, 2.7, 4.2, (x, y) => ((x + y * 2) % 3 === 0 ? NECKD : NECK));
+    ell(17.2, 5.6 + up, 2.7, 2.7, HEAD);
+    for (const [x, y] of [[15, 3], [16, 2], [16, 3], [17, 3], [18, 2], [18, 3], [19, 3], [16, 1], [18, 1], [17, 2]]) p.set(x, y + up, x % 2 ? RED : REDD);
+    p.set(18, 5 + up, DARK);
+    if (crow) { p.set(20, 3 + up, BEAK); p.set(21, 2 + up, BEAK); p.set(20, 4 + up, BEAKD); p.set(20, 6 + up, BEAK); p.set(21, 7 + up, BEAKD); p.set(20, 5 + up, '#7a1f2a'); }
+    else { p.set(20, 5 + up, BEAK); p.set(21, 5 + up, BEAK); p.set(20, 6 + up, BEAKD); }
+    p.set(19, 7 + up, RED); p.set(19, 8 + up, RED); p.set(20, 8 + up, REDD); p.set(19, 9 + up, REDD);
+    return p.outlined(DARK);
+  }
+
+  const lf = frame === 1 ? 1 : 0, rf = frame === 2 ? 1 : 0;
+  leg(10, lf, 0); leg(14, rf, 0);
+  if (dir === 0) {
+    // ---- 正面：尾巴在身后露出一圈，胸口朝前 ----
+    ell(12, 9.5, 9, 7.2, (x, y) => (((Math.atan2(y - 16, x - 12) * 7) | 0) % 2 ? TAIL[1] : TAIL[2]));
+    ell(12, 15.6, 6.2, 5.2, BODY);
+    ell(6.6, 15.5, 1.9, 3.4, WING); ell(17.4, 15.5, 1.9, 3.4, BODYD);
+    ell(12, 16.6, 3.6, 3.4, BODYL);
+    ell(12, 10 + up * 0.5, 3.3, 3.6, (x, y) => ((x + y) % 3 === 0 ? NECKD : NECK));
+    ell(12, 6.2 + up, 3.1, 2.9, HEAD);
+    for (const [x, y] of [[10, 3], [11, 2], [11, 3], [12, 1], [12, 2], [12, 3], [13, 2], [13, 3], [14, 3]]) p.set(x, y + up, x % 2 ? REDD : RED);
+    p.set(10, 6 + up, DARK); p.set(14, 6 + up, DARK);
+    if (crow) { p.set(12, 7 + up, BEAK); p.set(11, 8 + up, BEAK); p.set(13, 8 + up, BEAK); p.set(12, 8 + up, '#7a1f2a'); p.set(12, 9 + up, BEAKD); }
+    else { p.set(12, 7 + up, BEAK); p.set(12, 8 + up, BEAKD); }
+    p.set(11, 9 + up, RED); p.set(13, 9 + up, RED); p.set(11, 10 + up, REDD); p.set(13, 10 + up, REDD);
+  } else {
+    // ---- 背面：一大把尾巴羽毛朝着你，上面露出一点鸡冠 ----
+    ell(12, 16.4, 6.2, 4.8, (x, y) => (x < 8 || x > 15 ? BODYD : BODY));
+    ell(12, 5.4 + up, 3, 2.9, (x, y) => ((x + y) % 3 === 0 ? NECKD : HEAD));
+    for (const [x, y] of [[10, 2], [11, 1], [11, 2], [12, 0], [12, 1], [12, 2], [13, 1], [13, 2], [14, 2]]) p.set(x, y, x % 2 ? REDD : RED);   // 鸡冠贴着画布顶，打鸣时头抬高、把它顶住
+    ell(12, 12.4, 8.4, 6.4, (x, y) => { const k = ((Math.atan2(y - 19, x - 12) * 8) | 0) % 2; return y < 8 ? TAIL[3] : k ? TAIL[1] : TAIL[2]; });
+    ell(12, 16.4, 2.6, 2.2, TAIL[0]);
+  }
+  return p.outlined(DARK);
+}
+
 /** 把很多小块拼到一张大图上（一次上传给显卡），记下每块的位置 */
 export class Atlas {
   constructor(size = 512) {
