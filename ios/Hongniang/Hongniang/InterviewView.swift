@@ -195,8 +195,25 @@ struct InterviewView: View {
         "\(answeredCount)|\(editing ?? "")|\(st?.complete == true)|\(st?.confirmed == true)"
     }
 
+    /// 答题进度：顶栏下面一条细进度条 + 「已答 n/总数」。全部答完以后不显示（25/25 没有信息量）。
+    @ViewBuilder
+    private var progressRow: some View {
+        if st != nil, !questions.isEmpty, answeredCount < questions.count {
+            HStack(spacing: 10) {
+                ProgressView(value: Double(answeredCount), total: Double(questions.count))
+                    .progressViewStyle(.linear)
+                    .tint(Theme.accent)
+                Text(t("hn.progress", ["n": answeredCount, "total": questions.count]))
+                    .font(.system(size: 11)).foregroundStyle(Theme.textSub)
+                    .fixedSize()
+            }
+            .padding(.horizontal, 16).padding(.top, 6).padding(.bottom, 6)
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
+            progressRow
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
@@ -221,16 +238,15 @@ struct InterviewView: View {
         .navigationBarTitleDisplayMode(.inline)
         .compatNavBarBackground(Theme.bg)
         .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                HStack(spacing: 8) {
+            // 标题和「人工智能」标放在顶栏正中（和 AI 深聊页一样）。
+            // 不放在右上角：新系统会给右上角的东西套一个白色胶囊底，纯文字放进去像个按钮，很难看。
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: 6) {
+                    Text(t("hn.title")).font(.system(size: 16, weight: .bold)).foregroundStyle(Theme.text)
                     // 明确标出对面是人工智能，不是真人
-                    Text(t("hn.aiBadge")).font(.system(size: 10)).foregroundStyle(Theme.accent)
-                        .padding(.horizontal, 5).padding(.vertical, 2)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(Theme.accent.opacity(0.12)))
-                    if st != nil {
-                        Text(t("hn.progress", ["n": answeredCount, "total": questions.count]))
-                            .font(.system(size: 12)).foregroundStyle(Theme.textSub)
-                    }
+                    Text(t("hn.aiBadge")).font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.accent)
+                        .padding(.horizontal, 7).padding(.vertical, 2)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.accent.opacity(0.12)))
                 }
             }
         }
