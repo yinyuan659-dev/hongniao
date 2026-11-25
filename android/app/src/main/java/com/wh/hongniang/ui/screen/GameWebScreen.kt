@@ -28,12 +28,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.wh.hongniang.i18n.t
+import com.wh.hongniang.net.Api
 import com.wh.hongniang.ui.BackIcon
 import com.wh.hongniang.ui.noRippleClick
 import com.wh.hongniang.ui.theme.*
 
 /**
- * 小游戏 / 第三方 H5 全屏容器：独立于大厅 WebView，游戏内跳转不影响大厅页。
+ * 全屏网页容器（活动页、小游戏）：独立于大厅 WebView，页面内跳转不影响大厅页。
+ * - 只开我们自己的网页（[Api.isOwnWebUrl]）：进来的地址不是自己的就不加载、直接退回去，页面里整页跳去别的网站也拦下
  * - landscape=true：仅本页旋转为横屏（Activity 清单锁竖屏，这里运行时改 requestedOrientation，离开还原），
  *   横屏时隐藏系统栏沉浸式、不显示顶栏，左上角浮动返回键
  * - 竖屏顶栏：返回（优先网页后退）、标题（跟随网页 title）、关闭
@@ -53,6 +55,14 @@ private fun android.content.Context.findActivity(): android.app.Activity? {
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
 fun GameWebScreen(url: String, title: String, landscape: Boolean = false, onBack: () -> Unit) {
+    // 这个页面是按地址打开的（导航参数），再查一遍：不是我们自己的网页就不加载，直接退回去
+    if (!Api.isOwnWebUrl(url)) {
+        LaunchedEffect(Unit) {
+            GameLog.w("game: refused, not our own site")
+            onBack()
+        }
+        return
+    }
     var webView by remember { mutableStateOf<WebView?>(null) }
     var pageTitle by remember { mutableStateOf(title) }
     var progress by remember { mutableIntStateOf(0) }
@@ -170,7 +180,12 @@ fun GameWebScreen(url: String, title: String, landscape: Boolean = false, onBack
                             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                                 val u = request.url ?: return false
                                 val scheme = u.scheme?.lowercase() ?: return false
-                                if (scheme == "http" || scheme == "https") return false
+                                if (scheme == "http" || scheme == "https") {
+                                    // 整页跳转只允许留在我们自己的网页里；页面里嵌的小框（iframe）不管
+                                    if (!request.isForMainFrame || Api.isOwnWebUrl(u.toString())) return false
+                                    GameLog.w("game: blocked navigation to a page that is not our own site: $scheme://${u.host}")
+                                    return true
+                                }
                                 // 支付宝 / 微信等 scheme 跳转交给系统，App 未安装则忽略
                                 GameLog.d("game: external scheme $u")
                                 runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, u).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }

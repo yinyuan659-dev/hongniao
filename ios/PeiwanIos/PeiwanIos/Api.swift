@@ -84,6 +84,24 @@ enum Api {
     // 备案后换成 https://域名，正式包不能留这个地址。2026-11-23 之前这里还是心之音的正式服，新功能在那边没有。
     static let baseURL = "http://120.55.59.158"
 
+    /// 我们自己的域名（含它的子域名）
+    private static let ownDomain = "gphnai.com"
+
+    /// 这个网址是不是我们自己的网页：http(s)，并且主机名和 `baseURL` 相同，或者是 `ownDomain` / 它的子域名。
+    ///
+    /// 大厅页、以及大厅页让 App 全屏打开的网页，只允许是自己的网页（这两处的地址都是服务器给的）：
+    /// App 里能出现什么内容，要以送审的这一版为准，不能靠改服务器配置让 App 打开别人的网页；
+    /// 另外大厅页的地址上带着登录令牌，不能发给别的网站。
+    /// 以后要接别家的活动页，需要改这里、发新版本。
+    static func isOwnWebUrl(_ url: URL?) -> Bool {
+        // 用系统的 URLComponents 取主机名；不要自己切字符串，`http://gphnai.com@别的网站/` 这种写法会骗过去
+        guard let url = url, let c = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let scheme = c.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              let host = c.host?.lowercased(), !host.isEmpty else { return false }
+        let own = URLComponents(string: baseURL)?.host?.lowercased()
+        return host == own || host == ownDomain || host.hasSuffix("." + ownDomain)
+    }
+
     // 一机一号：设备 ID 存 Keychain，卸载重装后仍在，凭此恢复账号
     static var deviceId: String {
         let account = "com.wh.hongniang.deviceid"

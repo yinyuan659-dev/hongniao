@@ -70,7 +70,6 @@ services:
       # App 里「大厅」标签加载的网页 = Web 端的 /#/hall-embed 路由（不配的话客户端会去找 /site/#/hall-embed）
       HALL_H5_URL: "${PUBLIC_BASE}/#/hall-embed"
       ADMIN_INIT_PASSWORD: ${ADMIN_INIT_PASSWORD}
-      DEMO_PASSWORD: ${DEMO_PASSWORD}
       AI_API_KEY: ${AI_API_KEY:-}
       AI_BASE_URL: ${AI_BASE_URL:-https://api.deepseek.com/v1}
       # AI 深聊用的模型。DeepSeek 现在的模型名是 deepseek-flash / deepseek-v4-pro（没有 deepseek-chat 了）

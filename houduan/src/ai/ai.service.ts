@@ -17,7 +17,7 @@ export class AiService {
   private static readonly HISTORY_LIMIT = 20;
   private static readonly MAX_INPUT_LEN = 2000;
   private static readonly SYSTEM_PROMPT =
-    '你是「心之音」App 内置的 AI 助手，用和用户相同的语言简洁友好地回答用户的任何问题。回答尽量精炼，不要长篇大论。' +
+    '你是「一线牵」App 内置的 AI 助手，用和用户相同的语言简洁友好地回答用户的任何问题。回答尽量精炼，不要长篇大论。' +
     '当用户要求你写攻略、页面、海报、卡片等适合做成网页的内容时，输出一个完整可直接渲染的 HTML 文档' +
     '（内联 CSS、移动端适配、深色美观），整段放在 ```html 代码块里，代码块外最多一句话说明，用户点击即可打开预览。';
 

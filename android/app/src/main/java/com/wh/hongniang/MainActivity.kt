@@ -346,7 +346,7 @@ fun AppRoot() {
                     onSession = ::restart,
                 )
             }
-            // 小游戏 / 第三方 H5 全屏容器（大厅 H5 经 JS 桥 openWeb 唤起）；landscape=true 该页横屏
+            // 全屏网页容器（活动页、小游戏；大厅页经 JS 桥 openWeb 唤起，只开我们自己的网页）；landscape=true 该页横屏
             page(
                 "web?url={url}&title={title}&landscape={landscape}",
                 listOf(

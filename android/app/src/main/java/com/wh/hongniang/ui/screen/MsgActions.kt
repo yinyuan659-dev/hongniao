@@ -429,7 +429,7 @@ suspend fun saveMediaToGallery(ctx: Context, url: String, type: String) {
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, "${type}_${System.currentTimeMillis()}.$ext")
                 put(MediaStore.MediaColumns.MIME_TYPE, if (isVideo) "video/$ext" else if (ext == "png") "image/png" else if (ext == "gif") "image/gif" else "image/jpeg")
-                put(MediaStore.MediaColumns.RELATIVE_PATH, if (isVideo) "Movies/心之音" else "Pictures/心之音")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, if (isVideo) "Movies/一线牵" else "Pictures/一线牵")
             }
             val coll = if (isVideo) MediaStore.Video.Media.EXTERNAL_CONTENT_URI else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
             val uri = ctx.contentResolver.insert(coll, values)!!

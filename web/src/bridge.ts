@@ -68,9 +68,29 @@ export function inNativeApp(): boolean {
 
 export type WebOrientation = 'portrait' | 'landscape';
 
+/** 我们自己的域名（含它的子域名）。安卓 `Api.kt`、iOS `Api.swift` 里也有同一个，要改三处一起改 */
+const OWN_DOMAIN = 'gphnai.com';
+
 /**
- * 唤起原生全屏网页容器打开 url（小游戏等第三方 H5）：独立于大厅 WebView，
- * 带标题栏/关闭，游戏内导航不影响大厅页；orientation 指定该页屏幕方向（横屏游戏旋转屏幕）。成功返回 true。
+ * 这个网址是不是我们自己的网页：http(s)，并且和当前页面同一个主机名，或者是 OWN_DOMAIN / 它的子域名。
+ * 大厅里的活动、小游戏入口只允许是自己的网页（地址是后台配的）：App 里能出现什么内容以送审的那一版为准，
+ * 不靠改后台配置让 App 打开别人的网页。原生那边（App 里真正拦的地方）也有同样的检查。
+ */
+export function isOwnWebUrl(url: string): boolean {
+  // 空地址按「当前页面」解析会被当成自己的，先排除
+  if (!url || !url.trim()) return false;
+  try {
+    const u = new URL(url.trim(), location.href);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+    return u.hostname === location.hostname || u.hostname === OWN_DOMAIN || u.hostname.endsWith('.' + OWN_DOMAIN);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 唤起原生全屏网页容器打开 url（活动页、小游戏；原生只开我们自己的网页）：独立于大厅 WebView，
+ * 带标题栏/关闭，页面内导航不影响大厅页；orientation 指定该页屏幕方向（横屏游戏旋转屏幕）。成功返回 true。
  */
 export function openNativeWeb(url: string, title: string, orientation: WebOrientation = 'portrait'): boolean {
   const payload = { type: 'openWeb', url, title, orientation };

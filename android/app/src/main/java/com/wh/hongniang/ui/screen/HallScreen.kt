@@ -17,9 +17,12 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 /**
- * 大厅：App 内嵌 H5（WebView），业务模块在网页端热更、无需发版。
- * 地址后台可配（GET /modules/hall，env HALL_H5_URL），默认加载 Web 端的 /site/#/hall-embed，
+ * 大厅：App 内嵌的网页（WebView）。
+ * 地址由后台给（GET /modules/hall，env HALL_H5_URL），没给就加载 Web 端的 /site/#/hall-embed，
  * URL 携带 token 免登录（用 App 的身份），页面内自行导航，其它 tab 保持原生。
+ *
+ * 只打开我们自己的网页（[Api.isOwnWebUrl]）：后台给的地址不是自己的就不用它；
+ * 大厅页里点出去的链接、让 App 全屏打开的网页也一样，不是自己的一律不开。
  */
 @Composable
 fun HallScreen(
@@ -38,7 +41,13 @@ fun HallScreen(
         val cfg = runCatching {
             Api.request("/modules/hall")!!.jsonObject["url"]?.jsonPrimitive?.contentOrNull
         }.onFailure { GameLog.w("hall: GET /modules/hall failed: $it") }.getOrNull()
-        val base = if (cfg.isNullOrEmpty()) "${Api.BASE_URL}/site/#/hall-embed" else cfg
+        val fallback = "${Api.BASE_URL}/site/#/hall-embed"
+        // 地址后面要拼登录令牌，所以后台给的地址必须是我们自己的网页，否则当作没配
+        val base = when {
+            cfg.isNullOrEmpty() -> fallback
+            Api.isOwnWebUrl(cfg) -> cfg
+            else -> fallback.also { GameLog.w("hall: configured url is not our own site, ignored") }
+        }
         val sep = if (base.contains("?")) "&" else "?"
         // lang：大厅网页跟 App 当前语言走（不带时网页按系统语言）
         url = withIndexCacheBuster("$base${sep}token=${Api.token ?: ""}&embed=1&lang=${com.wh.hongniang.i18n.I18n.lang}")
@@ -98,7 +107,7 @@ fun HallScreen(
                     settings.domStorageEnabled = true
                     // 与页面底色一致（浅色主题），避免加载时闪一下别的颜色
                     setBackgroundColor(Bg.toArgb())
-                    webViewClient = GameLog.webViewClient("hall") { canGoBack = it }
+                    webViewClient = GameLog.webViewClient("hall", ownSiteOnly = true) { canGoBack = it }
                     // H5 的 console.log / JS 报错转到 logcat（tag=YGameXd），排查黑屏/点击无反应
                     webChromeClient = GameLog.chromeClient("hall")
                     // JS 桥（window.PeiwanNative）：H5 聊天入口唤起原生聊天页 / 小游戏唤起原生全屏网页
@@ -168,12 +177,15 @@ private class HallJsBridge(
         }
     }
 
-    /** 小游戏等第三方 H5：独立原生 WebView 全屏打开，不污染大厅页；orientation=landscape 时该页旋转为横屏 */
+    /**
+     * 全屏打开一个网页（活动页、小游戏）：用独立的原生 WebView，不影响大厅页；orientation=landscape 时该页旋转为横屏。
+     * 只开我们自己的网页（[Api.isOwnWebUrl]），别的地址不开。
+     */
     @android.webkit.JavascriptInterface
     fun openWeb(url: String, title: String, orientation: String?) {
-        GameLog.d("bridge.openWeb url=$url title=$title orientation=$orientation")
-        if (!url.startsWith("http://") && !url.startsWith("https://")) {
-            GameLog.w("bridge.openWeb rejected: url must be http(s)")
+        GameLog.d("bridge.openWeb url=${url.substringBefore("token=")} title=$title orientation=$orientation")
+        if (!Api.isOwnWebUrl(url)) {
+            GameLog.w("bridge.openWeb rejected: not our own site")
             return
         }
         val landscape = orientation == "landscape"
@@ -217,8 +229,17 @@ object GameLog {
     /**
      * 页面加载 / 错误 / 渲染进程崩溃日志；
      * onCanGoBack：历史变化（含 hash 路由跳转）时回调网页能否后退，供系统返回键接管
+     * ownSiteOnly：整页跳转只允许去我们自己的网页（[Api.isOwnWebUrl]），别的地址拦下不开。大厅页用；
+     *   实人认证那个网页容器不能开这个，刷脸要跳到阿里云的页面。
      */
-    fun webViewClient(scope: String, onCanGoBack: ((Boolean) -> Unit)? = null) = object : android.webkit.WebViewClient() {
+    fun webViewClient(scope: String, ownSiteOnly: Boolean = false, onCanGoBack: ((Boolean) -> Unit)? = null) = object : android.webkit.WebViewClient() {
+        override fun shouldOverrideUrlLoading(view: android.webkit.WebView, request: android.webkit.WebResourceRequest): Boolean {
+            if (!ownSiteOnly || !request.isForMainFrame) return false
+            if (Api.isOwnWebUrl(request.url?.toString())) return false
+            w("$scope: blocked navigation to a page that is not our own site: ${request.url?.scheme}://${request.url?.host}")
+            return true
+        }
+
         override fun onPageStarted(view: android.webkit.WebView, url: String?, favicon: android.graphics.Bitmap?) {
             d("$scope: page started ${url?.substringBefore("token=")}")
         }

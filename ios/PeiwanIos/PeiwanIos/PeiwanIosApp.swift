@@ -120,8 +120,6 @@ struct PeiwanIosApp: App {
 enum AppStage {
     case boot
     case register
-    /// 审核模式（后台开关 review_mode_ios）：账号密码登录页
-    case login
     case main
 }
 
@@ -131,8 +129,6 @@ enum AppStage {
 final class AppState: ObservableObject {
     @Published var stage: AppStage = .boot
     @Published var user: UserProfile?
-    /// 审核模式（后台开关）：隐藏「我的邀请名片」等带外部网页的入口
-    @Published var reviewMode = false
     /// 注册完直接弹出 AI 红娘资料收集（RootView 监听）
     @Published var openInterview = false
 }
@@ -155,7 +151,6 @@ struct RootView: View {
             switch state.stage {
             case .boot: BootView()
             case .register: RegisterView()
-            case .login: LoginView()
             // 换语言后整棵主界面重建，所有 t() 文字一起换
             case .main: MainTabView().id(i18n.choice)
             }

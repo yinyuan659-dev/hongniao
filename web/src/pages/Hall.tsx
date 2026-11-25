@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, getToken, UserProfile } from '../api';
-import { inNativeApp, openNativeWeb, WebOrientation } from '../bridge';
+import { inNativeApp, isOwnWebUrl, openNativeWeb, WebOrientation } from '../bridge';
 import { useApp } from '../store';
 import { PullToRefresh } from '../components/PullToRefresh';
 import { t } from '../i18n';
@@ -27,7 +27,7 @@ const COVERS = [
   'linear-gradient(120deg, #241436 0%, #4a2580 60%, #7a3fd1 100%)',
 ];
 
-/** 游戏链接占位符：{token} 登录态、{uid} 用户 ID（后台配置时选填，仅自有游戏用） */
+/** 游戏链接占位符：{token} 登录态、{uid} 用户 ID（后台配置时选填；入口只能是我们自己的网页，令牌不会发给别的网站） */
 function fillEntry(entry: string, uid: string): string {
   return entry
     .replace(/\{token\}/g, encodeURIComponent(getToken() ?? ''))
@@ -36,12 +36,16 @@ function fillEntry(entry: string, uid: string): string {
 
 /**
  * 打开小游戏：App 内走原生全屏 WebView（独立于大厅页，带标题栏/关闭）；
- * 浏览器新标签打开；被拦截则当前页跳转。
+ * 浏览器新标签打开；被拦截则当前页跳转。只开我们自己的网页。
  */
 function openGameUrl(url: string, title: string, orientation: WebOrientation) {
   const w = window as any;
+  if (!isOwnWebUrl(url)) {
+    console.warn('[Game] refused: not our own site');
+    return;
+  }
   console.log(
-    `[Game] open url=${url} title=${title} orientation=${orientation} ` +
+    `[Game] open url=${url.split('token=')[0]} title=${title} orientation=${orientation} ` +
       `bridge: wk=${!!w.webkit?.messageHandlers?.peiwan} droid=${!!w.PeiwanNative} droid.openWeb=${typeof w.PeiwanNative?.openWeb}`,
   );
   if (openNativeWeb(url, title, orientation)) {
@@ -72,7 +76,10 @@ export function HallPage() {
           `[Game] /modules ok: ${list.length} items, games=${list.filter((p) => p.type === 'game').length} ` +
             list.map((p) => `${p.type}:${p.name}${p.type === 'game' ? `(${p.orientation ?? 'portrait'})` : ''}`).join(', '),
         );
-        setProjects(list);
+        // 入口不是我们自己网页的不显示（App 里点了也打不开，原生会拦）
+        const own = list.filter((p) => (p.type !== 'h5' && p.type !== 'game') || isOwnWebUrl(p.entry));
+        if (own.length !== list.length) console.warn(`[Game] ${list.length - own.length} item(s) hidden: entry is not our own site`);
+        setProjects(own);
       })
       .catch((e) => console.error('[Game] /modules failed', e?.message ?? e))
       .finally(() => setLoaded(true));
@@ -93,7 +100,7 @@ export function HallPage() {
   const games = projects.filter((p) => p.type === 'game');
 
   const openBanner = (p: ProjectItem) => {
-    if (p.type === 'h5') location.href = p.entry;
+    if (p.type === 'h5' && isOwnWebUrl(p.entry)) location.href = p.entry;
   };
 
   const openGame = (g: ProjectItem) => {

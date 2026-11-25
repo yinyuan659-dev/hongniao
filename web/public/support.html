@@ -3,15 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>HeartChat Support</title>
+<title>Yixianqian Support</title>
 <style>
   * { box-sizing: border-box }
   body { margin: 0; font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: #f6f6f8; color: #1c1c1e; line-height: 1.65 }
   .wrap { max-width: 720px; margin: 0 auto; padding: 32px 20px 56px }
-  header { display: flex; align-items: center; gap: 14px }
-  .logo { width: 52px; height: 52px; border-radius: 15px; background: linear-gradient(145deg, #ff5a7e, #fe2c55 45%, #c3123b); color: #fff; font-size: 30px; font-weight: 800; display: flex; align-items: center; justify-content: center }
-  h1 { font-size: 26px; margin: 0; flex: 1 }
-  .switch { border: 1px solid #d8d8de; background: #fff; border-radius: 20px; padding: 6px 14px; font-size: 14px; cursor: pointer }
+  header { display: flex; align-items: center; gap: 12px }
+  .logo { width: 48px; height: 48px; flex-shrink: 0; display: block }
+  h1 { font-size: 20px; margin: 0; flex: 1 }
+  .switch { border: 1px solid #d8d8de; background: #fff; border-radius: 20px; padding: 6px 14px; font-size: 14px; cursor: pointer; flex-shrink: 0 }
   .card { background: #fff; border-radius: 16px; padding: 20px 22px; margin-top: 18px; box-shadow: 0 1px 3px rgba(0,0,0,.05) }
   h2 { font-size: 18px; margin: 0 0 10px }
   h3 { font-size: 16px; margin: 16px 0 4px }
@@ -27,8 +27,8 @@
 <body class="en">
 <div class="wrap">
   <header>
-    <div class="logo">心</div>
-    <h1><span data-l="en">HeartChat Support</span><span data-l="zh">心之音 · 技术支持</span></h1>
+    <img class="logo" src="/favicon.png" alt="">
+    <h1><span data-l="en">Yixianqian Support</span><span data-l="zh">一线牵 · 技术支持</span></h1>
     <button class="switch" id="sw" type="button"></button>
   </header>
 
@@ -45,8 +45,8 @@
     <p data-l="en">Open the app and fill in a nickname, age and gender. Your account is linked to your device, so no password is needed. You must be 18 or older.</p>
     <p data-l="zh">打开 App，填写昵称、年龄和性别即可。账号与设备绑定，不需要密码。仅限年满 18 周岁的用户使用。</p>
     <h3><span data-l="en">How do I log in again?</span><span data-l="zh">怎么重新登录？</span></h3>
-    <p data-l="en">Open the app on the same device and you are signed in automatically. If you changed devices, contact us.</p>
-    <p data-l="zh">在同一台设备上打开 App 会自动登录。如果换了设备，请联系我们。</p>
+    <p data-l="en">Open the app on the same device and you are signed in automatically. If you changed devices and have completed identity verification, tap "Recover with face scan" on the sign-up page. Otherwise, contact us.</p>
+    <p data-l="zh">在同一台设备上打开 App 会自动登录。如果换了设备，做过真人认证的可以在注册页点「刷脸找回」回到原来的账号；没做过的请联系我们。</p>
     <h3><span data-l="en">How do I report content or a user?</span><span data-l="zh">怎么举报内容或用户？</span></h3>
     <p data-l="en">Long-press the message or post and choose "Report", or contact us with the details.</p>
     <p data-l="zh">长按消息或动态，选择「举报」；也可以把情况发给我们。</p>
@@ -61,7 +61,7 @@
     <p><a id="terms" href="/terms.html"><span data-l="en">User Agreement</span><span data-l="zh">用户协议</span></a></p>
   </div>
 
-  <footer>© 2026 HeartChat</footer>
+  <footer>© 2026 Yixianqian</footer>
 </div>
 <script>
   // ?lang=en / ?lang=zh first, else the browser language (Chinese → 中文, anything else → English)
@@ -71,7 +71,7 @@
     lang = l;
     document.body.className = l;
     document.documentElement.lang = l === "zh" ? "zh-CN" : "en";
-    document.title = l === "zh" ? "心之音 · 技术支持" : "HeartChat Support";
+    document.title = l === "zh" ? "一线牵 · 技术支持" : "Yixianqian Support";
     document.getElementById("sw").textContent = l === "zh" ? "English" : "中文";
     document.getElementById("privacy").href = "/privacy.html?lang=" + l;
     document.getElementById("terms").href = "/terms.html?lang=" + l;

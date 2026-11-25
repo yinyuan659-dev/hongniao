@@ -3,9 +3,12 @@ import SwiftUI
 import WebKit
 
 /**
- * 大厅：App 内嵌 H5（WebView），业务模块在网页端热更、无需发版。
- * 地址后台可配（GET /modules/hall，env HALL_H5_URL），默认加载 Web 端的 /site/#/hall-embed，
+ * 大厅：App 内嵌的网页（WebView）。
+ * 地址由后台给（GET /modules/hall，env HALL_H5_URL），没给就加载 Web 端的 /site/#/hall-embed，
  * URL 携带 token 免登录（用 App 的身份），页面内自行导航，其它 tab 保持原生。
+ *
+ * 只打开我们自己的网页（`Api.isOwnWebUrl`）：后台给的地址不是自己的就不用它；
+ * 大厅页里点出去的链接、让 App 全屏打开的网页也一样，不是自己的一律不开。
  */
 struct HallView: View {
     @State private var hallUrl: URL?
@@ -35,7 +38,7 @@ struct HallView: View {
         .fullScreenCover(item: $mediaTarget) { t in
             MediaViewerView(groups: t.groups, initialGroup: t.group, initialIndex: t.index) { mediaTarget = nil }
         }
-        // 小游戏等第三方 H5：独立原生 WebView 全屏打开，不污染大厅页
+        // 活动页、小游戏：独立原生 WebView 全屏打开，不影响大厅页（只开我们自己的网页，见 openWeb）
         .fullScreenCover(item: $webTarget) { t in
             GameWebSheet(url: t.url, title: t.title, landscape: t.landscape)
         }
@@ -47,6 +50,11 @@ struct HallView: View {
             struct HallCfg: Codable { var url: String? = "" }
             let cfg: HallCfg? = try? await Api.request("/modules/hall")
             var base = cfg?.url ?? ""
+            // 地址后面要拼登录令牌，所以后台给的地址必须是我们自己的网页，否则当作没配
+            if !base.isEmpty, !Api.isOwnWebUrl(URL(string: base)) {
+                GameLog.log("hall: configured url is not our own site, ignored")
+                base = ""
+            }
             if base.isEmpty { base = "\(Api.baseURL)/site/#/hall-embed" }
             let sep = base.contains("?") ? "&" : "?"
             // lang：大厅网页跟 App 当前语言走（不带时网页按系统语言）
@@ -113,10 +121,22 @@ enum GameLog {
     }
 }
 
-/// 页面加载 / 失败 / 进程崩溃日志（大厅与游戏页共用）
+/// 页面加载 / 失败 / 进程崩溃日志（大厅页用）。整页跳转只允许去我们自己的网页，别的地址拦下不开。
 final class WebNavLogger: NSObject, WKNavigationDelegate {
     let scope: String
     init(scope: String) { self.scope = scope }
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        // 只管整页跳转（targetFrame 为空是 window.open / target=_blank，也算）；页面里嵌的小框（iframe）不管
+        let mainFrame = navigationAction.targetFrame?.isMainFrame ?? true
+        let scheme = navigationAction.request.url?.scheme?.lowercased() ?? ""
+        if mainFrame, scheme == "http" || scheme == "https", !Api.isOwnWebUrl(navigationAction.request.url) {
+            GameLog.log("\(scope): blocked navigation to a page that is not our own site: \(scheme)://\(navigationAction.request.url?.host ?? "")")
+            decisionHandler(.cancel)
+            return
+        }
+        decisionHandler(.allow)
+    }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         GameLog.log("\(scope): page started \(webView.url?.absoluteString.components(separatedBy: "token=").first ?? "")")
@@ -217,11 +237,12 @@ private struct HallWebView: UIViewRepresentable {
                     onOpenChat(ChatTarget(convId: convId, convType: convType, targetId: targetId, title: title))
                 }
             case "openWeb":
+                // 只开我们自己的网页（Api.isOwnWebUrl），别的地址不开
                 guard let raw = body["url"] as? String,
                       let url = URL(string: raw),
-                      let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https"
+                      Api.isOwnWebUrl(url)
                 else {
-                    GameLog.log("hall: openWeb rejected, url invalid or not http(s): \(String(describing: body["url"]))")
+                    GameLog.log("hall: openWeb rejected, url invalid or not our own site")
                     return
                 }
                 let title = body["title"] as? String ?? ""
@@ -256,7 +277,8 @@ private struct HallWebView: UIViewRepresentable {
 }
 
 /**
- * 小游戏 / 第三方 H5 全屏容器：独立于大厅 WebView，游戏内跳转不影响大厅页。
+ * 全屏网页容器（活动页、小游戏）：独立于大厅 WebView，页面内跳转不影响大厅页。
+ * - 只开我们自己的网页（`Api.isOwnWebUrl`）：进来的地址在 openWeb 那里查过，页面里整页跳去别的网站这里拦下
  * - landscape=true：仅本页旋转为横屏（App 其余页面锁竖屏，见 OrientationLock），无顶栏、隐藏状态栏，左上角浮动返回键
  * - 竖屏顶栏：返回（优先网页后退）、标题（跟随网页 title）、关闭
  * - WKWebView 按游戏场景配置：内联播放、媒体免手势自动播放、侧滑后退、弹窗（alert/confirm）转原生
@@ -450,7 +472,16 @@ private struct GameWebView: UIViewRepresentable {
             guard let u = navigationAction.request.url, let scheme = u.scheme?.lowercased() else {
                 decisionHandler(.allow); return
             }
-            if scheme == "http" || scheme == "https" || scheme == "about" || scheme == "blob" || scheme == "data" {
+            if scheme == "http" || scheme == "https" {
+                // 整页跳转只允许留在我们自己的网页里；页面里嵌的小框（iframe）不管
+                let mainFrame = navigationAction.targetFrame?.isMainFrame ?? true
+                if mainFrame, !Api.isOwnWebUrl(u) {
+                    GameLog.log("game: blocked navigation to a page that is not our own site: \(scheme)://\(u.host ?? "")")
+                    decisionHandler(.cancel)
+                } else {
+                    decisionHandler(.allow)
+                }
+            } else if scheme == "about" || scheme == "blob" || scheme == "data" {
                 decisionHandler(.allow)
             } else {
                 GameLog.log("game: external scheme \(u.absoluteString)")
@@ -459,9 +490,9 @@ private struct GameWebView: UIViewRepresentable {
             }
         }
 
-        // 游戏里 window.open / target=_blank：在当前 WebView 内打开
+        // 页面里 window.open / target=_blank：在当前 WebView 内打开（同样只开我们自己的网页）
         func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-            if navigationAction.targetFrame == nil, let u = navigationAction.request.url {
+            if navigationAction.targetFrame == nil, let u = navigationAction.request.url, Api.isOwnWebUrl(u) {
                 webView.load(URLRequest(url: u))
             }
             return nil

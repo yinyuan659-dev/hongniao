@@ -155,10 +155,8 @@ struct MeView: View {
                 webRow("登录设备", value: deviceCount.map { "\($0) 台" }, route: "/devices")
             }
             // 专属邀请网页（链接 + 二维码）：女生发给男生 / 男生发给女生，下载后自动归因到我
-            if !state.reviewMode {
-                meGroup(t("me.group.tools")) {
-                    menuRow(t("me.inviteCard"), .inviteCard, first: true)
-                }
+            meGroup(t("me.group.tools")) {
+                menuRow(t("me.inviteCard"), .inviteCard, first: true)
             }
             meGroup(t("me.group.settings")) {
                 // 编辑资料 = 进 AI 红娘的资料收集；头像 / 昵称 / 照片墙单独一行

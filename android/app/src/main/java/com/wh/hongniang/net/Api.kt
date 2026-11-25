@@ -10,6 +10,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
@@ -135,6 +136,24 @@ private class UriRequestBody(private val ctx: Context, private val uri: android.
 object Api {
     // 测试环境（阿里云杭州）。域名备案前只能用 IP + HTTP；备案后换成 https://域名，正式包不能留这个地址。
     const val BASE_URL = "http://120.55.59.158"
+
+    /** 我们自己的域名（含它的子域名） */
+    private const val OWN_DOMAIN = "gphnai.com"
+
+    /**
+     * 这个网址是不是我们自己的网页：http(s)，并且主机名和 [BASE_URL] 相同，或者是 [OWN_DOMAIN] / 它的子域名。
+     *
+     * 大厅页、以及大厅页让 App 全屏打开的网页，只允许是自己的网页（这两处的地址都是服务器给的）：
+     * App 里能出现什么内容，要以送审的这一版为准，不能靠改服务器配置让 App 打开别人的网页；
+     * 另外大厅页的地址上带着登录令牌，不能发给别的网站。
+     * 以后要接别家的活动页，需要改这里、发新版本。
+     */
+    fun isOwnWebUrl(url: String?): Boolean {
+        // 用 OkHttp 解析（和浏览器的规则一致）；不要自己切字符串，`http://gphnai.com@别的网站/` 这种写法会骗过去
+        val host = url?.trim()?.toHttpUrlOrNull()?.host ?: return false
+        val own = BASE_URL.toHttpUrlOrNull()?.host
+        return host == own || host == OWN_DOMAIN || host.endsWith(".$OWN_DOMAIN")
+    }
 
     val json = Json { ignoreUnknownKeys = true }
     private val client = OkHttpClient.Builder()

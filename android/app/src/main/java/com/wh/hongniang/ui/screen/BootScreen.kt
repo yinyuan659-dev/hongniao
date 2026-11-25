@@ -135,7 +135,7 @@ private fun SplashContent() {
                     Text(com.wh.hongniang.i18n.t("boot.slogan2"), color = TextSub, fontSize = 16.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 }
             } else
-            // 右起竖读：右列第一句，左列第二句略下沉，左列底下一枚「心」印
+            // 右起竖读：右列第一句，左列第二句略下沉，左列底下一枚「牵」印
             Row(verticalAlignment = Alignment.Top) {
                 Column(Modifier.padding(top = 56.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     VerticalChars("与内心相连", shown, startIndex = 7, size = 17.sp, color = TextSub, weight = FontWeight.Normal)
@@ -144,7 +144,7 @@ private fun SplashContent() {
                     Box(
                         Modifier.alpha(sealA).size(22.dp).clip(RoundedCornerShape(5.dp)).background(Accent),
                         contentAlignment = Alignment.Center,
-                    ) { Text("心", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                    ) { Text("牵", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                 }
                 Spacer(Modifier.width(26.dp))
                 // 浅色主题：主句用正文色（原来写死白色，白底上看不见）

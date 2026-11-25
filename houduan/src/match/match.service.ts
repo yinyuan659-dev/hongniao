@@ -160,8 +160,6 @@ export class MatchService {
       where: {
         gender: me.user.gender === 1 ? 2 : 1, status: 0, hidden: false,
         id: { notIn: [me.id, ...exclude] },
-        // iOS 审核用的演示账号不参加推荐
-        NOT: { deviceId: { startsWith: 'demo_' } },
       },
       orderBy: { id: 'desc' },
       take: POOL,

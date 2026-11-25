@@ -8,11 +8,9 @@ struct BootView: View {
         SplashContent()
             .task {
                 let minShow = Task { try? await Task.sleep(nanoseconds: 1_600_000_000) }
-                struct ReviewMode: Codable { var ios: Bool? }
-                async let reviewReq: ReviewMode? = try? await Api.request("/app/review-mode")
+                // 这里原来有一个「审核模式」开关（服务器打开后显示演示账号登录页）。2026-11-25 删掉了：
+                // 审核员和普通用户走完全一样的流程，App 里不能有任何由服务器控制、只在审核时生效的开关。
                 let resp: EnterResp? = try? await Api.request("/auth/enter", method: "POST", body: ["deviceId": Api.deviceId])
-                let reviewMode = (await reviewReq)?.ios ?? false
-                state.reviewMode = reviewMode
                 _ = await minShow.value
                 if let resp, resp.registered, let token = resp.token, let user = resp.user {
                     Api.token = token
@@ -21,13 +19,9 @@ struct BootView: View {
                     if let d = resp.newDevices?.first { DeviceCenter.shared.alert = d }
                     state.user = user
                     state.stage = .main
-                } else if Api.token != nil, let me: UserProfile = try? await Api.request("/user/me") {
-                    // 演示账号不绑定设备：上次账号密码登录留下的 token 仍有效就直接进
-                    state.user = me
-                    state.stage = .main
                 } else {
-                    // 审核模式：显示账号密码登录页；否则一机一号注册
-                    state.stage = reviewMode ? .login : .register
+                    // 这台设备服务器不认识（新设备、被移除了）：去注册页，那里可以注册，也可以刷脸找回
+                    state.stage = .register
                 }
             }
     }
@@ -95,11 +89,11 @@ private struct SplashContent: View {
                     .opacity(shown ? 1 : 0)
                     .animation(.easeOut(duration: 0.9).delay(0.2), value: shown)
                 } else {
-                // 右起竖读：右列第一句，左列第二句略下沉，左列底下一枚「心」印
+                // 右起竖读：右列第一句，左列第二句略下沉，左列底下一枚「牵」印
                 HStack(alignment: .top, spacing: 26) {
                     VStack(spacing: 14) {
                         VerticalChars(text: "与内心相连", shown: shown, startIndex: 7, size: 17, color: Theme.textSub, weight: .regular)
-                        Text("心")
+                        Text("牵")
                             .font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
                             .frame(width: 22, height: 22)
                             .background(RoundedRectangle(cornerRadius: 5).fill(Theme.accent))
