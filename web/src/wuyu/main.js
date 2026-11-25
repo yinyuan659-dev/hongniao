@@ -59,7 +59,10 @@ const clockTime = () => { const h = new Date().getHours() + new Date().getMinute
 const rollWeather = (S) => { const w = S.weather, x = Math.random() * (w[0] + w[1] + w[2]); return x < w[0] ? 'clear' : x < w[0] + w[1] ? 'rain' : 'snow'; };
 let CITY = CITIES.find((c) => c.id === (Q.get('city') || localStorage.getItem('wuyu_city'))) || CITIES[0];
 let SC = SCENES.find((s) => s.id === CITY.scene) || SCENES[0];
-let timeKey = clockTime(), weatherKey = rollWeather(SC), weatherAt = 0;
+// 右上角可以自己选：天气（自动 / 晴 / 雨 / 雪）、时间（自动 / 白天 / 黄昏 / 夜晚）。选过的记在本机，下次进来还是它
+const stored = (k, ok) => { try { const v = localStorage.getItem(k); return ok.includes(v) ? v : 'auto'; } catch { return 'auto'; } };
+let pickT = stored('wuyu_time', ['day', 'dusk', 'night']), pickW = stored('wuyu_weather', ['clear', 'rain', 'snow']);
+let timeKey = pickT === 'auto' ? clockTime() : pickT, weatherKey = pickW === 'auto' ? rollWeather(SC) : pickW, weatherAt = 0;
 const mix3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 const mul3 = (a, k) => [a[0] * k, a[1] * k, a[2] * k];
 
@@ -400,7 +403,7 @@ function loadCity(city) {
   U.uRoad.value.set(R.hw, R.zS, R.zN, 1); U.uRoadA.value.fromArray(rgb(SC.roadA)); U.uRoadB.value.fromArray(rgb(SC.roadB)); U.uEnd.value.set(R.endX, R.endZ, R.endR);
   player.x = 0; player.z = START_Z; player.dir = 1; player.target = null;
   cam.x = player.x; cam.z = player.z;
-  timeKey = clockTime(); weatherKey = rollWeather(SC); weatherAt = performance.now() + (240 + Math.random() * 240) * 1000;
+  timeKey = pickT === 'auto' ? clockTime() : pickT; weatherKey = pickW === 'auto' ? rollWeather(SC) : pickW; weatherAt = performance.now() + (240 + Math.random() * 240) * 1000;
   env = makeEnv(timeKey, weatherKey);
   document.getElementById('hud-name').textContent = cityName(city);
   document.getElementById('hud-count').textContent = T('people', { n: NPCS.length });
@@ -460,9 +463,9 @@ const hintEl = document.getElementById('hint');
 hintEl.textContent = T('hint');
 setTimeout(() => hintEl.classList.add('off'), 6000);
 root.addEventListener('pointerdown', (e) => {
-  if (e.target.closest('#hud,#menu')) return;
+  if (e.target.closest('#hud,#menu,#wmenu')) return;
   input.down = true; input.sx = e.clientX; input.sy = e.clientY; input.joy = false; input.id = e.pointerId;
-  hintEl.classList.add('off'); menu.classList.remove('on');
+  hintEl.classList.add('off');
   // 手机上要点过屏幕才允许出声：第一次点的时候把声音打开，公鸡过几秒叫第一回
   if (VIEWER_MALE) { unlockAudio(); if (crowAt === Infinity) crowAt = performance.now() + 5000 + Math.random() * 4000; }
 });
@@ -523,8 +526,8 @@ function frame(dt, time, now) {
   // 时间跟着钟走；天气隔几分钟换一次。都是慢慢变过去的
   if (now > envAt) {
     envAt = now + 10000;
-    const tk = clockTime(); let changed = tk !== timeKey; timeKey = tk;
-    if (now > weatherAt) { weatherAt = now + (240 + Math.random() * 240) * 1000; const wk = rollWeather(SC); changed = changed || wk !== weatherKey; weatherKey = wk; }
+    const tk = pickT === 'auto' ? clockTime() : pickT; let changed = tk !== timeKey; timeKey = tk;
+    if (pickW === 'auto' && now > weatherAt) { weatherAt = now + (240 + Math.random() * 240) * 1000; const wk = rollWeather(SC); changed = changed || wk !== weatherKey; weatherKey = wk; }
     if (changed) syncUI();
   }
   stepEnv(1 - Math.exp(-dt * 0.8));
@@ -628,10 +631,35 @@ for (const c of CITIES) {
   it.appendChild(document.createElement('span')).textContent = T('people', { n: Math.min(c.count, MAX_PEOPLE) });
   menu.appendChild(it);
 }
-document.getElementById('hud-place').addEventListener('click', () => menu.classList.toggle('on'));
+document.getElementById('hud-place').addEventListener('click', () => { wmenu.classList.remove('on'); menu.classList.toggle('on'); });
 menu.addEventListener('click', (e) => { const it = e.target.closest('.it'); if (!it) return; menu.classList.remove('on'); const c = CITIES.find((x) => x.id === it.dataset.id); if (c && c !== CITY) loadCity(c); });
+
+// ---------- 右上角：选天气、选时间 ----------
+const wmenu = document.getElementById('wmenu');
+for (const [kind, label, opts] of [['w', T('weather'), ['auto', 'clear', 'rain', 'snow']], ['t', T('time'), ['auto', 'day', 'dusk', 'night']]]) {
+  const row = document.createElement('div'); row.className = 'row';
+  row.appendChild(document.createElement('em')).textContent = label;
+  for (const o of opts) { const b = document.createElement('span'); b.dataset.kind = kind; b.dataset.v = o; b.textContent = T(o); row.appendChild(b); }
+  wmenu.appendChild(row);
+}
+document.getElementById('hud-env').addEventListener('click', () => { menu.classList.remove('on'); wmenu.classList.toggle('on'); });
+wmenu.addEventListener('click', (e) => {
+  const b = e.target.closest('span[data-v]'); if (!b) return;
+  const v = b.dataset.v;
+  if (b.dataset.kind === 'w') {
+    pickW = v; weatherKey = v === 'auto' ? rollWeather(SC) : v; weatherAt = performance.now() + (240 + Math.random() * 240) * 1000;
+    try { localStorage.setItem('wuyu_weather', v); } catch { /* 记不住就算了，这一次照样生效 */ }
+  } else {
+    pickT = v; timeKey = v === 'auto' ? clockTime() : v;
+    try { localStorage.setItem('wuyu_time', v); } catch { /* 同上 */ }
+  }
+  syncUI();                                       // 画面会在几秒钟里慢慢变过去（frame 里的 stepEnv）
+});
+// 点两个菜单以外的任何地方（包括点在气泡上）：把菜单收起来
+document.addEventListener('pointerdown', (e) => { if (!e.target.closest('#hud,#menu,#wmenu')) { menu.classList.remove('on'); wmenu.classList.remove('on'); } }, true);
 function syncUI() {
   menu.querySelectorAll('.it').forEach((b) => b.classList.toggle('on', b.dataset.id === CITY.id));
+  wmenu.querySelectorAll('span[data-v]').forEach((b) => b.classList.toggle('on', b.dataset.v === (b.dataset.kind === 'w' ? pickW : pickT)));
   document.getElementById('hud-w').textContent = T(timeKey) + ' · ' + T(weatherKey);
   document.getElementById('hud-ic').className = 'ic ' + (weatherKey === 'clear' ? (timeKey === 'night' ? 'moon' : 'sun') : weatherKey);
 }

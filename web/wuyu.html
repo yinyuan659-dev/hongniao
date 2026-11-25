@@ -55,6 +55,14 @@
   #menu .it span { margin-left: auto; padding-left: 10px; font-size: 11.5px; color: #8c7d83; }
   #menu .it.on { background: rgba(255, 61, 99, .09); }
   #menu .it.on b { color: #ff3d63; font-weight: 800; }
+  /* 右上角点开：选天气、选时间 */
+  #hud-env { pointer-events: auto; cursor: pointer; flex-shrink: 0; }
+  #wmenu { display: none; position: absolute; right: 10px; top: calc(46px + env(safe-area-inset-top, 0px)); max-width: calc(100% - 20px); padding: 10px 10px 4px; border-radius: 16px; background: rgba(255, 255, 255, .97); box-shadow: 0 10px 28px rgba(30, 12, 24, .35); z-index: 9700; }
+  #wmenu.on { display: block; }
+  #wmenu .row { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+  #wmenu .row em { font-style: normal; font-size: 12px; color: #8c7d83; margin-right: 2px; white-space: nowrap; }
+  #wmenu .row span { height: 32px; min-width: 46px; padding: 0 10px; border-radius: 16px; background: #f5f0f1; color: #2b1c22; font-size: 13px; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; cursor: pointer; }
+  #wmenu .row span.on { background: linear-gradient(135deg, #ff3d63, #ff8469); color: #fff; font-weight: 700; }
   .ic { width: 16px; height: 16px; position: relative; display: inline-block; flex-shrink: 0; }
   .ic.sun::before { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: #ff9f2e; box-shadow: 0 0 0 2px rgba(255, 159, 46, .3); }
   .ic.moon::before { content: ""; position: absolute; inset: 2px; border-radius: 50%; box-shadow: inset -4px -2px 0 0 #6b6fc8; }
@@ -78,9 +86,10 @@
   <div id="ov"></div>
   <div id="hud">
     <div class="chip" id="hud-place"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ff3d63" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></svg><span id="hud-name"></span><span id="hud-count"></span><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#8c7d83" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></div>
-    <div class="chip"><i id="hud-ic" class="ic sun"></i><span id="hud-w"></span></div>
+    <div class="chip" id="hud-env"><i id="hud-ic" class="ic sun"></i><span id="hud-w"></span><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#8c7d83" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></div>
   </div>
   <div id="menu"></div>
+  <div id="wmenu"></div>
   <div id="joy"><i></i></div>
   <div id="hint"></div>
   <div id="toast"></div>
