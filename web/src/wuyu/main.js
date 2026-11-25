@@ -16,7 +16,7 @@ const LANG = (Q.get('lang') || localStorage.getItem('pw_lang') || navigator.lang
 const T = makeT(LANG);
 document.title = T('title');
 document.documentElement.lang = LANG === 'en' ? 'en' : 'zh-CN';
-const PIX = 2;                                     // 一个像素块占几个屏幕点
+let PIX = 2;                                       // 一个像素块占几个屏幕点（手机带不动时会自动改成 3）
 
 // ---------- 镜头：固定朝北、斜着往下看，跟着玩家平移，不旋转。竖屏、横屏各一套参数（游戏按竖屏设计，横屏只是不至于坏掉） ----------
 const CAMS = {
@@ -359,7 +359,7 @@ function mesh(d, indexed) {
 }
 
 // ---------- 城市（一个城市一条道） ----------
-const MAX_PEOPLE = 600;                            // 一条道上最多站这么多人（多了头像层会卡，真实数据超过时要分批）
+const MAX_PEOPLE = 400;                            // 一条道上最多站这么多人（每边 2 排，400 人的路大约 260 米；真实数据超过时要分批）
 let world = null, terrainMesh = null, buildMesh = null, statics = null, NPCS = [];
 const chars = billboards(MAX_PEOPLE + 1, true);
 const ov = document.getElementById('ov');
@@ -374,9 +374,7 @@ const openCard = (n) => toast(T('demoCard'));
 const openChat = (n) => toast(T('demoChat'));
 bub.querySelector('.hi').addEventListener('click', (e) => { e.stopPropagation(); if (bubFor) openChat(bubFor); });
 for (const t of ['pointerdown', 'pointerup']) bub.addEventListener(t, (e) => e.stopPropagation());
-// 头像层只挂一个点击监听（几百个头像，不给每个都挂）
-ov.addEventListener('click', (e) => { const a = e.target.closest('.avw'); if (!a) return; e.stopPropagation(); const n = NPCS[+a.parentNode.dataset.i]; if (n) openCard(n); });
-for (const t of ['pointerdown', 'pointerup']) ov.addEventListener(t, (e) => { if (e.target.closest('.avw')) e.stopPropagation(); });
+// 头像自己不接点击（见下面的 hitAvatar）：手指点下去时由程序算点中了谁，这样叠在一起的头像也能点到想点的那个
 
 const START_Z = -9;                                // 进来时站的位置：往里走了几步，两边已经有人
 const player = { x: 0, z: START_Z, dir: 1, frame: 0, look: 0, anim: 0, target: null, moving: false };
@@ -391,12 +389,13 @@ function loadCity(city) {
   world = buildScene(SC, list.length);
   terrainMesh = mesh(world.terrain, true); buildMesh = mesh(world.build, false);
   statics = billboards(world.sprites.length, false);
-  world.sprites.forEach((s, i) => setBB(statics, i, s.s, s.x, heightAt(s.x, s.z, world.cz) + (s.dy || 0), s.z, s.k, s.flag));
+  world.sprites.forEach((s, i) => setBB(statics, i, s.s, s.x, heightAt(s.x, s.z, world.cz, world.flatR) + (s.dy || 0), s.z, s.k, s.flag));
   const r = rng(31 + list.length), frag = document.createDocumentFragment();
   NPCS = list.map((d, i) => {
     const p = world.people[i];
-    const n = { ...d, i, x: p.x, z: p.z, look: 1 + ((r() * NLOOK) | 0), shown: true, cls: '', size: 0, sx: 0, sy: 0, depth: 0 };
-    const el = document.createElement('div'); el.className = 'npc'; el.dataset.i = String(i);
+    const n = { ...d, i, x: p.x, z: p.z, look: 1 + ((r() * NLOOK) | 0), shown: false, cls: '', tf: '', size: 0, sx: 0, sy: 0, cy: 0, r: 0 };
+    const el = document.createElement('div'); el.className = 'npc'; el.style.display = 'none'; n.shown = false;
+    el.style.zIndex = String(6000 + Math.round(p.z * 10));   // 谁盖住谁只看前后位置：镜头不转，这个顺序永远不变，所以只定一次（每帧改它在手机上很卡）
     const avw = document.createElement('div'); avw.className = 'avw';
     const av = document.createElement('div'); av.className = 'av px'; av.style.backgroundImage = `url(${toURL(portrait(n.seed, VIEWER_MALE))})`;   // 真实数据：这里换成用户的头像地址，去掉 px
     avw.appendChild(av);
@@ -417,6 +416,23 @@ function loadCity(city) {
   document.getElementById('hud-name').textContent = cityName(city);
   document.getElementById('hud-count').textContent = T('people', { n: NPCS.length });
   syncUI();
+  applyQuality();
+}
+
+// 手机带不动时自动降画质（自动的，不给用户选，也没有开关）：
+//   第一档：地上的小花小草不画了，像素块从 2 个点放大到 3 个点；第二档：远处的头像少放一些
+let quality = 0, minAv = 14, qT = 0, qN = 0;       // minAv：头像小于这么多个点就不放了
+function applyQuality() {
+  if (quality >= 1 && statics) statics.g.instanceCount = world.groundFrom;
+  if (quality >= 1 && PIX !== 3) { PIX = 3; resize(); }
+  if (quality >= 2) minAv = 19;
+}
+function watchSpeed(rawDt, now) {
+  if (now < 3000 || quality >= 2 || document.hidden) return;   // 刚进来那几秒在生成画面，不算
+  qT += Math.min(rawDt, 0.25); qN++;
+  if (qN < 90) return;
+  const avg = qT / qN; qT = 0; qN = 0;
+  if (avg > 0.03) { quality++; applyQuality(); }               // 平均一帧超过 30 毫秒（不到 33 帧）就降一档
 }
 
 // ---------- 操作：点地面走过去；按住拖动 = 摇杆 ----------
@@ -432,6 +448,21 @@ function pickGround(cx, cy) {
   if (d.y >= -0.001) return null;
   const t = (1 - o.y) / d.y;                      // 地是平的（高度 1），直接求交点
   return { x: o.x + d.x * t, z: o.z + d.z * t };
+}
+/**
+ * 手指点在 (cx, cy)：点中了哪个头像？
+ * 头像会前后叠着，所以不看「谁在最上面」，而是在所有圈住这个点的头像里挑圆心离手指最近的；
+ * 小头像的可点范围放大到半径至少 17 个点（手指比头像粗）。没点中任何头像返回 null（那就是点路面）。
+ */
+function hitAvatar(cx, cy) {
+  const r = root.getBoundingClientRect(), x = cx - r.left, y = cy - r.top;
+  let best = null, bd = 1;
+  for (const n of NPCS) {
+    if (!n.shown) continue;
+    const d = Math.hypot(x - n.sx, y - n.cy) / Math.max(n.r, 17);
+    if (d < bd) { bd = d; best = n; }
+  }
+  return best;
 }
 /** 玩家只能在路上：横着不出路沿，前后不出路的两头 */
 const clampPos = (p) => { const b = world.bounds; return { x: Math.max(-b.x, Math.min(b.x, p.x)), z: Math.max(b.zN, Math.min(b.zS, p.z)) }; };
@@ -454,6 +485,9 @@ const endPointer = (e) => {
   if (!input.down || e.pointerId !== input.id) return;
   input.down = false;
   if (input.joy) { input.joy = false; input.jx = input.jz = 0; joyEl.classList.remove('on'); joyKnob.style.transform = ''; return; }
+  if (e.type === 'pointercancel') return;
+  const hit = hitAvatar(e.clientX, e.clientY);
+  if (hit) { openCard(hit); return; }
   const g = pickGround(e.clientX, e.clientY);
   if (g) { const c = clampPos(g); player.target = c; mark.x = c.x; mark.z = c.z; mark.a = 1; }   // 点到路外面：走到路上离它最近的地方
 };
@@ -540,13 +574,16 @@ function frame(dt, time, now) {
   for (const n of NPCS) {
     const depth = -(me[2] * n.x + me[6] * 3.5 + me[10] * n.z + me[14]);
     let show = depth > 4, p = null, size = 0;
-    if (show) { p = project(n.x, headY, n.z); size = Math.max(11, Math.min(46, (AV * focal) / depth)); show = p.ok && p.x > -size && p.x < W + size && p.y > 0 && p.y < H + size * 2; }
+    if (show) { size = Math.min(46, (AV * focal) / depth); show = size >= minAv; }   // 太远的（头像小到认不出）不放头像，只剩路边的小人
+    if (show) { p = project(n.x, headY, n.z); show = p.ok && p.x > -size && p.x < W + size && p.y > 0 && p.y < H + size * 2; }
     if (show !== n.shown) { n.el.style.display = show ? '' : 'none'; n.shown = show; }
-    n.size = show ? size : 0; n.sx = p ? p.x : 0; n.sy = p ? p.y : 0;
+    n.size = show ? size : 0;
     if (!show) continue;
-    const tf = `translate(${p.x.toFixed(1)}px,${p.y.toFixed(1)}px) translate(-50%,-100%) scale(${((size / 40) * (n === near ? 1.18 : 1)).toFixed(3)})`;
-    if (tf !== n.tf) { n.el.style.transform = tf; n.tf = tf; const z = 9000 - Math.round(depth * 10); if (z !== n.zi) { n.el.style.zIndex = String(z); n.zi = z; } }
-    const cls = (Math.hypot(n.x - player.x, n.z - player.z + 2) < NAME_R ? ' nm-on' : '') + (size < 21 ? ' tiny' : '') + (n === near ? ' near' : '');
+    const sc = (size / 40) * (n === near ? 1.18 : 1), named = Math.hypot(n.x - player.x, n.z - player.z + 2) < NAME_R;
+    n.sx = p.x; n.sy = p.y; n.cy = p.y - sc * (named ? 43 : 20); n.r = sc * 20;   // 头像圆心和半径（屏幕上的点），点击时用
+    const tf = `translate(${p.x.toFixed(1)}px,${p.y.toFixed(1)}px) translate(-50%,-100%) scale(${sc.toFixed(3)})`;
+    if (tf !== n.tf) { n.el.style.transform = tf; n.tf = tf; }
+    const cls = (named ? ' nm-on' : '') + (size < 21 ? ' tiny' : '') + (n === near ? ' near' : '');
     if (cls !== n.cls) { n.el.className = 'npc' + cls; n.cls = cls; }
   }
   // 气泡：走着的时候不冒（不挡人群），站住半秒才冒出离你最近那位的
@@ -600,8 +637,9 @@ loadCity(CITY);
 
 let last = performance.now(), clock = 0, frames = 0;
 function loop(now) {
-  const dt = Math.min(0.05, (now - last) / 1000); last = now; clock += dt;
+  const raw = (now - last) / 1000, dt = Math.min(0.05, raw); last = now; clock += dt;
   frame(dt, clock, now);
+  watchSpeed(raw, now);
   if (++frames === 3) document.body.classList.add('ready');
   requestAnimationFrame(loop);
 }
