@@ -1,16 +1,15 @@
-import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, UserProfile } from '../api';
-import { isOwnWebUrl, openNativeWeb } from '../bridge';
-import { useApp } from '../store';
 import { Ic, Nav } from '../hn';
-import { lang, t } from '../i18n';
+import { t } from '../i18n';
 
 /**
- * 大厅：两块内容，直接写在这里，不走后台配置（样稿 design/07-hall.html，用户 2026-11-25 过关）。
- *   ① 活动「前 10 对结婚的新人送旅行」→ 活动页（现在是占位版，规则还没定）
- *   ② 「相亲物语」→ 全屏打开 /wuyu.html（程序在 src/wuyu/）
+ * 大厅：内容直接写在这里，不走后台配置（样稿 design/07-hall.html，用户 2026-11-25 过关）。
+ *   活动「前 10 对结婚的新人送旅行」→ 活动页（现在是占位版，规则还没定）
  * 大厅里有什么以发出去的这一版为准：要加别的活动就改这个文件、发新版本，不靠后台开关变出来。
+ *
+ * 「相亲物语」那张卡 2026-11-27 用户说先不要了：入口拿掉、wuyu.html 不再构建和部署，程序留在 src/wuyu/ 和 web/wuyu.html。
+ * 要加回来：这个文件的入口（wuyuUrl / openWuyu / 第二张卡）、theme.css 的 .hall-wuyu、两个语言文件的 hall.wuyu.* 都在提交 1a8972a 里；
+ * vite.config.ts 的 input 里加回 wuyu；封面图从 src/wuyu/cover.jpg 放回 public/wuyu-cover.jpg。
  */
 
 /** 活动卡右下角的小飞机（装饰） */
@@ -22,32 +21,8 @@ function Plane({ size }: { size: number }) {
   );
 }
 
-/** 「相亲物语」的地址：我们自己网站上的 /wuyu.html。g = 自己的性别（1 男 2 女，路两边放的是异性），lang = 界面语言 */
-function wuyuUrl(gender?: number): string {
-  const u = new URL('wuyu.html', location.origin + location.pathname);
-  u.searchParams.set('g', gender === 2 ? '2' : '1');
-  u.searchParams.set('lang', lang());
-  return u.toString();
-}
-
-/** 打开「相亲物语」：App 里交给原生的全屏网页（带标题栏和返回，竖屏）；浏览器里就在当前页打开，按返回回到大厅 */
-function openWuyu(gender?: number) {
-  const url = wuyuUrl(gender);
-  if (!isOwnWebUrl(url)) return;
-  if (openNativeWeb(url, t('hall.wuyu.name'), 'portrait')) return;
-  location.href = url;
-}
-
 export function HallPage() {
   const nav = useNavigate();
-  const user = useApp((s) => s.user);
-  const setUser = useApp((s) => s.setUser);
-
-  // App 的内嵌大厅只带了登录身份、没拉用户资料；打开「相亲物语」要知道自己的性别，补一次
-  useEffect(() => {
-    if (user) return;
-    api<UserProfile>('/user/me').then(setUser).catch(() => {});
-  }, [user]);
 
   return (
     <div className="hall">
@@ -60,12 +35,6 @@ export function HallPage() {
         <p>{t('hall.trip.desc', { app: t('app.name') })}</p>
         <span className="hall-act-go">{t('hall.trip.go')}<Ic n="right" s={13} /></span>
         <Plane size={120} />
-      </div>
-
-      <div className="hall-lab">{t('hall.sec.stroll')}</div>
-      <div className="hall-wuyu" onClick={() => openWuyu(user?.gender)}>
-        <div className="hall-wuyu-txt"><b>{t('hall.wuyu.name')}</b><span>{t('hall.wuyu.desc')}</span></div>
-        <span className="hall-wuyu-go">{t('hall.enter')}</span>
       </div>
     </div>
   );

@@ -37,6 +37,16 @@ body {
 .page { flex: 1; overflow-y: auto; }
 .page-pad { padding: 16px; }
 
+/* 内容竖着居中的页面（注册页、重新进入页）：屏幕够高时内容居中、备案号贴底；放不下时从头排、整页能滚动，不挤扁也不裁掉顶上。
+   用两个等高的空白（顶上的 ::before 和备案号前面的 .page-sp）来居中，不用 justify-content: center（那样放不下时顶上会被裁掉、滚不到） */
+.page-center { display: flex; flex-direction: column; }
+.page-center > * { flex-shrink: 0; }
+.page-center::before, .page-center > .page-sp { content: ""; flex: 1 0 0px; }
+
+/* 页面底部中间的 ICP 备案号（注册页、重新进入页；组件 IcpFooter） */
+.icp-foot { text-align: center; font-size: 12px; line-height: 18px; padding: 14px 16px calc(2px + env(safe-area-inset-bottom)); }
+.icp-foot a { color: var(--text-3); text-decoration: none; }
+
 /* 顶部文字 tab（附近|推荐） */
 .top-tabs { display: flex; gap: 24px; padding: 14px 16px 10px; align-items: center; overflow-x: auto; scrollbar-width: none; }
 .top-tabs::-webkit-scrollbar { display: none; }
@@ -291,7 +301,7 @@ textarea.input { resize: none; min-height: 90px; }
   position: sticky; top: 0; z-index: 20; background: var(--bg);
 }
 
-/* 大厅：大标题 + 两张卡（活动、相亲物语）。样稿 design/07-hall.html */
+/* 大厅：大标题 + 活动卡。样稿 design/07-hall.html（「相亲物语」那张卡 2026-11-27 拿掉了，样式在提交 1a8972a 的本文件里） */
 .hall { padding: 6px 0 22px; }
 .hall-lt { font-size: 28px; font-weight: 800; letter-spacing: 0.5px; padding: 4px 20px 0; line-height: 1.25; }
 .hall-lab { font-size: 13px; color: var(--text-2); margin: 16px 20px 8px; }
@@ -305,17 +315,6 @@ textarea.input { resize: none; min-height: 90px; }
 .hall-act p { font-size: 13px; line-height: 1.6; opacity: 0.94; margin: 5px 0 0; max-width: 236px; position: relative; z-index: 1; }
 .hall-act-go { display: inline-flex; align-items: center; gap: 3px; height: 32px; padding: 0 13px 0 15px; border-radius: 16px; background: #fff; color: #ff3d63; font-size: 13.5px; font-weight: 700; margin-top: 13px; position: relative; z-index: 1; }
 .hall-plane { position: absolute; right: -8px; bottom: -14px; opacity: 0.26; color: #fff; pointer-events: none; }
-.hall-wuyu {
-  margin: 0 16px; border-radius: 22px; overflow: hidden; position: relative; cursor: pointer;
-  aspect-ratio: 5 / 4; max-height: 300px; width: calc(100% - 32px);
-  background: #2a2236 url(/wuyu-cover.jpg) center / cover no-repeat;
-  box-shadow: 0 14px 28px rgba(60, 30, 60, 0.24);
-}
-.hall-wuyu::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 42%, rgba(30, 14, 30, 0.88) 100%); }
-.hall-wuyu-txt { position: absolute; left: 18px; right: 92px; bottom: 16px; z-index: 2; color: #fff; }
-.hall-wuyu-txt b { font-size: 21px; letter-spacing: 1px; display: block; }
-.hall-wuyu-txt span { font-size: 12.5px; opacity: 0.9; display: block; margin-top: 4px; line-height: 1.45; }
-.hall-wuyu-go { position: absolute; right: 16px; bottom: 18px; z-index: 2; height: 34px; padding: 0 20px; border-radius: 17px; background: #fff; color: #111; font-size: 14px; font-weight: 700; display: flex; align-items: center; white-space: nowrap; }
 /* 活动页「新婚旅行礼」 */
 .trip-hero {
   margin: 6px 16px 0; border-radius: 22px; padding: 22px 18px; color: #fff; position: relative; overflow: hidden;

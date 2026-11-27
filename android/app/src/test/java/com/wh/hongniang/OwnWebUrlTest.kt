@@ -49,7 +49,8 @@ class OwnWebUrlTest {
             "https://gphnai.com:pw@example.com/",
             "https://example.com\\@gphnai.com/",
             "https://example.com%2F@gphnai.com.example.org/",
-            // 和内置服务器地址只差一点
+            // 旧的 IP 地址（2026-11-27 换成域名以后不再算自己的）和它的近似写法
+            "http://120.55.59.158/",
             "http://120.55.59.1580/",
             "http://120.55.59.158.example.com/",
             "//gphnai.com/a",

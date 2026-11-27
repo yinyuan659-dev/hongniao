@@ -209,6 +209,19 @@ fun MeScreen(modifier: Modifier = Modifier, initialUser: UserProfile?, onNav: (S
                 "${t("app.name")} ${com.wh.hongniang.BuildConfig.VERSION_NAME}", color = TextDim, fontSize = 12.sp,
                 modifier = Modifier.fillMaxWidth().padding(top = 22.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
+            // App 的 ICP 备案号：点了用系统浏览器打开工信部的备案查询网站（不在 App 里开；手机上没有浏览器就什么也不做）
+            Box(Modifier.fillMaxWidth().padding(top = 2.dp), contentAlignment = Alignment.Center) {
+                Text(
+                    Api.APP_ICP_NO, color = TextDim, fontSize = 12.sp,
+                    modifier = Modifier
+                        .clickable {
+                            runCatching {
+                                ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(Api.ICP_QUERY_URL)))
+                            }
+                        }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+            }
         }
 
         // 顶栏：盖在内容上面。扫一扫一直在右上角；滑动以后变成不透明的一条，中间出现小标题

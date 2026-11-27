@@ -73,6 +73,14 @@ struct MeView: View {
                     Text("\(t("app.name")) \(Self.appVersion)")
                         .font(.system(size: 12)).foregroundStyle(Theme.textDim)
                         .padding(.top, 22)
+                    // App 的 ICP 备案号：点了用系统浏览器（Safari）打开工信部的备案查询网站，不在 App 里开
+                    Link(destination: Api.icpQueryURL) {
+                        Text(Api.appIcpNo)
+                            .font(.system(size: 12)).foregroundStyle(Theme.textDim)
+                            .padding(.horizontal, 12).padding(.vertical, 6)
+                            .contentShape(Rectangle())
+                    }
+                    .padding(.top, 2)
                 }
                 .padding(.top, 4).padding(.bottom, 28)
             }

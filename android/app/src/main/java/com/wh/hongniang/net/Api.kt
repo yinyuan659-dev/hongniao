@@ -134,8 +134,14 @@ private class UriRequestBody(private val ctx: Context, private val uri: android.
 }
 
 object Api {
-    // 测试环境（阿里云杭州）。域名备案前只能用 IP + HTTP；备案后换成 https://域名，正式包不能留这个地址。
-    const val BASE_URL = "http://120.55.59.158"
+    // 服务器地址（阿里云杭州）。2026-11-27 备案通过后从 http://120.55.59.158 换成域名 + HTTPS；旧的 IP 地址现在只会跳到这里。
+    // Manifest 里的 usesCleartextTraffic 还留着：通话的 SRS 信令地址是服务器下发的 http://IP:1985，挪到 HTTPS 之前不能关。
+    const val BASE_URL = "https://gphnai.com"
+
+    /** App 的 ICP 备案号（2026-11-26 管局审核通过；网站是另一个号，写在网页的页脚里）。显示在「我的」页最底下 */
+    const val APP_ICP_NO = "蜀ICP备2024113063号-5A"
+    /** 工信部的备案查询网站：点备案号用系统浏览器打开，不在 App 里开 */
+    const val ICP_QUERY_URL = "https://beian.miit.gov.cn/"
 
     /** 我们自己的域名（含它的子域名） */
     private const val OWN_DOMAIN = "gphnai.com"

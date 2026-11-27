@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- 测试服务器为 http，正式环境上 https 后收紧 -->
+	<!-- 2026-11-27 起服务器已经是 https://gphnai.com。这一项还留着是因为通话的 SRS 信令地址是 http://IP:1985；信令挪到 HTTPS 后收紧（送审前要做） -->
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>

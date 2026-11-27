@@ -1,7 +1,24 @@
 import { CSSProperties, ReactNode, useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { hnNative } from './bridge';
+import { hnNative, inNativeApp } from './bridge';
 import './hn.css';
+
+/** 网站的 ICP 备案号（2026-11-26 管局审核通过）。换号只改这一处 */
+export const ICP_NO = '蜀ICP备2024113063号-4';
+
+/**
+ * 页面底部中间的备案号，点了去工信部的备案查询网站（备案要求：网站首页底部要挂）。
+ * 放在没登录的人最先看到的两页：注册页、「重新进入」页。
+ * App 里的网页不显示：这是网站的号，App 有自己的备案号；App 内也只打开我们自己的网页。
+ */
+export function IcpFooter() {
+  if (inNativeApp()) return null;
+  return (
+    <div className="icp-foot">
+      <a href="https://beian.miit.gov.cn" target="_blank" rel="noopener noreferrer">{ICP_NO}</a>
+    </div>
+  );
+}
 
 /** AI 红娘新页面（深聊、相亲画像网页、AI 费用）共用的小零件：线条图标、头像小球、提示条、类型 */
 

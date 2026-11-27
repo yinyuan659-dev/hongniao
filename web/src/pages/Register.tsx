@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, getDeviceId, setDid, setToken, UserProfile } from '../api';
 import { useApp } from '../store';
+import { IcpFooter } from '../hn';
 import { t } from '../i18n';
 
 const AGES = Array.from({ length: 43 }, (_, i) => 18 + i); // 18 - 60
@@ -124,7 +125,7 @@ export function RegisterPage() {
 
   return (
     <div className="app">
-      <div className="page page-pad" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+      <div className="page page-pad page-center">
         <div style={{ textAlign: 'center', fontSize: 28, fontWeight: 700, letterSpacing: 6, marginBottom: 30 }}>{t('app.name')}</div>
 
         {/* 头像 */}
@@ -193,6 +194,8 @@ export function RegisterPage() {
           {t('register.and')}
           <span style={{ color: 'var(--accent)', cursor: 'pointer' }} onClick={() => nav('/agreement/privacy')}>{t('register.privacyPolicy')}</span>
         </p>
+        <div className="page-sp" />
+        <IcpFooter />
       </div>
 
       {/* 年纪：iOS 滚轮 */}
