@@ -73,13 +73,11 @@ export function CardPage() {
 
   /** 我和 TA 的关系（看自己时是 null） */
   const m = c.match;
-  /** 规则上线前就聊过、还在保留期里 */
-  const legacy = m?.chatReason === 'legacy';
   const setMatch = (patch: Partial<CardMatch>) => setC((v) => (v && v.match ? { ...v, match: { ...v.match, ...patch } } : v));
 
   const onLike = async () => {
     const r = await like(c.user.id);
-    if (r) setMatch({ state: r.state, passed: false, quota: r.quota, canChat: r.matched || !!m?.canChat, chatReason: r.matched ? 'mutual' : m?.chatReason ?? 'need_like' });
+    if (r) setMatch({ state: r.state, passed: false, quota: r.quota, ...(r.matched ? { chatReason: 'mutual', canVideo: true, videoReason: 'ok' } : {}) });
   };
   /** 跳过 / 不合适：对方不知道。点完回到上一页（从推荐页进来的，回去就是下一位） */
   const onPass = async () => {
@@ -306,33 +304,32 @@ export function CardPage() {
           </div>
         )
       ) : m && (
-        // 看别人：按两个人的关系显示四种样子里的一种，只有互相喜欢了才有「发消息」（样稿 design/03-match.html 第 4 组）
+        // 看别人：按两个人的关系显示五种样子里的一种（样稿 design/09-openchat.html 第 1 组）。
+        // 2026-11-27 起发消息放开了：没结束联系的四种里都有「发消息」；喜欢还是原来的规矩，互相喜欢后可以视频见面。
         <div style={{ position: 'absolute', left: 14, right: 14, bottom: 'calc(16px + env(safe-area-inset-bottom))', zIndex: 20 }}>
-          {m.state === 'likedMe' && <div className="hn-tip rose" style={{ margin: '0 0 8px' }}>{who}喜欢了你。你也喜欢的话，马上就能聊天</div>}
+          {m.state === 'liked' && <div className="hn-tip" style={{ margin: '0 0 8px' }}>你已经喜欢了{who}，等{who}回应。可以先聊聊</div>}
+          {m.state === 'likedMe' && <div className="hn-tip rose" style={{ margin: '0 0 8px' }}>{who}喜欢了你。你也喜欢的话，就可以视频见面</div>}
           {m.state === 'ended' && <div className="hn-tip" style={{ margin: 0, padding: '14px' }}>{m.endedBy === 'me' ? '你已选择不再联系' : '对方已结束聊天'}</div>}
-          {legacy && m.state !== 'mutual' && m.state !== 'ended' && (
-            <div className="hn-tip" style={{ margin: '0 0 8px' }}>
-              你们以前聊过，{dayText(m.legacyUntil)}前还能<span style={{ color: 'var(--hn-rose)', fontWeight: 600, cursor: 'pointer' }} onClick={openChat}>继续聊</span>；互相喜欢后可以一直聊
-            </div>
-          )}
           {m.state !== 'ended' && (
-            <div className="hn-wdock hn-glass" style={{ position: 'static' }}>
+            <div className="hn-wdock hn-glass" style={{ position: 'static', gap: 8 }}>
               {m.state === 'none' && (
                 <>
                   <button className="hn-btn" style={ghostBtn} disabled={busy} onClick={onPass}><Ic n="x" s={17} />跳过</button>
-                  <button className="hn-btn" style={{ flex: 1.6 }} disabled={busy} onClick={onLike}><Ic n="heart" s={17} />喜欢</button>
+                  <button className="hn-btn line" style={{ flex: 1.3 }} onClick={openChat}><Ic n="chat" s={16} />发消息</button>
+                  <button className="hn-btn" style={{ flex: 1.5 }} disabled={busy} onClick={onLike}><Ic n="heart" s={17} />喜欢</button>
                 </>
               )}
               {m.state === 'liked' && (
                 <>
                   <button className="hn-btn" style={{ ...ghostBtn, fontSize: 14 }} disabled={busy} onClick={onUnlike}>取消喜欢</button>
-                  <button className="hn-btn" style={{ flex: 1.6, opacity: 0.55 }} disabled><Ic n="check" s={17} />已喜欢，等{who}回应</button>
+                  <button className="hn-btn" style={{ flex: 1.6 }} onClick={openChat}><Ic n="chat" s={17} />发消息</button>
                 </>
               )}
               {m.state === 'likedMe' && (
                 <>
                   <button className="hn-btn" style={{ ...ghostBtn, fontSize: 14 }} disabled={busy} onClick={onPass}>不合适</button>
-                  <button className="hn-btn" style={{ flex: 1.6 }} disabled={busy} onClick={onLike}><Ic n="heart" s={17} />也喜欢，开始聊</button>
+                  <button className="hn-btn line" style={{ flex: 1.3 }} onClick={openChat}><Ic n="chat" s={16} />发消息</button>
+                  <button className="hn-btn" style={{ flex: 1.5 }} disabled={busy} onClick={onLike}><Ic n="heart" s={17} />也喜欢</button>
                 </>
               )}
               {m.state === 'mutual' && <button className="hn-btn" style={{ flex: 1 }} onClick={openChat}><Ic n="chat" s={17} />发消息</button>}

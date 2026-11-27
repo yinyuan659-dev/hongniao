@@ -14,8 +14,7 @@ import { ConnectionRegistry } from '../im/connection.registry';
 import { ImService } from '../im/im.service';
 import { IntimacyService } from '../intimacy/intimacy.service';
 import { SrsEndpoint, SrsService } from '../srs/srs.service';
-import { NeedProfileException, profileDone } from '../common/need-profile';
-import { assertCanChat } from '../common/chat-gate';
+import { assertCanChat, assertCanVideo } from '../common/chat-gate';
 import { assertKyc } from '../common/kyc-gate';
 
 /** 掉线检查间隔（毫秒） */
@@ -31,7 +30,8 @@ const OFFLINE_STRIKE_LIMIT = 2;
  * 节点地址现在是 https://gphnai.com（nginx 转给 SRS，见 SrsService.endpoint）；媒体仍然直连 SRS 的 UDP 8000。
  * 信令帧经 IM WebSocket 下发：{ op: "call", event, data }
  *
- * 通话不收费（相亲全程 0 收费，开发文档 §1）。视频见面默认关闭：
+ * 通话不收费（相亲全程 0 收费，开发文档 §1）。
+ * 语音通话和发消息一样放开；视频见面要互相喜欢（后台开关可关，测试用），并且默认关闭：
  * 自己和对方都在「我的」里打开「视频见面」（user.allowVideo）后才能发起（开发文档 §3.5）。
  */
 @Injectable()
@@ -95,16 +95,17 @@ export class CallService implements OnModuleInit, OnModuleDestroy {
     ]);
     if (!callee || callee.status !== 0) throw new NotFoundException('对方不存在');
     if (!caller || caller.gender === callee.gender) throw new ForbiddenException('无法呼叫该用户');
-    // 和聊天一样：没完成资料收集不能主动发起
-    if (!(await profileDone(this.prisma, callerId))) throw new NeedProfileException('完成资料收集后才能发起通话');
-    // 和聊天一样：互相喜欢后才能打（规则上线前就聊过的有保留期）
-    await assertCanChat(this.prisma, callerId, calleeId);
-    // 和聊天一样：做过实人认证才能打（后台开关控制，默认关）
-    await assertKyc(this.prisma, callerId);
-    // 视频见面默认关闭，双方都打开才能打
     if (type === 2) {
+      // 视频见面：要互相喜欢（后台开关 videoNeedLike，关掉后不要求，测试用），见 common/chat-gate.ts
+      await assertCanVideo(this.prisma, callerId, calleeId);
+      // 做过实人认证才能视频（后台开关控制，默认关），见 common/kyc-gate.ts
+      await assertKyc(this.prisma, callerId);
+      // 视频见面默认关闭，双方都打开才能打
       if (!caller.allowVideo) throw new BadRequestException('你还没有打开视频见面，请先到「我的」里打开');
       if (!callee.allowVideo) throw new BadRequestException('对方没有打开视频见面');
+    } else {
+      // 语音通话和发消息一样放开：只有一方点过「不再联系」才不能打
+      await assertCanChat(this.prisma, callerId, calleeId);
     }
 
     // 对方不在线直接提示，不进入等待接听

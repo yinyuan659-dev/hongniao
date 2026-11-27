@@ -24,10 +24,15 @@ export interface Relation {
   passed: boolean;
   endedBy: 'me' | 'peer' | null;
   matchedAt: string | null;
-  /** 现在能不能给对方发消息 */
+  /** 现在能不能给对方发消息、打语音：2026-11-27 起只有一方点了「不再联系」才不能 */
   canChat: boolean;
-  /** mutual | legacy 规则上线前的老聊天，保留期内 | need_like | legacy_expired | ended_me | ended_peer */
+  /** open 还没互相喜欢，照常能聊 | mutual 互相喜欢 | ended_me | ended_peer */
   chatReason: string;
+  /** 按「互相喜欢」这一条现在能不能视频见面（后台开关关着时没互相喜欢也是 true）；网页端没有通话，这两个字段只有 App 用 */
+  canVideo?: boolean;
+  /** ok | need_like | ended */
+  videoReason?: string;
+  /** 以前「老聊天保留期」用的，现在一直是 null */
   legacyUntil: string | null;
   quota: Quota;
   /** 我的基本情况填完了没有（没填完不能点喜欢） */
@@ -197,8 +202,9 @@ export function useLike(): { like: (id: string) => Promise<LikeResult | null>; b
 /**
  * 小号的喜欢按钮：动态详情、老的主页这些原来放「发消息 / 打招呼」的地方用。
  * 没表态 →「喜欢」；我喜欢了 →「已喜欢」；对方先喜欢了我 →「也喜欢」；互相喜欢 →「发消息」。
+ * withChat：旁边再放一个「发消息」（2026-11-27 起发消息不用互相喜欢；别人的主页底部用，列表里不用）。
  */
-export function LikePill({ peer, initial, style }: { peer: { id: string; nickname: string }; initial?: RelState; style?: CSSProperties }) {
+export function LikePill({ peer, initial, style, withChat }: { peer: { id: string; nickname: string }; initial?: RelState; style?: CSSProperties; withChat?: boolean }) {
   const nav = useNavigate();
   const [state, setState] = useState<RelState | undefined>(initial);
   const { like, busy, node, toast } = useLike();
@@ -208,15 +214,22 @@ export function LikePill({ peer, initial, style }: { peer: { id: string; nicknam
   }, [peer.id, initial]);
 
   if (!state || state === 'ended') return <>{node}</>;
-  const tap = async (e: ReactMouseEvent) => {
+  const chat = (e: ReactMouseEvent) => {
     e.stopPropagation();
-    if (state === 'mutual') return openChatWith(nav, peer).catch((err) => toast((err as Error).message));
+    openChatWith(nav, peer).catch((err) => toast((err as Error).message));
+  };
+  const tap = async (e: ReactMouseEvent) => {
+    if (state === 'mutual') return chat(e);
+    e.stopPropagation();
     if (state === 'liked' || busy) return;
     const r = await like(peer.id);
     if (r) setState(r.state);
   };
   return (
     <>
+      {withChat && state !== 'mutual' && (
+        <button className="hn-pill ghost" style={{ ...style, color: 'var(--hn-rose)' }} onClick={chat}><Ic n="chat" s={14} />发消息</button>
+      )}
       <button className={`hn-pill${state === 'liked' ? ' ghost' : ''}`} style={style} onClick={tap} disabled={busy}>
         {state === 'mutual' ? <><Ic n="chat" s={14} />发消息</> : state === 'liked' ? <><Ic n="check" s={14} />已喜欢</> : <><Ic n="heart" s={14} />{state === 'likedMe' ? '也喜欢' : '喜欢'}</>}
       </button>

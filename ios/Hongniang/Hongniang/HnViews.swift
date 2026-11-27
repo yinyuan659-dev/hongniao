@@ -176,7 +176,7 @@ struct MePortraitCard: View {
         }
     }
     private var subtitle: String {
-        if u.profileDone != true { return "基本情况还没填完\n填完才能主动找人聊天" }
+        if u.profileDone != true { return "基本情况还没填完\n填完才能喜欢别人、被推荐" }
         switch deep {
         case "done": return "基本情况和 AI 深聊都完成了\n想法变了可以再聊聊"
         case "draft": return "AI 红娘整理好了画像\n等你看一眼、点确认"

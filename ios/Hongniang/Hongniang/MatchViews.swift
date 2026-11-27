@@ -77,10 +77,15 @@ struct MatchRelation: Codable {
     var state: String? = "none"
     var endedBy: String? = nil
     var matchedAt: String? = nil
-    /// 现在能不能发消息
-    var canChat: Bool? = false
-    /// mutual | legacy 规则上线前的老聊天，保留期内 | need_like | legacy_expired | ended_me | ended_peer
-    var chatReason: String? = "need_like"
+    /// 现在能不能发消息、打语音：2026-11-27 起只有一方点了「不再联系」才不能
+    var canChat: Bool? = true
+    /// open 还没互相喜欢，照常能聊 | mutual 互相喜欢 | ended_me | ended_peer
+    var chatReason: String? = "open"
+    /// 按「互相喜欢」这一条现在能不能视频见面（后台开关关着时没互相喜欢也是 true）。只用来参考，真正放不放行在发起通话时由服务器决定
+    var canVideo: Bool? = true
+    /// ok | need_like | ended
+    var videoReason: String? = "ok"
+    /// 以前「老聊天保留期」用的，现在一直是 nil
     var legacyUntil: String? = nil
     var quota: MatchQuota? = nil
 }
@@ -117,13 +122,18 @@ private func nextRecText(_ iso: String?) -> String {
     return (Calendar.current.isDateInToday(d) ? "今天" : "明天") + "上午 \(hour) 点"
 }
 
-/// 不能聊天时提示的那句话
-func chatBlockedText(_ reason: String?) -> String {
-    switch reason {
-    case "ended_peer": return "对方已结束聊天"
-    case "ended_me": return "你已选择不再联系"
-    case "legacy_expired": return "互相喜欢后才能继续聊"
-    default: return "互相喜欢后才能聊天"
+/// 有一方点了「不再联系」时提示的那句话（2026-11-27 起只有这种情况不能发消息）
+func chatBlockedText(_ rel: MatchRelation) -> String {
+    rel.endedBy == "me" ? "你已选择不再联系" : "对方已结束聊天"
+}
+
+/// 发起视频被服务器拒绝、原因是还没互相喜欢时的说明，按两个人的关系分三种（样稿 design/09-openchat.html 第 2 组）
+func videoNeedLikeText(_ state: String?) -> String {
+    let head = "互相喜欢后才能视频见面。\n"
+    switch state {
+    case "liked": return head + "你已经喜欢了 TA，等 TA 也喜欢你，就可以视频了。"
+    case "likedMe": return head + "TA 已经喜欢你了，你也点喜欢就可以视频。"
+    default: return head + "你还没有喜欢 TA。去 TA 的画像点「喜欢」，TA 也喜欢你，就可以视频了。"
     }
 }
 
@@ -195,13 +205,13 @@ final class MatchCenter: ObservableObject {
 }
 
 /**
- * 通过用户 id 打开聊天（搜索、老主页这些地方用）：互相喜欢了才能聊（规则上线前就聊过的有保留期）。
- * 不能聊的顶上提示一句、返回 nil。
+ * 通过用户 id 打开聊天（搜索、老主页这些地方用）。2026-11-27 起发消息放开了，谁都能直接进聊天页；
+ * 只有一方点过「不再联系」的顶上提示一句、返回 nil。
  */
 @MainActor
 func openChatIfAllowed(userId: String, nickname: String) async -> ChatTarget? {
-    if let rel: MatchRelation = try? await Api.request("/match/relation/\(userId)"), rel.canChat != true {
-        MatchCenter.shared.tip = chatBlockedText(rel.chatReason)
+    if let rel: MatchRelation = try? await Api.request("/match/relation/\(userId)"), rel.state == "ended" {
+        MatchCenter.shared.tip = chatBlockedText(rel)
         return nil
     }
     return await openChatWith(userId: userId, nickname: nickname)
@@ -396,7 +406,7 @@ struct RecSectionView: View {
                         Text("你们的条件互相符合。点照片看\(ta)的完整画像。").font(.system(size: 13)).foregroundStyle(HnTheme.ink2).lineSpacing(5).padding(.top, 8)
                     }
                     if cur.likedMe == true {
-                        Text("\(ta)已经喜欢了你，你也喜欢的话马上就能聊天").font(.system(size: 13, weight: .semibold)).foregroundStyle(HnTheme.rose).padding(.top, 10)
+                        Text("\(ta)已经喜欢了你，你也喜欢的话就可以视频见面").font(.system(size: 13, weight: .semibold)).foregroundStyle(HnTheme.rose).padding(.top, 10)
                     }
                 }
                 .padding(EdgeInsets(top: 13, leading: 16, bottom: 15, trailing: 16))
@@ -620,6 +630,7 @@ struct MatchCelebrationView: View {
 /**
  * 没表态 →「♥ 喜欢」；我喜欢了 →「已喜欢」；对方先喜欢了我 →「♥ 也喜欢」；互相喜欢 →「发消息」。
  * 有一方结束了联系就不显示。
+ * withChat：前面再放一个白底的「发消息」（2026-11-27 起发消息不用互相喜欢；别人的主页底部用，互相喜欢后只剩一个「发消息」）。
  */
 struct LikeChipView: View {
     let userId: String
@@ -627,15 +638,33 @@ struct LikeChipView: View {
     var height: CGFloat = 34
     /// 撑满父容器的宽度
     var wide = false
+    var withChat = false
     var onChat: (ChatTarget) -> Void
     @ObservedObject private var center = MatchCenter.shared
     @State private var state: String?
     @State private var busy = false
 
     var body: some View {
-        Group {
+        // 用 HStack 不用 Group：还没取到关系时里面是空的，挂在空 Group 上的 .task 不会执行（那样按钮永远出不来）；
+        // 空的 HStack 仍然是一个视图，.task 照常跑。两个按钮时它也正好负责排一行
+        HStack(spacing: 12) {
             if let s = state, s != "ended" {
                 let ghost = s == "liked"
+                if withChat, s != "mutual" {
+                    Button { openChat() } label: {
+                        Text("发消息")
+                            .font(.system(size: height > 40 ? 15 : 13, weight: .semibold))
+                            .foregroundStyle(HnTheme.rose)
+                            .lineLimit(1)
+                            .padding(.horizontal, height > 40 ? 24 : 16)
+                            .frame(maxWidth: wide ? .infinity : nil)
+                            .frame(height: height)
+                            .background(Capsule().fill(Color.white))
+                            .shadow(color: HnTheme.ink3.opacity(0.28), radius: 5, x: 0, y: 3)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(busy)
+                }
                 Button { tap(s) } label: {
                     Text(s == "mutual" ? "发消息" : s == "liked" ? "✓ 已喜欢" : s == "likedMe" ? "♥ 也喜欢" : "♥ 喜欢")
                         .font(.system(size: height > 40 ? 15 : 13, weight: .semibold))
@@ -657,14 +686,22 @@ struct LikeChipView: View {
     }
 
     private func tap(_ s: String) {
+        if s == "mutual" { openChat(); return }
         if s == "liked" || busy { return }
         busy = true
         Task {
-            if s == "mutual" {
-                if let target = await openChatWith(userId: userId, nickname: nickname) { onChat(target) }
-            } else if let r = await MatchCenter.shared.like(userId) {
+            if let r = await MatchCenter.shared.like(userId) {
                 state = r.state ?? state
             }
+            busy = false
+        }
+    }
+
+    private func openChat() {
+        if busy { return }
+        busy = true
+        Task {
+            if let target = await openChatWith(userId: userId, nickname: nickname) { onChat(target) }
             busy = false
         }
     }
@@ -672,19 +709,21 @@ struct LikeChipView: View {
 
 // MARK: - 聊天页用的几样
 
-/// 聊天页顶上的提示条：哪天配上的 + 防骗提醒；老聊天写明保留到哪天
+/// 聊天页顶上的提示条 + 防骗提醒：互相喜欢了写哪天配上的；还没互相喜欢的照常能聊（样稿 design/09-openchat.html）；结束了联系的不显示
 struct ChatMatchBanner: View {
     let rel: MatchRelation?
 
     private var text: String? {
-        guard let rel else { return nil }
-        if rel.state == "mutual" {
-            return (rel.matchedAt != nil ? "你们在 \(matchDayText(rel.matchedAt))互相喜欢了。" : "你们互相喜欢了。") + "\n线下见面前不要转账，遇到借钱、投资的请直接举报。"
+        guard let rel, rel.state != "ended" else { return nil }
+        let head: String
+        if rel.state != "mutual" {
+            head = "你们还没有互相喜欢，可以先聊聊。"
+        } else if rel.matchedAt != nil {
+            head = "你们在 \(matchDayText(rel.matchedAt))互相喜欢了。"
+        } else {
+            head = "你们互相喜欢了。"
         }
-        if rel.chatReason == "legacy" {
-            return "现在要互相喜欢才能聊天。你们以前聊过，\(matchDayText(rel.legacyUntil))前还能照常聊；到那天还没互相喜欢，就不能再发新消息了（聊天记录还在）。"
-        }
-        return nil
+        return head + "\n线下见面前不要转账，遇到借钱、投资的请直接举报。"
     }
 
     var body: some View {
@@ -698,21 +737,14 @@ struct ChatMatchBanner: View {
     }
 }
 
-/// 不能发消息时，输入区换成的那一句说明（聊天记录照常能看）
+/// 有一方点了「不再联系」时，输入区换成的那一句说明（聊天记录照常能看）。其余情况一律能发，不会用到它
 struct ChatBlockedBar: View {
     let rel: MatchRelation
-    var onOpenCard: () -> Void
 
     var body: some View {
         VStack(spacing: 10) {
-            Text(chatBlockedText(rel.chatReason) + (rel.state == "liked" && rel.endedBy == nil ? "。你已经喜欢了 TA，等 TA 回应" : ""))
+            Text(chatBlockedText(rel))
                 .font(.system(size: 14)).foregroundStyle(HnTheme.ink2).multilineTextAlignment(.center)
-            if rel.endedBy == nil, rel.state != "liked" {
-                Button(action: onOpenCard) {
-                    HnPillLabel(title: rel.state == "likedMe" ? "TA 喜欢了你，去看看" : "去 TA 的画像点喜欢")
-                }
-                .buttonStyle(.plain)
-            }
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 16).padding(.vertical, 14)

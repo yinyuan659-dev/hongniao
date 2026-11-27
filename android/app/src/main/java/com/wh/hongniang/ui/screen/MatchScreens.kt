@@ -36,11 +36,12 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 
 /*
- * 模块三、四：每日推荐、喜欢 / 跳过、互相喜欢后才能聊天。样稿 design/03-match.html。
+ * 模块三、四：每日推荐、喜欢 / 跳过、互相喜欢。样稿 design/03-match.html；
+ * 2026-11-27 起发消息、语音放开，只有视频见面要互相喜欢（样稿 design/09-openchat.html）。
  * 分法（用户 2026-11-23 定的）：
  *   原生 —— 广场 → 遇见 →「推荐」（RecSection）、消息页顶上的三个数字（LikeEntries）、聊天页的提示条和不能发的说明、互相喜欢的庆祝页（MatchCelebration）；
  *   网页 —— 画像网页底部的喜欢 / 跳过按钮、喜欢列表（/likes），用 HnWebScreen 打开。
- * 「没有互相喜欢不能聊天」是服务器强制的，这里只负责把话说清楚。
+ * 「没有互相喜欢不能视频」「不再联系后不能发消息」都是服务器强制的，这里只负责把话说清楚。
  */
 
 // ---------- 接口返回的数据 ----------
@@ -101,10 +102,15 @@ data class MatchRelation(
     val state: String = "none",
     val endedBy: String? = null,
     val matchedAt: String? = null,
-    /** 现在能不能发消息 */
-    val canChat: Boolean = false,
-    /** mutual | legacy 规则上线前的老聊天，保留期内 | need_like | legacy_expired | ended_me | ended_peer */
-    val chatReason: String = "need_like",
+    /** 现在能不能发消息、打语音：2026-11-27 起只有一方点了「不再联系」才不能 */
+    val canChat: Boolean = true,
+    /** open 还没互相喜欢，照常能聊 | mutual 互相喜欢 | ended_me | ended_peer */
+    val chatReason: String = "open",
+    /** 按「互相喜欢」这一条现在能不能视频见面（后台开关关着时没互相喜欢也是 true）。只用来参考，真正放不放行在发起通话时由服务器决定 */
+    val canVideo: Boolean = true,
+    /** ok | need_like | ended */
+    val videoReason: String = "ok",
+    /** 以前「老聊天保留期」用的，现在一直是 null */
     val legacyUntil: String? = null,
     val quota: MatchQuota = MatchQuota(),
 )
@@ -341,7 +347,7 @@ fun RecSection(onOpenUser: (String) -> Unit, onNav: (String) -> Unit, onBrowse: 
                             Text("你们的条件互相符合。点照片看${ta}的完整画像。", color = HnInk2, fontSize = 13.sp, lineHeight = 21.sp, modifier = Modifier.padding(top = 8.dp))
                         }
                         if (cur.likedMe) {
-                            Text("${ta}已经喜欢了你，你也喜欢的话马上就能聊天", color = HnRose, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 10.dp))
+                            Text("${ta}已经喜欢了你，你也喜欢的话就可以视频见面", color = HnRose, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 10.dp))
                         }
                     }
                 }
@@ -539,9 +545,14 @@ private fun DuoAvatar(url: String) {
 /**
  * 没表态 →「♥ 喜欢」；我喜欢了 →「已喜欢」；对方先喜欢了我 →「♥ 也喜欢」；互相喜欢 →「发消息」。
  * 有一方结束了联系就不显示。
+ * withChat：前面再放一个白底的「发消息」（2026-11-27 起发消息不用互相喜欢；别人的主页底部用，互相喜欢后只剩一个「发消息」）。
+ * 两个按钮都用传进来的 modifier（放在 Row 里给 weight 时各占一份）。
  */
 @Composable
-fun LikeChip(userId: String, nickname: String, modifier: Modifier = Modifier, height: Dp = 34.dp, onChat: (String, String) -> Unit, onNav: (String) -> Unit) {
+fun LikeChip(
+    userId: String, nickname: String, modifier: Modifier = Modifier, height: Dp = 34.dp, withChat: Boolean = false,
+    onChat: (String, String) -> Unit, onNav: (String) -> Unit,
+) {
     var state by remember(userId) { mutableStateOf<String?>(null) }
     val liker = rememberLiker(onNav)
     LaunchedEffect(userId, MatchCenter.version) {
@@ -551,6 +562,16 @@ fun LikeChip(userId: String, nickname: String, modifier: Modifier = Modifier, he
     if (s == null || s == "ended") return
     val shape = RoundedCornerShape(height / 2)
     val ghost = s == "liked"
+    if (withChat && s != "mutual") {
+        Box(
+            modifier.height(height)
+                .shadow(2.dp, shape, ambientColor = HnInk3, spotColor = HnInk3)
+                .clip(shape).background(Color.White)
+                .noRippleClick { onChat(userId, nickname) }
+                .padding(horizontal = 16.dp),
+            contentAlignment = Alignment.Center,
+        ) { Text("发消息", color = HnRose, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1) }
+    }
     Box(
         modifier.height(height)
             .shadow(if (ghost) 2.dp else 5.dp, shape, ambientColor = if (ghost) HnInk3 else HnRose, spotColor = if (ghost) HnInk3 else HnRose)
@@ -575,40 +596,62 @@ fun LikeChip(userId: String, nickname: String, modifier: Modifier = Modifier, he
 
 // ---------- 聊天页用的几样 ----------
 
-/** 聊天页顶上的提示条：哪天配上的 + 防骗提醒；老聊天写明保留到哪天 */
+/** 聊天页顶上的提示条 + 防骗提醒：互相喜欢了写哪天配上的；还没互相喜欢的照常能聊（样稿 design/09-openchat.html）；结束了联系的不显示 */
 @Composable
 fun ChatMatchBanner(rel: MatchRelation?) {
-    val text = when {
-        rel == null -> return
-        rel.state == "mutual" -> (if (rel.matchedAt != null) "你们在 ${matchDayText(rel.matchedAt)}互相喜欢了。" else "你们互相喜欢了。") + "\n线下见面前不要转账，遇到借钱、投资的请直接举报。"
-        rel.chatReason == "legacy" -> "现在要互相喜欢才能聊天。你们以前聊过，${matchDayText(rel.legacyUntil)}前还能照常聊；到那天还没互相喜欢，就不能再发新消息了（聊天记录还在）。"
-        else -> return
+    if (rel == null || rel.state == "ended") return
+    val head = when {
+        rel.state != "mutual" -> "你们还没有互相喜欢，可以先聊聊。"
+        rel.matchedAt != null -> "你们在 ${matchDayText(rel.matchedAt)}互相喜欢了。"
+        else -> "你们互相喜欢了。"
     }
+    val text = head + "\n线下见面前不要转账，遇到借钱、投资的请直接举报。"
     Text(
         text, color = HnInk2, fontSize = 12.5.sp, lineHeight = 19.sp, textAlign = TextAlign.Center,
         modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 6.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = 0.04f)).padding(horizontal = 14.dp, vertical = 10.dp),
     )
 }
 
-/** 不能发消息时，输入区换成的那一句说明（聊天记录照常能看） */
+/** 有一方点了「不再联系」时，输入区换成的那一句说明（聊天记录照常能看）。其余情况一律能发，不会用到它 */
 @Composable
-fun ChatBlockedBar(rel: MatchRelation, onOpenCard: () -> Unit) {
+fun ChatBlockedBar(rel: MatchRelation) {
     Column(
         Modifier.fillMaxWidth().background(Color(0xFFF7F4F5)).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 14.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(
-            when (rel.chatReason) {
-                "ended_peer" -> "对方已结束聊天"
-                "ended_me" -> "你已选择不再联系"
-                "legacy_expired" -> "互相喜欢后才能继续聊"
-                else -> "互相喜欢后才能聊天"
-            } + if (rel.state == "liked" && rel.endedBy == null) "。你已经喜欢了 TA，等 TA 回应" else "",
-            color = HnInk2, fontSize = 14.sp, textAlign = TextAlign.Center,
-        )
-        if (rel.endedBy == null && rel.state != "liked") {
-            Spacer(Modifier.height(10.dp))
-            HnPill(if (rel.state == "likedMe") "TA 喜欢了你，去看看" else "去 TA 的画像点喜欢", onClick = onOpenCard)
+        Text(if (rel.endedBy == "me") "你已选择不再联系" else "对方已结束聊天", color = HnInk2, fontSize = 14.sp, textAlign = TextAlign.Center)
+    }
+}
+
+/**
+ * 发起视频被服务器拒绝、原因是还没互相喜欢时弹的说明（样稿 design/09-openchat.html 第 2 组）。放在 AppRoot 最上层，哪个页面发起的都能弹。
+ * 文案按两个人的关系分三种；我还没点喜欢的两种带「去 TA 的画像」（在那里点喜欢）。
+ */
+@Composable
+fun VideoNeedLikeDialog(onOpenCard: (String) -> Unit) {
+    val peer by com.wh.hongniang.rtc.CallManager.videoNeedLike.collectAsState()
+    val (peerId, _) = peer ?: return
+    var state by remember(peerId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(peerId) {
+        state = runCatching { Api.getObj<MatchRelation>("/match/relation/$peerId") }.getOrNull()?.state ?: "none"
+    }
+    val close = { com.wh.hongniang.rtc.CallManager.videoNeedLike.value = null }
+    val s = state ?: return
+    androidx.compose.ui.window.Dialog(onDismissRequest = close) {
+        Column(Modifier.clip(RoundedCornerShape(24.dp)).background(Color.White).padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("互相喜欢后才能视频见面", color = HnInk, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+            Text(
+                when (s) {
+                    "liked" -> "你已经喜欢了 TA，等 TA 也喜欢你，就可以视频了。"
+                    "likedMe" -> "TA 已经喜欢你了，你也点喜欢就可以视频。"
+                    else -> "你还没有喜欢 TA。去 TA 的画像点「喜欢」，TA 也喜欢你，就可以视频了。"
+                },
+                color = HnInk2, fontSize = 13.5.sp, lineHeight = 22.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 7.dp),
+            )
+            Row(Modifier.padding(top = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                HnButton("知道了", Modifier.weight(1f), ghost = true, height = 44.dp, onClick = close)
+                if (s != "liked") HnButton("去 TA 的画像", Modifier.weight(1.3f), height = 44.dp) { close(); onOpenCard(peerId) }
+            }
         }
     }
 }

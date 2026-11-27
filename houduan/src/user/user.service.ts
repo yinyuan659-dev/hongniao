@@ -46,7 +46,7 @@ export class UserService {
     ]);
     return {
       ...this.auth.toProfile(user),
-      /** 是否已完成资料收集（相亲画像已确认）；没完成不能主动发起聊天 */
+      /** 是否已完成资料收集（相亲画像已确认）；没完成不能点喜欢、不会被推荐（2026-11-27 起发消息不看这个） */
       profileDone: done,
       /** AI 深聊：none 没聊过 | chatting 聊到一半 | draft 画像等确认 | done 已确认 */
       deepStatus: prof?.deepConfirmedAt && (!deepSession || deepSession.status === 'done') ? 'done' : (deepSession?.status ?? 'none'),

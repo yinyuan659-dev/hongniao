@@ -370,8 +370,9 @@ export function UserHomePage() {
         background: 'linear-gradient(180deg, transparent, rgba(10,10,12,0.95) 40%, var(--bg))',
         maxWidth: 520, margin: '0 auto',
       }}>
-        {/* 原来这里是直接「发消息」；现在要互相喜欢才能聊，换成喜欢按钮（互相喜欢后它会变成「发消息」） */}
+        {/* 「发消息」+ 喜欢按钮（2026-11-27 起发消息不用互相喜欢；互相喜欢后只剩一个「发消息」） */}
         <LikePill
+          withChat
           peer={{ id: p.id, nickname: p.nickname }}
           style={{ height: 48, borderRadius: 24, padding: '0 24px', fontSize: 15, justifyContent: 'center', ...(canVideo ? {} : { flex: 1 }) }}
         />

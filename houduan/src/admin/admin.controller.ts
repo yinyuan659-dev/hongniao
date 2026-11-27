@@ -129,9 +129,9 @@ export class AdminController {
     return this.deep.clearFlags(BigInt(String(body?.userId ?? '0')));
   }
 
-  // ---------- 推荐、喜欢、聊天限制的设置 ----------
+  // ---------- 推荐、喜欢、视频见面的设置 ----------
 
-  /** 现在的设置：每天推荐几位、每天能喜欢几个、老聊天保留几天、规则是哪天上线的 */
+  /** 现在的设置：每天推荐几位、每天能喜欢几个、视频见面要不要互相喜欢 */
   @Get('match/config')
   @UseGuards(AdminGuard)
   matchConfig() {
@@ -139,13 +139,15 @@ export class AdminController {
   }
 
   /**
-   * 改设置（只改传进来的项）：{ dailyRecs 每天推荐几位 1～10, dailyLikes 在遇见里每天能喜欢几个 0～50, legacyDays 老聊天保留几天 0～365 }。
-   * 改完最多 30 秒生效。
+   * 改设置（只改传进来的项）：
+   *   { dailyRecs 每天推荐几位 1～10, dailyLikes 在遇见里每天能喜欢几个 0～50,
+   *     videoNeedLike 视频见面要不要互相喜欢 true / false（默认 true；false 是测试用的，送审和正式上线时保持 true） }
+   * 改完最多 30 秒生效。videoNeedLike 只决定服务器放不放行视频通话，App 的页面不随它变。
    */
   @Put('match/config')
   @UseGuards(AdminGuard)
-  setMatchConfig(@Body() body: { dailyRecs?: number; dailyLikes?: number; legacyDays?: number }) {
-    return setMatchConfig(this.prisma, { dailyRecs: body?.dailyRecs, dailyLikes: body?.dailyLikes, legacyDays: body?.legacyDays });
+  setMatchConfig(@Body() body: { dailyRecs?: number; dailyLikes?: number; videoNeedLike?: boolean }) {
+    return setMatchConfig(this.prisma, { dailyRecs: body?.dailyRecs, dailyLikes: body?.dailyLikes, videoNeedLike: body?.videoNeedLike });
   }
 
   // ---------- 实人认证开关 ----------

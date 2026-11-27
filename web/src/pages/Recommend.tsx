@@ -135,7 +135,7 @@ export function RecSection({ onBrowse }: { onBrowse: () => void }) {
           {cur.tags.length > 0
             ? <div className="hn-row" style={{ flexWrap: 'wrap', gap: 6, marginTop: 10 }}>{cur.tags.map((t) => <span key={t} className="hn-tag">{t}</span>)}</div>
             : !cur.reason && <div className="hn-t2" style={{ marginTop: 8, lineHeight: 1.6 }}>你们的条件互相符合。点照片看{ta}的完整画像。</div>}
-          {cur.likedMe && <div className="hn-t2" style={{ marginTop: 10, color: 'var(--hn-rose)', fontWeight: 600 }}>{ta}已经喜欢了你，你也喜欢的话马上就能聊天</div>}
+          {cur.likedMe && <div className="hn-t2" style={{ marginTop: 10, color: 'var(--hn-rose)', fontWeight: 600 }}>{ta}已经喜欢了你，你也喜欢的话就可以视频见面</div>}
         </div>
       </div>
       {left.length > 1 && <div className="hn-under" />}

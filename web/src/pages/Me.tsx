@@ -183,13 +183,13 @@ export function MePage() {
         </div>
       </div>
 
-      {/* 我的相亲画像：基本情况（点选问答，必做）+ AI 深聊（可选）。没做完基本情况不能主动找人聊天 */}
+      {/* 我的相亲画像：基本情况（点选问答，必做）+ AI 深聊（可选）。没做完基本情况不能点喜欢、不会被推荐 */}
       <div className="hn-hero-card" style={{ margin: '16px 16px 0', borderRadius: 18 }}>
         <div className="hn-row">
           <div className="hn-grow">
             <div style={{ fontSize: 18, fontWeight: 800 }}>我的相亲画像</div>
             <div style={{ fontSize: 12.5, opacity: 0.92, marginTop: 6, lineHeight: 1.6 }}>
-              {!me.profileDone ? <>基本情况还没填完<br />填完才能主动找人聊天</>
+              {!me.profileDone ? <>基本情况还没填完<br />填完才能喜欢别人、被推荐</>
                 : deep === 'done' ? <>基本情况和 AI 深聊都完成了<br />想法变了可以再聊聊</>
                   : deep === 'draft' ? <>AI 红娘整理好了画像<br />等你看一眼、点确认</>
                     : deep === 'chatting' ? <>基本情况已完成<br />和 AI 红娘聊到一半</>
@@ -227,7 +227,7 @@ export function MePage() {
         {needKyc && <Cell icon="shield" color="#ff9500" title="真人认证" onClick={() => nav('/kyc?next=/me')}><Val value="未完成" dot /></Cell>}
         <Cell icon="lock" color="#007aff" title="登录设备" onClick={() => nav('/devices')}><Val value={deviceCount === null ? undefined : `${deviceCount} 台`} /></Cell>
       </div>
-      {needKyc && <div className="me-gf">做过真人认证才能聊天、发动态、评论。认证一次 ¥1。</div>}
+      {needKyc && <div className="me-gf">做过真人认证才能发动态、评论、视频见面。认证一次 ¥1。</div>}
 
       <div className="me-gh">{t('me.group.tools')}</div>
       <div className="me-card">

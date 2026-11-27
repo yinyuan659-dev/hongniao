@@ -68,7 +68,7 @@ struct MeetSectionView: View {
             } else {
                 ScrollView {
                     if let q = quota {
-                        Text("点 ♥ 喜欢，对方也喜欢你才能聊天 · 今天还能喜欢 \(q.left ?? 0) 个")
+                        Text("点 ♥ 喜欢，互相喜欢后可以视频见面 · 今天还能喜欢 \(q.left ?? 0) 个")
                             .font(.system(size: 12)).foregroundStyle(Theme.textSub)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 18).padding(.bottom, 8)

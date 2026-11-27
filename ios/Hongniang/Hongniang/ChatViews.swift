@@ -524,10 +524,10 @@ struct ChatRoomView: View {
         }
     }
 
-    /// 聊天页右上角能不能点「不合适，不再联系」：互相喜欢的、老聊天、对方已经结束的
+    /// 聊天页右上角能不能点「不合适，不再联系」：任何时候都能点（2026-11-27 起谁都能先发消息，这是不想被打扰时唯一的办法）；自己已经点过的不再显示
     private var canEnd: Bool {
-        guard let r = rel, r.endedBy != "me" else { return false }
-        return r.state == "mutual" || (r.chatReason ?? "").hasPrefix("legacy") || r.endedBy == "peer"
+        guard let r = rel else { return false }
+        return r.endedBy != "me"
     }
 
     @ViewBuilder
@@ -634,9 +634,9 @@ struct ChatRoomView: View {
     private var bottomArea: some View {
         if let sel = selecting {
             selectBar(sel)
-        } else if let r = rel, r.canChat == false {
-            // 不能发消息：输入区换成一句说明，聊天记录照常能看
-            ChatBlockedBar(rel: r) { pushRoute = .userHome(targetId) }
+        } else if let r = rel, r.state == "ended" {
+            // 有一方点了「不再联系」：输入区换成一句说明，聊天记录照常能看。其余情况一律能发
+            ChatBlockedBar(rel: r)
         } else {
             bottomBar
         }
@@ -667,8 +667,9 @@ struct ChatRoomView: View {
             Menu {
                 if !targetId.isEmpty {
                     Button { pushRoute = .userHome(targetId) } label: { Label("看 TA 的画像", systemImage: "person.crop.rectangle") }
-                    // 视频见面：能聊天、并且两个人都打开了视频见面开关才打得通（没打开服务器会给出提示）
-                    if rel?.canChat == true {
+                    // 视频见面：按钮一直在（结束了联系的除外）。要互相喜欢、两个人都打开了视频见面才打得通；
+                    // 能不能打由服务器决定：没互相喜欢会弹说明，别的原因给一句提示
+                    if rel?.state != "ended" {
                         Button {
                             let peerAvatar = messages.first(where: { $0.senderId == targetId })?.senderAvatar ?? ""
                             startCallWithPermissions(calleeId: targetId, type: 2, name: title, avatar: peerAvatar)
@@ -713,7 +714,7 @@ struct ChatRoomView: View {
             Button("去认证") { pushRoute = .web("/kyc?next=/me") }
             Button("以后再说", role: .cancel) {}
         } message: {
-            Text("聊天、发动态、评论都要先做实人认证。\n身份证 + 刷脸，¥1 从 AI 余额扣。")
+            Text("发动态、评论、视频见面都要先做实人认证。\n身份证 + 刷脸，¥1 从 AI 余额扣。")
         }
         .routePush($pushRoute)
         .sheet(isPresented: $showAttach) {
@@ -772,7 +773,8 @@ struct ChatRoomView: View {
     private func handleFrame(_ frame: [String: Any]) {
         let op = frame["op"] as? String
         if op == "error" {
-            // 发送被后端拒绝：撤回乐观显示的消息；没完成资料收集的弹框带去 AI 红娘，其它的提示一下
+            // 发送被后端拒绝：撤回乐观显示的消息，提示一下。
+            // 2026-11-27 起发消息放开了，服务器不会再因为没填资料 / 没认证 / 没互相喜欢拒绝（need_profile、need_kyc 两个分支留着兜底）
             let code = frame["code"] as? String
             if code == "need_profile" {
                 needProfile = true
@@ -781,8 +783,8 @@ struct ChatRoomView: View {
                 needKyc = true
             } else {
                 toastMsg = frame["msg"] as? String ?? t("chat.sendFailed")
-                // 没互相喜欢 / 对方已结束聊天：重新取一次关系，输入区换成说明
-                if code == "need_like" || code == "chat_ended" { Task { await loadRel() } }
+                // 对方已结束聊天：重新取一次关系，输入区换成说明
+                if code == "chat_ended" { Task { await loadRel() } }
             }
             let tid = frame["tempId"] as? String
             let idx = tid != nil ? messages.firstIndex(where: { $0.id == tid }) : messages.lastIndex(where: { $0.id.hasPrefix("t_") })

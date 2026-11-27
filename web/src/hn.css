@@ -52,6 +52,8 @@
 .hn-btn { display: flex; align-items: center; justify-content: center; gap: 6px; height: 50px; border-radius: 25px; border: none; background: var(--hn-grad); color: #fff; font-size: 16px; font-weight: 700; box-shadow: 0 10px 22px rgba(255, 61, 99, 0.32); cursor: pointer; width: 100%; font-family: inherit; }
 .hn-btn.ghost { background: #fff; color: var(--hn-ink); font-weight: 500; box-shadow: 0 4px 14px rgba(43, 28, 34, 0.07); }
 .hn-btn.flat { background: #f5f0f1; color: var(--hn-ink); font-weight: 500; box-shadow: none; }
+/* 白底描边的次要按钮：画像页底部夹在「跳过」和「喜欢」中间的「发消息」（样稿 design/09-openchat.html） */
+.hn-btn.line { background: #fff; color: var(--hn-rose); box-shadow: none; border: 1.5px solid rgba(255, 61, 99, 0.45); }
 .hn-btn:disabled, .hn-btn.off { opacity: 0.45; cursor: default; }
 .hn-pill { display: inline-flex; align-items: center; gap: 5px; height: 34px; padding: 0 15px; border-radius: 17px; border: none; font-size: 13px; font-weight: 600; background: var(--hn-grad); color: #fff; box-shadow: 0 6px 14px rgba(255, 61, 99, 0.28); flex-shrink: 0; cursor: pointer; font-family: inherit; white-space: nowrap; }
 .hn-pill.ghost { background: #fff; color: var(--hn-ink2); font-weight: 500; box-shadow: 0 2px 8px rgba(43, 28, 34, 0.07); }

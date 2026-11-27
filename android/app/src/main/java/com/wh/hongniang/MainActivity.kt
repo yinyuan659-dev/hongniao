@@ -236,23 +236,15 @@ fun AppRoot() {
     }
 
     // 通过用户 id 打开会话（不能和自己私聊）。搜索、动态、老主页都从这里走：
-    // 互相喜欢了才能聊（规则上线前就聊过的有保留期）；不能聊的提示一句，带去对方的画像（在那里点喜欢）
+    // 2026-11-27 起发消息放开了：谁都能直接进聊天页；只有一方点过「不再联系」的提示一句、不进
     fun openChatWithUser(userId: String, nickname: String) {
         if (userId == user?.id || userId.isEmpty()) return
         scope.launch {
             runCatching {
                 val rel = Api.getObj<MatchRelation>("/match/relation/$userId")
-                if (!rel.canChat) {
-                    val tip = when (rel.chatReason) {
-                        "ended_peer" -> "对方已结束聊天"
-                        "ended_me" -> "你已选择不再联系"
-                        "legacy_expired" -> "互相喜欢后才能继续聊"
-                        else -> "互相喜欢后才能聊天"
-                    }
+                if (rel.state == "ended") {
+                    val tip = if (rel.endedBy == "me") "你已选择不再联系" else "对方已结束聊天"
                     android.widget.Toast.makeText(context, tip, android.widget.Toast.LENGTH_SHORT).show()
-                    val here = nav.currentBackStackEntry
-                    val onCard = here?.destination?.route == "u/{id}" && here.arguments?.getString("id") == userId
-                    if (rel.endedBy == null && !onCard) nav.navigate("u/$userId")
                     return@runCatching
                 }
                 val data = Api.request("/im/conversations/open/$userId", "POST") as? JsonObject
@@ -402,6 +394,8 @@ fun AppRoot() {
         MatchCelebration(myAvatar = user?.avatar ?: "") { convId, targetId, title, draft ->
             nav.navigate("chatroom/$convId?targetId=$targetId&title=${Uri.encode(title)}&draft=${Uri.encode(draft)}")
         }
+        // 发起视频被拒、原因是还没互相喜欢：弹说明，可以去对方的画像点喜欢
+        VideoNeedLikeDialog(onOpenCard = { id -> nav.navigate("u/$id") })
         // 有新设备通过刷脸登录了这个账号：提醒一次；「不是我」→ 去登录设备页移除
         if (user != null) NewDeviceDialog(onRemove = { nav.navigate(hnH5("/devices")) })
         CallOverlay()

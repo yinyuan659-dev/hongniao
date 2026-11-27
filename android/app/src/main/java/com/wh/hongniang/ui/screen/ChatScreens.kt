@@ -475,7 +475,8 @@ fun ChatRoomScreen(
                     if (frame["data"]?.jsonObject?.get("conversationId")?.jsonPrimitive?.content == convId) scope.launch { loadPins() }
                 }
                 "error" -> {
-                    // 发送被后端拒绝：撤回乐观显示的消息；没完成资料收集的弹框带去 AI 红娘，其它的提示一下
+                    // 发送被后端拒绝：撤回乐观显示的消息，提示一下。
+                    // 2026-11-27 起发消息放开了，服务器不会再因为没填资料 / 没认证 / 没互相喜欢拒绝（need_profile、need_kyc 两个分支留着兜底）
                     val code = frame["code"]?.jsonPrimitive?.content
                     if (code == "need_profile") {
                         needProfile = true
@@ -485,8 +486,8 @@ fun ChatRoomScreen(
                     } else {
                         val msg = frame["msg"]?.jsonPrimitive?.content ?: t("chat.sendFailed")
                         android.widget.Toast.makeText(ctx, msg, android.widget.Toast.LENGTH_SHORT).show()
-                        // 没互相喜欢 / 对方已结束聊天：重新取一次关系，输入区换成说明
-                        if (code == "need_like" || code == "chat_ended") MatchCenter.version++
+                        // 对方已结束聊天：重新取一次关系，输入区换成说明
+                        if (code == "chat_ended") MatchCenter.version++
                     }
                     val tid = frame["tempId"]?.jsonPrimitive?.content
                     (if (tid != null) messages.firstOrNull { it.id == tid } else messages.lastOrNull { it.id.startsWith("t_") })?.let { last -> messages = messages - last }
@@ -768,13 +769,15 @@ fun ChatRoomScreen(
                 androidx.compose.material3.DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = Bg2) {
                     if (targetId.isNotEmpty()) {
                         androidx.compose.material3.DropdownMenuItem(text = { Text("看 TA 的画像", fontSize = 14.sp, color = TextMain) }, onClick = { menu = false; onNav("u/$targetId") })
-                        // 视频见面：能聊天、并且两个人都打开了视频见面开关才打得通（没打开服务器会给出提示）
-                        if (rel?.canChat == true) {
+                        // 视频见面：按钮一直在（结束了联系的除外）。要互相喜欢、两个人都打开了视频见面才打得通；
+                        // 能不能打由服务器决定：没互相喜欢会弹说明（VideoNeedLikeDialog），别的原因给一句提示
+                        if (rel?.state != "ended") {
                             androidx.compose.material3.DropdownMenuItem(text = { Text("视频见面", fontSize = 14.sp, color = TextMain) }, onClick = { menu = false; onCall(2) })
                         }
                         androidx.compose.material3.DropdownMenuItem(text = { Text("举报", fontSize = 14.sp, color = TextMain) }, onClick = { menu = false; reportUser = true })
+                        // 不合适，不再联系：任何时候都能点（2026-11-27 起谁都能先发消息，这是不想被打扰时唯一的办法）；自己已经点过的不再显示
                         val r = rel
-                        if (r != null && r.endedBy != "me" && (r.state == "mutual" || r.chatReason.startsWith("legacy") || r.endedBy == "peer")) {
+                        if (r != null && r.endedBy != "me") {
                             androidx.compose.material3.DropdownMenuItem(text = { Text("不合适，不再联系", fontSize = 14.sp, color = Danger) }, onClick = { menu = false; showEndConfirm = true })
                         }
                     }
@@ -920,9 +923,9 @@ fun ChatRoomScreen(
                 Spacer(Modifier.width(18.dp))
                 Text(t("common.delete"), color = if (on) Danger else TextDim, fontSize = 15.sp, modifier = Modifier.noRippleClick { if (on) deleteIds = chosen.map { it.id } })
             }
-        } else if (rel?.canChat == false) {
-            // 不能发消息：输入区换成一句说明，聊天记录照常能看
-            ChatBlockedBar(rel!!) { onNav("u/$targetId") }
+        } else if (rel?.state == "ended") {
+            // 有一方点了「不再联系」：输入区换成一句说明，聊天记录照常能看。其余情况一律能发
+            ChatBlockedBar(rel!!)
         } else
         // 微信式底部区（随键盘上移）：左语音切换 / 输入框 / +面板 / 发送
         Column(modifier = Modifier.background(Bg2).imePadding().navigationBarsPadding()) {

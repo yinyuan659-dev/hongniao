@@ -188,7 +188,7 @@ fun MePortraitCard(u: UserProfile, modifier: Modifier = Modifier, onNav: (String
                 Text("我的相亲画像", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
                 Text(
                     when {
-                        !u.profileDone -> "基本情况还没填完\n填完才能主动找人聊天"
+                        !u.profileDone -> "基本情况还没填完\n填完才能喜欢别人、被推荐"
                         deep == "done" -> "基本情况和 AI 深聊都完成了\n想法变了可以再聊聊"
                         deep == "draft" -> "AI 红娘整理好了画像\n等你看一眼、点确认"
                         deep == "chatting" -> "基本情况已完成\n和 AI 红娘聊到一半"

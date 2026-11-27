@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>一线牵 · 聊天放开，视频见面要互相喜欢（样稿）</title>
+<!--
+  给用户确认用的界面样稿，不是产品代码。人是 AI 生成的假人，文字是示意。
+  双击用浏览器打开就能看。网址后面加 ?only=a / b 只显示其中一组（截图用）。
+  观感沿用 03-match.html（common.css / common.js）。这一份改的是 03-match.html 第 4 组「没互相喜欢就不能聊」。
+  用户 2026-11-27 定的：发消息、语音全部放开（不要互相喜欢、不要真人认证、不要先填完基本情况，条数不限）；
+  只有视频见面要互相喜欢；后台有一个开关，关掉以后视频也不要互相喜欢（测试用）。
+-->
+<link rel="stylesheet" href="common.css">
+<style>
+  .dk { display: flex; gap: 8px; padding: 9px; border-radius: 30px; margin: 0 14px; }
+  .dk .btn { height: 46px; font-size: 15px; }
+  .dk .btn.line { background: #fff; color: var(--rose); font-weight: 700; box-shadow: none; border: 1.5px solid rgba(255, 61, 99, .45); }
+  .dk .btn.plain { background: transparent; color: var(--ink); font-weight: 500; box-shadow: none; }
+  .st { font-size: 12px; color: var(--ink-2); margin: 13px 22px 6px; display: flex; align-items: center; gap: 6px; }
+  .st b { width: 18px; height: 18px; border-radius: 9px; background: var(--grad); color: #fff; font-size: 11px; display: inline-flex; align-items: center; justify-content: center; }
+  .st em { font-style: normal; margin-left: auto; font-size: 11px; color: var(--rose); background: var(--soft); border-radius: 8px; padding: 1px 7px; font-weight: 600; }
+  .st em.same { color: var(--ink-2); background: rgba(43, 28, 34, .06); }
+  .tip { margin: 0 14px 8px; padding: 10px 14px; border-radius: 16px; font-size: 12.5px; line-height: 1.55; color: var(--ink-2); text-align: center; background: rgba(255, 255, 255, .7); }
+  .tip.rose { color: var(--rose); font-weight: 600; background: #fff0f2; }
+  .menu { position: absolute; right: 14px; top: 100px; width: 200px; background: #fff; border-radius: 16px; box-shadow: 0 12px 30px rgba(43, 28, 34, .16); z-index: 30; padding: 6px 0; font-size: 14.5px; }
+  .menu div { padding: 12px 18px; display: flex; align-items: center; }
+  .menu em { font-style: normal; margin-left: auto; font-size: 10.5px; color: var(--rose); background: var(--soft); border-radius: 8px; padding: 1px 7px; font-weight: 600; }
+  .panel { display: flex; gap: 0; padding: 14px 6px 4px; }
+  .panel > div { flex: 1; text-align: center; font-size: 12px; color: var(--ink-2); }
+  .panel .sq { width: 54px; height: 54px; border-radius: 17px; background: #fff; box-shadow: 0 4px 14px rgba(43, 28, 34, .07); color: var(--ink); display: flex; align-items: center; justify-content: center; margin: 0 auto 6px; }
+  .panel .sq.hot { box-shadow: 0 0 0 2px var(--rose), 0 4px 14px rgba(255, 61, 99, .2); color: var(--rose); }
+  .ask { position: absolute; left: 26px; right: 26px; top: 250px; z-index: 47; background: #fff; border-radius: 24px; padding: 20px 18px 16px; box-shadow: 0 20px 44px rgba(43, 20, 28, .26); text-align: center; }
+  .ask h4 { font-size: 16.5px; font-weight: 800; }
+  .ask p { font-size: 13.5px; color: var(--ink-2); line-height: 1.65; margin-top: 7px; }
+  .ask .btns { display: flex; gap: 10px; margin-top: 16px; }
+  .ask .btn { flex: 1; height: 44px; font-size: 14.5px; }
+  .ask .btn.ghost { background: #f6f1f2; box-shadow: none; color: var(--ink-2); }
+  .rule { width: 380px; background: #fff; border-radius: 24px; padding: 6px 18px 10px; box-shadow: 0 16px 36px rgba(255, 90, 120, .12); font-size: 13.5px; }
+  .rule .r { display: flex; gap: 10px; padding: 12px 0; align-items: flex-start; line-height: 1.6; }
+  .rule .r + .r { border-top: 1px solid var(--line); }
+  .rule .k { width: 78px; flex-shrink: 0; font-weight: 700; }
+  .rule .v { flex: 1; color: #4b3d43; }
+  .rule .v s { color: var(--ink-3); }
+  .rule .v b { color: var(--rose); }
+  .rule h5 { font-size: 13px; color: var(--ink-2); font-weight: 600; padding: 14px 0 2px; }
+  .sw { display: flex; align-items: center; gap: 10px; background: #fff5f6; border: 1.5px solid rgba(255, 61, 99, .3); border-radius: 18px; padding: 12px 14px; margin: 6px 0 4px; }
+  .sw .switch.on { background: var(--rose); }
+  .sw .switch.on::after { left: 21px; }
+</style>
+</head>
+<body>
+
+<div class="intro">
+  <h1>聊天放开，视频见面要互相喜欢（样稿）</h1>
+  <p>改的是「互相喜欢后才能聊天」这条规则：发消息、语音不再有门槛，只有视频见面要两个人互相喜欢。人是 AI 生成的假人，文字是示意。标 <span style="color:#ff3d63;font-weight:700">改</span> 的是和现在不一样的地方。</p>
+</div>
+
+<!-- ============ A：画像页底部 + 聊天页 ============ -->
+<section data-s="a">
+  <h2><b>1</b>谁都可以先发消息</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">别人画像页底部 <small>按你们俩的关系，五种里显示一种</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+
+        <div class="st" style="margin-top:2px"><b>1</b>还没表态<em>改：多了发消息</em></div>
+        <div class="dk glass">
+          <div class="btn plain" style="flex:1"><i data-ic="x" data-s="17"></i>跳过</div>
+          <div class="btn line" style="flex:1.3"><i data-ic="chat" data-s="16"></i>发消息</div>
+          <div class="btn" style="flex:1.5"><i data-ic="heart" data-s="17"></i>喜欢</div>
+        </div>
+
+        <div class="st"><b>2</b>我喜欢了，对方还没回应<em>改</em></div>
+        <div class="tip">你已经喜欢了她，等她回应。可以先聊聊</div>
+        <div class="dk glass">
+          <div class="btn plain" style="flex:1;font-size:14px">取消喜欢</div>
+          <div class="btn" style="flex:1.6"><i data-ic="chat" data-s="17"></i>发消息</div>
+        </div>
+
+        <div class="st"><b>3</b>对方先喜欢了我<em>改</em></div>
+        <div class="tip rose">她喜欢了你。你也喜欢的话，就可以视频见面</div>
+        <div class="dk glass">
+          <div class="btn plain" style="flex:1;font-size:14px">不合适</div>
+          <div class="btn line" style="flex:1.3"><i data-ic="chat" data-s="16"></i>发消息</div>
+          <div class="btn" style="flex:1.5"><i data-ic="heart" data-s="17"></i>也喜欢</div>
+        </div>
+
+        <div class="st"><b>4</b>已经互相喜欢<em class="same">和现在一样</em></div>
+        <div class="dk glass"><div class="btn" style="flex:1"><i data-ic="chat" data-s="17"></i>发消息</div></div>
+
+        <div class="st"><b>5</b>有一方点了「不再联系」<em class="same">和现在一样</em></div>
+        <div class="tip" style="padding:14px;margin-bottom:0">对方已结束聊天</div>
+      </div></div>
+      <div class="notes">
+        <div><b>发消息</b>在前四种里都有，点了直接进聊天页。没填完基本情况、没做真人认证的人也能发。</div>
+        <div><b>喜欢</b>还是原来的规矩：要先填完基本情况，每天的名额不变，互相喜欢了会弹庆祝页。</div>
+        <div>遇见、动态列表上的按钮不动，点头像进画像页就能发消息。原生的「别人的主页」底部也同样加「发消息」。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">聊天页 <small>还没互相喜欢的两个人</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">小林</div><span class="ic-btn"><i data-ic="more"></i></span></div>
+        <div class="menu">
+          <div>看她的画像</div>
+          <div>视频见面</div>
+          <div>举报</div>
+          <div style="color:#f04438">不合适，不再联系<em>改</em></div>
+          <div style="color:#f04438">清空聊天记录</div>
+        </div>
+        <div class="body">
+          <div class="tip" style="margin:6px 0 16px">你们还没有互相喜欢，可以先聊聊。<br>线下见面前不要转账，遇到借钱、投资的请直接举报。</div>
+          <div style="height:236px"></div>
+          <div class="br me"><div class="bb me">你好，看到你也喜欢自己做饭</div><div class="me-av photo" style="background-image:url(img/p1.jpg)"></div></div>
+          <div class="br"><div class="me-av photo" style="background-image:url(img/f1.jpg);background-position:center 20%"></div><div class="bb ai">你好呀，最近在学做川菜</div></div>
+        </div>
+        <div class="dock">
+          <div class="ibar" style="margin-top:0"><div class="box">发消息…</div><div class="send"><i data-ic="up" data-s="20"></i></div></div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>输入框一直能用</b>。原来「互相喜欢后才能聊天」那一条、和「去 TA 的画像点喜欢」的按钮去掉。</div>
+        <div><b>顶上的提示</b>：没互相喜欢时是上面这一句；互相喜欢后还是原来的「你们在 11 月 23 日互相喜欢了」。</div>
+        <div><b>「不合适，不再联系」任何时候都能点</b>（原来要互相喜欢后才有）。点了以后两边都不能再发消息、打电话，这是不想被打扰时唯一的办法，所以必须放开。</div>
+        <div>别人发来的第一条消息直接出现在消息列表里，和现在的聊天一样，没有单独的「陌生人消息」。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ B：视频见面 + 规则 ============ -->
+<section data-s="b">
+  <h2><b>2</b>只有视频见面要互相喜欢</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">没互相喜欢时点「视频见面 / 视频通话」</div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">小林</div><span class="ic-btn"><i data-ic="more"></i></span></div>
+        <div class="body">
+          <div class="tip" style="margin:6px 0 16px">你们还没有互相喜欢，可以先聊聊。<br>线下见面前不要转账，遇到借钱、投资的请直接举报。</div>
+          <div class="br me"><div class="bb me">你好，看到你也喜欢自己做饭</div><div class="me-av photo" style="background-image:url(img/p1.jpg)"></div></div>
+          <div class="br"><div class="me-av photo" style="background-image:url(img/f1.jpg);background-position:center 20%"></div><div class="bb ai">你好呀，最近在学做川菜</div></div>
+        </div>
+        <div class="dim"></div>
+        <div class="ask">
+          <h4>互相喜欢后才能视频见面</h4>
+          <p>你还没有喜欢她。去她的画像点「喜欢」，<br>她也喜欢你，就可以视频了。</p>
+          <div class="btns"><div class="btn ghost">知道了</div><div class="btn">去她的画像</div></div>
+        </div>
+        <div class="dock" style="background:rgba(255,255,255,.6)">
+          <div class="ibar" style="margin-top:0"><div class="box">发消息…</div><div class="send" style="background:#fff;color:var(--ink);box-shadow:0 4px 16px rgba(43,28,34,.07)"><i data-ic="plus" data-s="20"></i></div></div>
+          <div class="panel">
+            <div><div class="sq"><i data-ic="image" data-s="22"></i></div>相册</div>
+            <div><div class="sq"><i data-ic="camera" data-s="22"></i></div>拍摄</div>
+            <div><div class="sq"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg></div>语音通话</div>
+            <div><div class="sq hot"><i data-ic="video" data-s="22"></i></div>视频通话</div>
+          </div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>按钮一直都在</b>（「+」里的视频通话、右上角「···」里的视频见面），不会因为没互相喜欢就消失；点了才提示。</div>
+        <div>提示里的那句话按关系变：<b>我还没喜欢</b>是上面这句；<b>我喜欢了、对方没回应</b>是「你已经喜欢了她，等她也喜欢你，就可以视频了」，只有一个「知道了」；<b>对方先喜欢了我</b>是「她已经喜欢你了，你也点喜欢就可以视频」。</div>
+        <div><b>语音通话</b>和发消息一样，不要互相喜欢，对方在线就能打。</div>
+        <div>能不能打由服务器决定：就算有人绕过页面直接调接口，没互相喜欢的视频也会被拒绝。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">规则对照 <small>这不是界面</small></div>
+      <div class="rule">
+        <div class="r"><div class="k">发消息</div><div class="v"><s>互相喜欢 + 真人认证 + 主动发起要填完基本情况</s><br><b>注册完就能给任何人发，条数不限</b></div></div>
+        <div class="r"><div class="k">语音通话</div><div class="v"><s>互相喜欢 + 真人认证</s><br><b>和发消息一样放开</b>（对方要在线）</div></div>
+        <div class="r"><div class="k">视频见面</div><div class="v"><b>互相喜欢</b>（受下面的开关管）<br>+ 两个人都在「我的」里打开了「视频见面」<br>+ 真人认证（按后台原来的那个开关）</div></div>
+        <div class="r"><div class="k">不再联系</div><div class="v">任何一方点了，两边都不能再发消息、打电话。<b>任何时候都能点</b></div></div>
+        <div class="r"><div class="k">喜欢 / 推荐</div><div class="v">不变：填完基本情况才能喜欢、才会被推荐；每天名额不变</div></div>
+        <div class="r"><div class="k">发动态、评论</div><div class="v">不变：按后台开关要真人认证</div></div>
+
+        <h5>后台的开关（App 里看不到，没有页面，我用脚本帮你切）</h5>
+        <div class="sw"><div class="grow"><div style="font-weight:700">视频见面要互相喜欢</div><div class="t2" style="margin-top:2px;font-size:12px">默认打开。关掉 = 没互相喜欢也能视频（测试用）</div></div><div class="switch on"></div></div>
+        <div class="r" style="border-top:none;padding-top:8px"><div class="v" style="font-size:12.5px">改完 30 秒内生效，不用重启、不用发新版本。<br>开关只决定服务器放不放行这通视频，<b>App 里的按钮和页面不会因为它多出来或消失</b>。送审和正式上线时保持打开。</div></div>
+      </div>
+      <div class="notes">
+        <div><b>按我的理解定的、你没明说的</b>：视频见面仍然要双方打开「视频见面」、仍然按后台开关要真人认证；「不再联系」放开成任何时候都能点；老聊天 30 天保留期那条规则用不上了，去掉。</div>
+        <div>「我的」页里「做过真人认证才能聊天、发动态、评论」那句小字，改成「做过真人认证才能发动态、评论、视频见面」。</div>
+        <div>三端都要改：后端规则、网页（画像页、聊天页）、安卓、iOS。不改表结构。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script src="common.js"></script>
+</body>
+</html>

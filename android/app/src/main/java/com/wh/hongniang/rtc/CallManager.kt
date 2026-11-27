@@ -251,11 +251,22 @@ object CallManager {
                 clog("invite sent type=$type callId=$callId")
                 _state.value = CallState.Outgoing(callId, calleeId, type, config)
             } catch (e: Exception) {
-                android.widget.Toast.makeText(context, e.message ?: t("call.callFailed"), android.widget.Toast.LENGTH_SHORT).show()
+                if ((e as? com.wh.hongniang.net.ApiException)?.reason == "need_like") {
+                    // 没互相喜欢，服务器不放行视频：不是一句提示就完，交给界面弹「互相喜欢后才能视频见面」（VideoNeedLikeDialog）
+                    videoNeedLike.value = calleeId to peerName.value
+                } else {
+                    android.widget.Toast.makeText(context, e.message ?: t("call.callFailed"), android.widget.Toast.LENGTH_SHORT).show()
+                }
                 teardown()
             }
         }
     }
+
+    /**
+     * 刚才发起的视频被服务器拒绝了，原因是两个人还没互相喜欢：（对方 id，对方昵称）。界面看到它不是 null 就弹说明，关掉时置回 null。
+     * 视频按钮一直都在（聊天页、别人的主页、遇见、动态），能不能打由服务器决定（后台有开关），所以是点了以后才知道。
+     */
+    val videoNeedLike = MutableStateFlow<Pair<String, String>?>(null)
 
     /** 被叫接听 */
     fun accept(context: Context) {

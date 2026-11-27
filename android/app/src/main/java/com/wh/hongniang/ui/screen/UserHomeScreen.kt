@@ -413,11 +413,11 @@ fun UserHomeScreen(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // 原来这里是直接「聊天 / 发消息」；现在要互相喜欢才能聊，换成喜欢按钮（互相喜欢后它会变成「发消息」）
+            // 「发消息」+ 喜欢按钮（2026-11-27 起发消息不用互相喜欢；互相喜欢后只剩一个「发消息」）
             LikeChip(
                 profile.id, profile.nickname,
                 modifier = if (canVideo) Modifier else Modifier.weight(1f),
-                height = 48.dp, onChat = onOpenChat, onNav = onNav,
+                height = 48.dp, withChat = true, onChat = onOpenChat, onNav = onNav,
             )
             if (canVideo) {
                 val busy = profile.busy

@@ -275,7 +275,7 @@ function MeetSection({ city }: { city: string }) {
       {tab === 'rec' && <RecSection onBrowse={() => setTab('all')} />}
       {tab !== 'rec' && quota && items.length > 0 && (
         <div className="small" style={{ padding: '0 18px 8px' }}>
-          点 ♥ 喜欢，对方也喜欢你才能聊天 · 今天还能喜欢 {quota.left} 个
+          点 ♥ 喜欢，互相喜欢后可以视频见面 · 今天还能喜欢 {quota.left} 个
         </div>
       )}
       {tab !== 'rec' && !loading && items.length === 0 && (
@@ -304,7 +304,7 @@ function MeetSection({ city }: { city: string }) {
                 <span style={{ fontSize: 10, color: '#fff', background: '#6c5ce7', padding: '2px 7px', borderRadius: 9 }}>{t('plaza.newBadge')}</span>
               ) : null}
             </div>
-            {/* 喜欢：对方也喜欢我才能聊天。实心 = 我已经喜欢了 */}
+            {/* 喜欢：互相喜欢后可以视频见面（发消息不用喜欢，点头像进画像页就能发）。实心 = 我已经喜欢了 */}
             <button
               className={`hn-heart${u.like === 'liked' || u.like === 'mutual' ? ' on' : ''}`}
               title={u.like === 'likedMe' ? '对方喜欢了你' : '喜欢'}

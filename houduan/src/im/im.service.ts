@@ -1,9 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CryptoService } from '../common/crypto.service';
-import { NeedProfileException, profileDone } from '../common/need-profile';
 import { assertCanChat } from '../common/chat-gate';
-import { assertKyc } from '../common/kyc-gate';
 import { ConnectionRegistry } from './connection.registry';
 import { IntimacyService } from '../intimacy/intimacy.service';
 import { MessagePayload, ReactionView, ReplyPreview, SendFrame } from './im.types';
@@ -63,21 +61,11 @@ export class ImService {
     if (peerId === sender.id) throw new BadRequestException('不能给自己发消息');
     const peer = await this.prisma.user.findUnique({ where: { id: peerId } });
     if (!peer || peer.status !== 0) throw new NotFoundException('对方不存在');
-    // 互相喜欢后才能聊天（规则上线前就聊过的有保留期），见 common/chat-gate.ts。
-    // 转发也是走这里发出去的，所以同样受限制。扫邀请名片只能打开聊天页，发不出消息。
+    // 发消息全部放开（用户 2026-11-27 定）：不要互相喜欢、不要实人认证、不要先填完基本情况，条数不限。
+    // 唯一拦的是有一方点过「不合适，不再联系」（chat_ended），见 common/chat-gate.ts。转发也是走这里发出去的，同样只受这一条限制。
     await assertCanChat(this.prisma, sender.id, peerId);
-    // 做过实人认证才能聊天（后台开关控制，默认关），见 common/kyc-gate.ts
-    await assertKyc(this.prisma, sender.id);
 
     const conv = await this.getOrCreateSingleConversation(sender.id, peerId);
-    // 没完成资料收集的人不能主动发起聊天；对方先发过消息的，可以回复
-    if (!(await profileDone(this.prisma, sender.id))) {
-      const fromPeer = await this.prisma.message.findFirst({
-        where: { conversationId: conv.id, senderId: peerId },
-        select: { id: true },
-      });
-      if (!fromPeer) throw new NeedProfileException();
-    }
     const key = this.crypto.unwrapKey(conv.wrappedKey);
     const reply = await this.resolveReply(conv.id, key, frame.replyToId);
 

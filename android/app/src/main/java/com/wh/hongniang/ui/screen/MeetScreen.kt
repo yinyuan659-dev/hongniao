@@ -115,7 +115,7 @@ fun MeetSection(
         quota?.let { q ->
             if (items.isNotEmpty()) {
                 Text(
-                    "点 ♥ 喜欢，对方也喜欢你才能聊天 · 今天还能喜欢 ${q.left} 个",
+                    "点 ♥ 喜欢，互相喜欢后可以视频见面 · 今天还能喜欢 ${q.left} 个",
                     color = TextSub, fontSize = 12.sp, modifier = Modifier.padding(start = 18.dp, end = 18.dp, bottom = 8.dp),
                 )
             }

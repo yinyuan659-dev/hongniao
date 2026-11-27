@@ -407,7 +407,7 @@ export function InterviewPage() {
               <div className="hn-glass" style={{ margin: '0 0 14px 47px', maxWidth: 330, borderRadius: 18, padding: 16 }}>
                 <div className="row" style={{ gap: 10, alignItems: 'flex-start' }}>
                   <span className="hn-sq" style={{ flexShrink: 0 }}><Ic n="shield" s={18} /></span>
-                  <div><div style={{ fontWeight: 700, fontSize: 15 }}>最后一步：实人认证</div><div className="hn-t3" style={{ marginTop: 3, lineHeight: 1.5 }}>身份证 + 刷脸，做完才能聊天、发动态。¥1 从 AI 余额扣。</div></div>
+                  <div><div style={{ fontWeight: 700, fontSize: 15 }}>最后一步：实人认证</div><div className="hn-t3" style={{ marginTop: 3, lineHeight: 1.5 }}>身份证 + 刷脸，做完才能发动态、评论、视频见面。¥1 从 AI 余额扣。</div></div>
                 </div>
                 <button className="hn-btn" style={{ marginTop: 12, height: 44 }} onClick={() => nav('/kyc?next=/interview')}><Ic n="camera" s={17} />去完成实人认证</button>
               </div>

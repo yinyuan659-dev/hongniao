@@ -533,7 +533,7 @@ fun NeedKycDialog(onDismiss: () -> Unit, onGo: () -> Unit) {
         onDismissRequest = onDismiss,
         containerColor = Bg2,
         title = { Text("先完成实人认证", color = TextMain, fontSize = 17.sp, fontWeight = FontWeight.SemiBold) },
-        text = { Text("聊天、发动态、评论都要先做实人认证。\n身份证 + 刷脸，¥1 从 AI 余额扣。", color = TextSub, fontSize = 14.sp, lineHeight = 22.sp) },
+        text = { Text("发动态、评论、视频见面都要先做实人认证。\n身份证 + 刷脸，¥1 从 AI 余额扣。", color = TextSub, fontSize = 14.sp, lineHeight = 22.sp) },
         confirmButton = { Text("去认证", color = Accent, fontWeight = FontWeight.SemiBold, modifier = Modifier.noRippleClick(onGo).padding(8.dp)) },
         dismissButton = { Text("以后再说", color = TextSub, modifier = Modifier.noRippleClick(onDismiss).padding(8.dp)) },
     )

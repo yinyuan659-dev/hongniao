@@ -353,8 +353,8 @@ struct UserHomeView: View {
     // ===== 底部操作栏 =====
     private func bottomBar(_ p: HomeProfile, canVideo: Bool) -> some View {
         HStack(spacing: 12) {
-            // 原来这里是直接「聊天 / 发消息」；现在要互相喜欢才能聊，换成喜欢按钮（互相喜欢后它会变成「发消息」）
-            LikeChipView(userId: userId, nickname: p.nickname ?? "", height: 48, wide: !canVideo) { chatTarget = $0 }
+            // 「发消息」+ 喜欢按钮（2026-11-27 起发消息不用互相喜欢；互相喜欢后只剩一个「发消息」）
+            LikeChipView(userId: userId, nickname: p.nickname ?? "", height: 48, wide: !canVideo, withChat: true) { chatTarget = $0 }
 
             if canVideo {
                 let busy = p.busy == true

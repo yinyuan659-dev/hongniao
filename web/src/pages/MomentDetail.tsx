@@ -94,7 +94,7 @@ export function MomentDetailPage() {
           {moment.user?.avatar && <img src={moment.user.avatar} alt="" />}
         </div>
         <span className="grow" style={{ fontSize: 15 }}>{moment.user?.nickname}</span>
-        {/* 原来这里是「私聊」；现在要互相喜欢才能聊，换成喜欢按钮（互相喜欢后它会变成「发消息」）。自己的动态不显示 */}
+        {/* 喜欢按钮（互相喜欢后它会变成「发消息」）；没互相喜欢时要发消息，点头像进画像页。自己的动态不显示 */}
         {me?.id !== moment.user?.id && moment.user?.id && (
           <LikePill peer={{ id: moment.user.id, nickname: moment.user.nickname }} />
         )}

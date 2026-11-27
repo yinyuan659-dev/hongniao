@@ -18,7 +18,7 @@ struct MeView: View {
     @State private var toastMsg: String?
     /// AI 余额（元）；nil = 还没取到
     @State private var aiBalance: String?
-    /// 后台要求先做实人认证、而我还没做：显示一行「真人认证 · 未完成」（做过才能聊天 / 发动态 / 评论）
+    /// 后台要求先做实人认证、而我还没做：显示一行「真人认证 · 未完成」（做过才能发动态 / 评论 / 视频见面）
     @State private var needKyc = false
     /// 能登录这个账号的设备有几台；nil = 还没取到
     @State private var deviceCount: Int?
@@ -66,7 +66,7 @@ struct MeView: View {
             ScrollView {
                 VStack(spacing: 0) {
                     whoCard(u)
-                    // 我的相亲画像：基本情况（点选问答，必做）+ AI 深聊（可选）。没做完基本情况不能主动找人聊天
+                    // 我的相亲画像：基本情况（点选问答，必做）+ AI 深聊（可选）。没做完基本情况不能点喜欢、不会被推荐
                     MePortraitCard(u: u)
                         .padding(.horizontal, 16).padding(.top, 16)
                     menuGroups(u)
@@ -179,7 +179,7 @@ struct MeView: View {
                 navRow("creditcard.fill", Self.green, "AI 余额", value: aiBalance.map { "¥\($0)" }, route: .web("/ai-fee"), first: true)
             }
             // 账号与安全：真人认证（后台要求且还没做时才出现）、登录设备（换手机刷脸找回后会多出来，可以移除）；点进去都是网页
-            meGroup("账号与安全", footer: needKyc ? "做过真人认证才能聊天、发动态、评论。认证一次 ¥1。" : nil) {
+            meGroup("账号与安全", footer: needKyc ? "做过真人认证才能发动态、评论、视频见面。认证一次 ¥1。" : nil) {
                 if needKyc {
                     navRow("checkmark.shield.fill", .orange, "真人认证", value: "未完成", dot: true, route: .web("/kyc?next=/me"), first: true)
                 }

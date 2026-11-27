@@ -49,7 +49,7 @@ export function PeoplePage() {
                 <div className="muted ellipsis" style={{ marginTop: 4 }}>{p.signature || t('people.mysterious')}</div>
                 {p.cityName && <div className="small" style={{ marginTop: 2 }}>{p.cityName}</div>}
               </div>
-              {/* 原来是「打招呼」；现在要互相喜欢才能聊 */}
+              {/* 列表上只放喜欢按钮；发消息点头像进画像页（2026-11-27 起不用互相喜欢） */}
               <LikePill peer={p} initial={p.like ?? 'none'} />
             </div>
             {p.albums && p.albums.length > 0 && (

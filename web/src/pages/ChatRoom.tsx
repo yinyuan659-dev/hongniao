@@ -301,7 +301,7 @@ export function ChatRoomPage() {
   messagesRef.current = messages;
   // draft：从互相喜欢的庆祝页点了一句开场白进来，先填进输入框，可以改了再发
   const [input, setInput] = useState(state.draft ?? '');
-  /** 我和对方的关系：互相喜欢了才能发消息（规则上线前就聊过的有保留期） */
+  /** 我和对方的关系：顶上的提示用；只有一方点了「不再联系」时不能发消息 */
   const [rel, setRel] = useState<Relation | null>(null);
   const [reporting, setReporting] = useState(false);
   const targetRef = useRef(state.targetId);
@@ -429,14 +429,15 @@ export function ChatRoomPage() {
           m.tempId === frame.tempId ? { ...m, id: frame.msgId, createdAt: frame.createdAt, pending: false } : m
         )));
       } else if (frame.op === 'error') {
-        // 发送被后端拒绝：撤回乐观显示的消息；没完成资料收集的弹框带去 AI 红娘，其它的提示一下
+        // 发送被后端拒绝：撤回乐观显示的消息，提示一下。
+        // 2026-11-27 起发消息放开了，服务器不会再因为没填资料 / 没认证 / 没互相喜欢拒绝（need_profile、need_kyc 两个分支留着兜底）
         setMessages((prev) => prev.filter((m) => !(m.pending && m.tempId && (frame.tempId ? m.tempId === frame.tempId : true))));
         if (frame.code === 'need_profile') setNeedProfile(true);
         else if (frame.code === 'need_kyc') setNeedKyc(true);
         else {
           showToast(frame.msg ?? t('msg.sendFailed'));
-          // 没互相喜欢 / 对方已结束聊天：输入区换成提示
-          if (frame.code === 'need_like' || frame.code === 'chat_ended') loadRel();
+          // 对方已结束聊天：输入区换成提示
+          if (frame.code === 'chat_ended') loadRel();
         }
       } else if (frame.op === 'read' && frame.conversationId === conversationId) {
         // 对方已读：把我发出的、id 不大于回执 msgId 的消息标记为已读
@@ -776,7 +777,8 @@ export function ChatRoomPage() {
               <div className="nav-menu">
                 {state.targetId && <div onClick={() => { setNavMenu(false); nav(`/u/${state.targetId}`); }}>看 TA 的画像</div>}
                 {state.targetId && <div onClick={() => { setNavMenu(false); setReporting(true); }}>举报</div>}
-                {state.targetId && rel && rel.endedBy !== 'me' && (rel.state === 'mutual' || rel.chatReason.startsWith('legacy') || rel.endedBy === 'peer') && (
+                {/* 任何时候都能点（2026-11-27 起谁都能先发消息，这是不想被打扰时唯一的办法）；自己已经点过的不再显示 */}
+                {state.targetId && rel && rel.endedBy !== 'me' && (
                   <div
                     className="danger"
                     onClick={async () => {
@@ -824,15 +826,15 @@ export function ChatRoomPage() {
       )}
 
       <div className="page page-pad" onClick={() => setShowEmoji(false)}>
-        {/* 顶上一条提示：哪天配上的 + 防骗提醒；老聊天写明保留到哪天 */}
+        {/* 顶上一条提示 + 防骗提醒：互相喜欢了写哪天配上的；还没互相喜欢的照常能聊（样稿 design/09-openchat.html） */}
         {rel?.state === 'mutual' && (
           <div className="hn-tip" style={{ margin: '6px 0 14px', background: 'rgba(0,0,0,0.04)' }}>
             {rel.matchedAt ? `你们在 ${matchDay(rel.matchedAt)}互相喜欢了。` : '你们互相喜欢了。'}<br />线下见面前不要转账，遇到借钱、投资的请直接举报。
           </div>
         )}
-        {rel?.chatReason === 'legacy' && (
+        {rel && rel.state !== 'mutual' && rel.state !== 'ended' && (
           <div className="hn-tip" style={{ margin: '6px 0 14px', background: 'rgba(0,0,0,0.04)' }}>
-            现在要互相喜欢才能聊天。你们以前聊过，{matchDay(rel.legacyUntil)}前还能照常聊；<br />到那天还没互相喜欢，就不能再发新消息了（聊天记录还在）。
+            你们还没有互相喜欢，可以先聊聊。<br />线下见面前不要转账，遇到借钱、投资的请直接举报。
           </div>
         )}
         {(() => {
@@ -893,20 +895,10 @@ export function ChatRoomPage() {
           <span className={selected.length ? '' : 'off'} onClick={() => selected.length && forwardSelected()}>{t('msg.forward')}</span>
           <span className={selected.length ? '' : 'off'} style={selected.length ? { color: 'var(--danger)' } : undefined} onClick={() => selected.length && setDeleteIds(selected.map((m) => m.id))}>{t('common.delete')}</span>
         </div>
-      ) : rel && !rel.canChat ? (
-        // 不能发消息：输入区换成一句说明。聊天记录照常能看
+      ) : rel && rel.state === 'ended' ? (
+        // 有一方点了「不再联系」：输入区换成一句说明，聊天记录照常能看。其余情况一律能发（发消息已经放开）
         <div style={{ background: 'var(--bg-card)', padding: '14px 16px calc(14px + env(safe-area-inset-bottom))', textAlign: 'center', fontSize: 14, color: 'var(--text-2)', lineHeight: 1.6 }}>
-          {rel.chatReason === 'ended_peer' ? '对方已结束聊天' : rel.chatReason === 'ended_me' ? '你已选择不再联系' : (
-            <>
-              {rel.chatReason === 'legacy_expired' ? '互相喜欢后才能继续聊' : '互相喜欢后才能聊天'}
-              {rel.state === 'liked' && '。你已经喜欢了 TA，等 TA 回应'}
-              {state.targetId && rel.state !== 'liked' && (
-                <button className="hn-pill" style={{ marginLeft: 10, verticalAlign: 'middle' }} onClick={() => nav(`/u/${state.targetId}`)}>
-                  {rel.state === 'likedMe' ? 'TA 喜欢了你，去看看' : '去 TA 的画像点喜欢'}
-                </button>
-              )}
-            </>
-          )}
+          {rel.endedBy === 'me' ? '你已选择不再联系' : '对方已结束聊天'}
         </div>
       ) : (
       <div style={{ background: 'var(--bg-card)', position: 'relative' }}>

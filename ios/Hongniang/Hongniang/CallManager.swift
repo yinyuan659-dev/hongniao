@@ -252,8 +252,18 @@ final class CallManager: ObservableObject {
                 Self.clog("invite sent type=\(type) callId=\(resp.callId)")
                 phase = .outgoing(callId: resp.callId, peerId: calleeId, type: type)
             } catch {
-                errorMsg = error.localizedDescription
-                teardown()
+                if (error as? ApiError)?.reason == "need_like" {
+                    // 没互相喜欢，服务器不放行视频（视频按钮一直都在，能不能打由服务器决定，后台有开关）：
+                    // 不是顶上闪一下就完，用盖在所有页面之上的提示框说清楚（样稿 design/09-openchat.html 第 2 组）。
+                    // 样稿里还有一个「去 TA 的画像」按钮，这个提示框在独立窗口里、没法直接带着跳页面，iOS 上先只有「知道了」。
+                    var relState: String?
+                    if let rel: MatchRelation = try? await Api.request("/match/relation/\(calleeId)") { relState = rel.state }
+                    teardown()
+                    alertMsg = videoNeedLikeText(relState)
+                } else {
+                    errorMsg = error.localizedDescription
+                    teardown()
+                }
             }
         }
     }

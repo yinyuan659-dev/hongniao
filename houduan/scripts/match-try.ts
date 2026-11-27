@@ -9,7 +9,7 @@
 import { HnService } from '../src/hn/hn.service';
 import { MatchService } from '../src/match/match.service';
 import { AiPayException } from '../src/ai/ai-gateway.service';
-import { assertCanChat, getMatchConfig, nextRecAt, recDay, relationOf, setMatchConfig } from '../src/common/chat-gate';
+import { assertCanChat, assertCanVideo, getMatchConfig, nextRecAt, recDay, relationOf, setMatchConfig } from '../src/common/chat-gate';
 import { templateFor } from '../src/hn/interview.template';
 
 // ---------- 内存里的假数据库（只实现了用到的那些查询写法） ----------
@@ -158,9 +158,7 @@ async function main() {
   ok(recDay(new Date('2026-11-23T02:00:00Z')) === '2026-11-23', '北京时间 10:00 换成新的一天');
   ok(nextRecAt(new Date('2026-11-23T03:00:00Z')).toISOString() === '2026-11-24T02:00:00.000Z', '下一批是第二天上午 10 点');
   const cfg0 = await getMatchConfig(prisma, true);
-  ok(cfg0.dailyRecs === 3 && cfg0.dailyLikes === 3 && cfg0.legacyDays === 30, '默认：每天推荐 3 位、喜欢 3 个、老聊天保留 30 天');
-  const since = cfg0.since;
-  ok((await getMatchConfig(prisma, true)).since.getTime() === since.getTime(), '规则上线时间记下以后不变');
+  ok(cfg0.dailyRecs === 3 && cfg0.dailyLikes === 3 && cfg0.videoNeedLike === true, '默认：每天推荐 3 位、喜欢 3 个、视频见面要互相喜欢');
 
   console.log('\n【2】挑人：硬条件互相符合');
   const M = 1n;
@@ -241,10 +239,22 @@ async function main() {
   l = await match.list(M, 'liked');
   ok(l.list.length === 5, `小周的「我喜欢的」有 ${l.list.length} 人`);
 
-  console.log('\n【7】没互相喜欢不能聊天');
-  await fails(() => assertCanChat(prisma, M, 11n), 'need_like', '小周给还没回应的合适甲发消息');
-  await fails(() => assertCanChat(prisma, 11n, M), 'need_like', '合适甲给小周发消息');
-  await fails(() => assertCanChat(prisma, M, 33n), 'need_like', '给同性发消息（扫名片进来的）');
+  console.log('\n【7】没互相喜欢：消息、语音放开，视频要互相喜欢');
+  let rel: any = await assertCanChat(prisma, M, 11n);
+  ok(rel.canChat && rel.chatReason === 'open' && rel.state === 'liked', '小周能给还没回应的合适甲发消息（关系：我喜欢了）');
+  rel = await assertCanChat(prisma, 11n, M);
+  ok(rel.canChat && rel.state === 'likedMe', '合适甲也能先给小周发消息（关系：对方先喜欢了我）');
+  ok((await assertCanChat(prisma, M, 14n)).state === 'none' && (await assertCanChat(prisma, 31n, M)).canChat, '都没表态的两个人、没填完基本情况的人，也都能发');
+  ok(rel.canVideo === false && rel.videoReason === 'need_like', '关系里写着：现在还不能视频（没互相喜欢）');
+  await fails(() => assertCanVideo(prisma, M, 11n), 'need_like', '小周给还没回应的合适甲打视频');
+  await fails(() => assertCanVideo(prisma, 11n, M), 'need_like', '合适甲给小周打视频');
+  await fails(() => setMatchConfig(prisma, { videoNeedLike: 'no' as any }), '', '后台把开关填成不是 true / false 的东西');
+  ok((await setMatchConfig(prisma, { videoNeedLike: false })).videoNeedLike === false, '后台把「视频见面要互相喜欢」关掉');
+  rel = await assertCanVideo(prisma, M, 11n);
+  ok(rel.canVideo && rel.videoReason === 'ok' && rel.state === 'liked', '开关关着：没互相喜欢也能视频（测试用）');
+  ok((await setMatchConfig(prisma, { dailyRecs: 3 })).videoNeedLike === false, '改别的设置不会动这个开关');
+  ok((await setMatchConfig(prisma, { videoNeedLike: true })).videoNeedLike === true, '再打开');
+  await fails(() => assertCanVideo(prisma, M, 11n), 'need_like', '开关打开后，没互相喜欢的视频又被拒绝');
 
   console.log('\n【8】互相喜欢');
   frames.length = 0;
@@ -252,7 +262,8 @@ async function main() {
   ok(r.matched && r.state === 'mutual' && !!r.conversationId, '合适甲点「也喜欢」：马上互相喜欢，返回会话');
   ok(r.quota.used === 0, '回应对方的喜欢不占名额');
   ok(frames.some((f) => f.to[0] === '1' && f.frame.event === 'matched' && f.frame.data.peer.id === '11'), '小周那边同时收到「互相喜欢了」');
-  ok((await assertCanChat(prisma, M, 11n)).chatReason === 'mutual' && (await assertCanChat(prisma, 11n, M)).canChat, '两边都能发消息了');
+  ok((await assertCanChat(prisma, M, 11n)).chatReason === 'mutual' && (await assertCanChat(prisma, 11n, M)).canChat, '两边照常能发消息');
+  ok((await assertCanVideo(prisma, M, 11n)).canVideo && (await assertCanVideo(prisma, 11n, M)).videoReason === 'ok', '互相喜欢了：两边都能视频');
   s = await match.summary(M);
   ok(s.mutual === 1 && s.newMatches.length === 1 && s.newMatches[0].peer.id === 11n, '小周下次打开 App：有 1 个还没看过的互相喜欢（补弹庆祝页）');
   await match.seen(M, 11n);
@@ -284,26 +295,28 @@ async function main() {
   await match.end(11n, M);
   await fails(() => assertCanChat(prisma, M, 11n), 'chat_ended', '对方结束后，小周再发消息');
   await fails(() => assertCanChat(prisma, 11n, M), 'chat_ended', '结束的那一方自己再发消息');
-  let rel: any = await relationOf(prisma, M, 11n);
-  ok(rel.state === 'ended' && rel.endedBy === 'peer', '小周这边显示「对方已结束聊天」');
+  await fails(() => assertCanVideo(prisma, M, 11n), 'chat_ended', '结束后打视频');
+  rel = await relationOf(prisma, M, 11n);
+  ok(rel.state === 'ended' && rel.endedBy === 'peer' && !rel.canChat && !rel.canVideo && rel.videoReason === 'ended', '小周这边显示「对方已结束聊天」');
   ok(frames.some((f) => f.to[0] === '1' && f.frame.event === 'ended'), '小周在线的话聊天页马上变成不能发');
   await fails(() => match.like(M, 11n), '', '结束后再点喜欢');
-  await fails(() => match.end(M, 26n), '', '对没聊过的人点「不再联系」');
 
-  console.log('\n【11】规则上线前就有的聊天');
-  const old = await im.getOrCreateSingleConversation(M, 29n);
-  await prisma.message.create({ data: { conversationId: old.id, senderId: M, createdAt: new Date(since.getTime() - 86400_000) } });
-  rel = await relationOf(prisma, M, 29n);
-  ok(rel.canChat && rel.chatReason === 'legacy' && Math.round((rel.legacyUntil.getTime() - since.getTime()) / 86400_000) === 30, '上线前聊过的人：30 天内照常能聊');
-  await setMatchConfig(prisma, { legacyDays: 0 });
-  await fails(() => assertCanChat(prisma, M, 29n), 'need_like', '后台把保留天数改成 0（等于到期）后再发消息');
-  ok((await relationOf(prisma, M, 29n)).chatReason === 'legacy_expired', '提示是「互相喜欢后才能继续聊」');
-  await setMatchConfig(prisma, { legacyDays: 30 });
-  const fresh = await im.getOrCreateSingleConversation(M, 30n);
-  await prisma.message.create({ data: { conversationId: fresh.id, senderId: M, createdAt: new Date(since.getTime() + 1000) } });
-  await fails(() => assertCanChat(prisma, M, 30n), 'need_like', '上线后才有的聊天不算老聊天');
-  await match.end(M, 29n);
-  ok((await relationOf(prisma, 29n, M)).chatReason === 'ended_peer', '老聊天也能点「不合适，不再联系」');
+  console.log('\n【11】「不再联系」任何时候都能点');
+  // 14 和小周互相都没表态：以前这种情况点不了（「你们还没有开始聊天」），现在谁都可能先发来消息，所以放开
+  ok((await relationOf(prisma, 14n, M)).state === 'none', '合适丁和小周之间什么关系都没有');
+  frames.length = 0;
+  r = await match.end(14n, M);
+  ok(r.state === 'ended', '合适丁对没表态过的小周点「不再联系」');
+  await fails(() => assertCanChat(prisma, M, 14n), 'chat_ended', '之后小周再给合适丁发消息');
+  ok((await relationOf(prisma, M, 14n)).chatReason === 'ended_peer' && (await relationOf(prisma, 14n, M)).chatReason === 'ended_me', '两边看到的原因各自是对的');
+  // 26 是小周单方面喜欢的人：对方可以直接结束
+  await match.end(26n, M);
+  await fails(() => assertCanChat(prisma, M, 26n), 'chat_ended', '被我喜欢的人点了「不再联系」后，我再发消息');
+  ok((await match.end(26n, M)).state === 'ended', '重复点一次不报错');
+  await fails(() => match.end(M, 9999n), '', '对不存在的人点「不再联系」');
+  await setMatchConfig(prisma, { videoNeedLike: false });
+  await fails(() => assertCanVideo(prisma, M, 14n), 'chat_ended', '就算把视频的开关关了，结束了联系的两个人也不能视频');
+  await setMatchConfig(prisma, { videoNeedLike: true });
 
   console.log(`\n库里：喜欢记录 ${tables.matchAction.length} 条，推荐记录 ${tables.matchRec.length} 条，AI 理由 ${tables.matchReason.length} 条，AI 调用 ${aiCalls.length} 次`);
   if (failed) {

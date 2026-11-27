@@ -299,17 +299,16 @@ export class MatchService {
   }
 
   /**
-   * 聊天页「不合适，不再联系」：两边都不能再给对方发消息，也不再互相推荐。
+   * 聊天页「不合适，不再联系」：两边都不能再给对方发消息、打电话，也不再互相推荐。
    * 我这边聊天从列表里收起；对方那边聊天还在，只是提示「对方已结束聊天」。
+   * 任何时候都能点（2026-11-27 起发消息放开了，谁都可能先发来消息，这是不想被打扰时唯一的办法）；以前要互相喜欢或者聊过才行。
    */
   async end(userId: bigint, targetId: bigint) {
     if (userId === targetId) throw new BadRequestException('参数不正确');
     const rel = await relationOf(this.prisma, userId, targetId);
     if (rel.endedBy === 'me') return { state: 'ended' };
-    // 没聊过也没互相喜欢的人用不着「结束联系」，点「跳过」就行
-    if (rel.state !== 'mutual' && rel.chatReason !== 'legacy' && rel.chatReason !== 'legacy_expired' && rel.endedBy !== 'peer') {
-      throw new BadRequestException('你们还没有开始聊天');
-    }
+    const target = await this.prisma.user.findUnique({ where: { id: targetId }, select: { id: true } });
+    if (!target) throw new NotFoundException('用户不存在');
     await this.prisma.matchAction.upsert({
       where: { userId_targetId: { userId, targetId } },
       create: { userId, targetId, kind: 'end' },

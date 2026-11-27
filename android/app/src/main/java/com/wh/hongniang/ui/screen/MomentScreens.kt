@@ -59,7 +59,7 @@ fun MomentDetailScreen(id: String, onBack: () -> Unit, onOpenChat: (String, Stri
             Box(modifier = Modifier.size(40.dp).noRippleClick(onBack), contentAlignment = Alignment.Center) { BackIcon(TextMain, 24.dp) }
             Avatar(moment.user?.avatar, 34)
             Text("  ${moment.user?.nickname ?: ""}", color = TextMain, fontSize = 15.sp, modifier = Modifier.weight(1f))
-            // 原来这里是「私聊」；现在要互相喜欢才能聊，换成喜欢按钮（互相喜欢后它会变成「发消息」）。自己的动态不显示
+            // 喜欢按钮（互相喜欢后它会变成「发消息」）；没互相喜欢时要发消息，点头像进画像页。自己的动态不显示
             val author = moment.user
             if (author != null && author.id != Session.uid) {
                 LikeChip(author.id, author.nickname, Modifier.padding(end = 8.dp), height = 32.dp, onChat = onOpenChat, onNav = onNav)
