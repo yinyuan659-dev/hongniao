@@ -1,6 +1,6 @@
 # AI 红娘 · 单机部署（测试环境起步用）
 # 服务器目录约定：/opt/hongniang/{docker-compose.yml,.env,nginx/,minio/,www/web/,houduan/}
-# 对外只暴露 nginx 的 80 / 443 和 SRS 的 1985(TCP) / 8000(UDP)；MySQL / Redis / MinIO / API 只在容器内网互通，不映射到宿主机端口。
+# 对外只暴露 nginx 的 80 / 443 和 SRS 的 8000(UDP，音视频)；MySQL / Redis / MinIO / API 只在容器内网互通，不映射到宿主机端口。
 name: hongniang
 
 services:
@@ -82,7 +82,8 @@ services:
       SRS_SERVER: ${SRS_SERVER:-}
       SRS_API: ${SRS_API:-}
 
-  # 通话流媒体（WHIP / WHEP）。客户端直连 http://公网IP:1985，音视频走 UDP 8000，安全组要放行这两个端口。
+  # 通话流媒体（WHIP / WHEP）。信令不对外：App 走 https://gphnai.com/rtc/v1/whip|whep/，nginx 在内网转给本容器的 1985；
+  # 对外只有音视频用的 UDP 8000（安全组要放行 UDP 8000，注意是 UDP 不是 TCP）。SRS 自带的管理接口（1985 上的 /api/v1/…）外面访问不到。
   srs:
     image: ossrs/srs:5
     container_name: hn-srs
@@ -91,7 +92,6 @@ services:
     environment:
       CANDIDATE: ${SRS_SERVER:-}
     ports:
-      - "1985:1985"
       - "8000:8000/udp"
 
   nginx:
@@ -101,6 +101,8 @@ services:
     depends_on:
       - api
       - minio
+      # nginx 启动时要能解析 hn-srs（通话信令转给它）
+      - srs
     ports:
       - "80:80"
       - "443:443"

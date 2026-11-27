@@ -81,8 +81,8 @@ struct ApiError: Error, LocalizedError {
 
 enum Api {
     // 服务器地址（阿里云杭州），和安卓、网页连的是同一台。2026-11-27 备案通过后从 http://120.55.59.158 换成域名 + HTTPS；
-    // 旧的 IP 地址现在只会跳到这里。Info.plist 里允许明文的那一项还留着：通话的 SRS 信令地址是服务器下发的 http://IP:1985，
-    // 挪到 HTTPS 之前不能关（送审前要收紧）。
+    // 旧的 IP 地址现在只会跳到这里。Info.plist 里已经没有允许明文的例外（NSAppTransportSecurity 整段去掉了）：
+    // 通话信令也走 HTTPS（服务器下发 https://gphnai.com/rtc/v1/whip|whep/），所以后台的通话节点必须配成 443 端口。
     static let baseURL = "https://gphnai.com"
 
     /// App 的 ICP 备案号（2026-11-26 管局审核通过；网站是另一个号，写在网页的页脚里）。显示在「我的」页最底下

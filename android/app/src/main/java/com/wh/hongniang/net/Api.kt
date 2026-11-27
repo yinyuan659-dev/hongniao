@@ -135,7 +135,8 @@ private class UriRequestBody(private val ctx: Context, private val uri: android.
 
 object Api {
     // 服务器地址（阿里云杭州）。2026-11-27 备案通过后从 http://120.55.59.158 换成域名 + HTTPS；旧的 IP 地址现在只会跳到这里。
-    // Manifest 里的 usesCleartextTraffic 还留着：通话的 SRS 信令地址是服务器下发的 http://IP:1985，挪到 HTTPS 之前不能关。
+    // Manifest 里 usesCleartextTraffic="false"：App 不发明文请求。通话信令也走 HTTPS（服务器下发 https://gphnai.com/rtc/v1/whip|whep/），
+    // 所以后台的通话节点必须配成 443 端口；配成别的端口（http://IP:端口）在这个包里会连不上。
     const val BASE_URL = "https://gphnai.com"
 
     /** App 的 ICP 备案号（2026-11-26 管局审核通过；网站是另一个号，写在网页的页脚里）。显示在「我的」页最底下 */

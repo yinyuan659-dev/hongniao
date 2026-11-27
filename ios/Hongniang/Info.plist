@@ -2,12 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- 2026-11-27 起服务器已经是 https://gphnai.com。这一项还留着是因为通话的 SRS 信令地址是 http://IP:1985；信令挪到 HTTPS 后收紧（送审前要做） -->
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsArbitraryLoads</key>
-		<true/>
-	</dict>
+	<!-- 没有 NSAppTransportSecurity 例外：2026-11-27 起接口、网页、通话信令全部是 https://gphnai.com，App 不发明文请求 -->
 	<key>CFBundleDisplayName</key>
 	<string>一线牵</string>
 	<!-- 出口合规：只用 HTTPS / 系统加密，属豁免；免去每次上传 TestFlight 手动回答 -->

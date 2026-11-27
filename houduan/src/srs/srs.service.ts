@@ -36,8 +36,13 @@ export class SrsService {
 
   // ---------- 入口构造 ----------
 
+  /**
+   * 节点的信令地址。端口填 443 = 这个节点的 WHIP / WHEP 挂在 HTTPS 下面（nginx 把 /rtc/v1/whip/、/rtc/v1/whep/ 转给 SRS），
+   * 「IP」那一栏填的是域名（现在是 gphnai.com:443）；其它端口仍是客户端直连 SRS 的 http://IP:端口。
+   * App 两端已经不允许明文请求，所以正式用的节点都要走 443。
+   */
   private endpoint(ip: string, apiPort: number): SrsEndpoint {
-    const base = `http://${ip}:${apiPort}`;
+    const base = apiPort === 443 ? `https://${ip}` : `http://${ip}:${apiPort}`;
     return { srsServer: ip, whipUrl: `${base}/rtc/v1/whip/`, whepUrl: `${base}/rtc/v1/whep/` };
   }
 

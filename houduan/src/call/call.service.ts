@@ -26,8 +26,9 @@ const OFFLINE_STRIKE_LIMIT = 2;
 /**
  * 一对一音视频通话信令（媒体走 SRS WebRTC）：
  * 流命名 live/{callId}_{userId}，双方各推自己的流、拉对方的流。
- * WHIP 推流: http://SRS:1985/rtc/v1/whip/?app=live&stream={callId}_{userId}
- * WHEP 拉流: http://SRS:1985/rtc/v1/whep/?app=live&stream={callId}_{peerId}
+ * WHIP 推流: {节点地址}/rtc/v1/whip/?app=live&stream={callId}_{userId}
+ * WHEP 拉流: {节点地址}/rtc/v1/whep/?app=live&stream={callId}_{peerId}
+ * 节点地址现在是 https://gphnai.com（nginx 转给 SRS，见 SrsService.endpoint）；媒体仍然直连 SRS 的 UDP 8000。
  * 信令帧经 IM WebSocket 下发：{ op: "call", event, data }
  *
  * 通话不收费（相亲全程 0 收费，开发文档 §1）。视频见面默认关闭：
