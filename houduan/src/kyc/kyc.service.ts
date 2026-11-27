@@ -80,7 +80,7 @@ export class KycService {
     } else {
       const w = await this.wallet.get(userId);
       if (w.balance < BigInt(KYC_FEE_MICRO)) {
-        throw new BadRequestException({ message: '余额不足，无法完成实人认证', reason: 'no_balance' });
+        throw new BadRequestException({ message: '牵豆不足，无法完成实人认证', reason: 'no_balance' });
       }
     }
 
@@ -139,7 +139,7 @@ export class KycService {
     // 通过：先占住证号（一证一号，原子），再扣费。余额不够先报错，充值后可重新 finish。
     const w = await this.wallet.get(userId);
     if (w.balance < BigInt(KYC_FEE_MICRO)) {
-      throw new BadRequestException({ message: '余额不足，无法完成实人认证', reason: 'no_balance' });
+      throw new BadRequestException({ message: '牵豆不足，无法完成实人认证', reason: 'no_balance' });
     }
     try {
       await this.prisma.user.update({ where: { id: userId }, data: { idHash: record.idHash, realStatus: 1, realAt: new Date() } });

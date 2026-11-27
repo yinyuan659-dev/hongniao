@@ -139,7 +139,7 @@ export function KycResultPage() {
     try {
       const s = await api<Session>('/kyc/merge/confirm', { method: 'POST', body: { certifyId } });
       clearPending();
-      const moved = Number(s.movedYuan) > 0 ? `新号里的 ¥${s.movedYuan} 已转入 AI 余额。` : '';
+      const moved = Number(s.movedYuan) > 0 ? `新号里的 ${s.movedYuan} 牵豆已转过来。` : '';
       try { sessionStorage.setItem(FLASH_KEY, `已回到你原来的账号「${s.user.nickname}」。${moved}`); } catch { /* 提示出不来不影响 */ }
       if (adoptSession(s.token, s.did, s.user, true)) return;
       nav('/me', { replace: true });
@@ -175,9 +175,9 @@ export function KycResultPage() {
         </div>
         <div className="hn-glass" style={{ marginTop: 20 }}><Account nickname={s.user.nickname} avatar={s.user.avatar} shortId={s.user.shortId ?? null} createdAt={s.user.createdAt ?? ''} /></div>
         <div className="hn-glass" style={{ marginTop: 12, padding: '2px 14px 12px', borderRadius: 20 }}>
-          <Feat ic="chat" text="聊天记录、画像、喜欢的人、余额都在" />
+          <Feat ic="chat" text="聊天记录、画像、喜欢的人、牵豆都在" />
           <Feat ic="users" text="原来的设备不受影响，可在「登录设备」里移除" />
-          <Feat ic="wallet" text={s.charged ? `刷脸 ¥${s.feeYuan} 已从 AI 余额扣，剩 ¥${s.balanceYuan}` : '这次刷脸没有扣你的余额'} />
+          <Feat ic="wallet" text={s.charged ? `刷脸扣了 ${s.feeYuan} 牵豆，还剩 ${s.balanceYuan}` : '这次刷脸没有扣你的牵豆'} />
         </div>
         <button className="hn-btn" style={{ marginTop: 26 }} onClick={() => enterApp(s)}>进入</button>
       </div>
@@ -243,7 +243,7 @@ export function KycResultPage() {
             </div>
             <Feat ic="users" text="进入后，这台设备登录的就是上面这个账号" />
             <Feat ic="trash" text={`现在这个新号「${st.info.myNickname}」会作废，资料和聊天不保留`} />
-            {Number(st.info.myBalanceYuan) > 0 && <Feat ic="wallet" text={`新号里的 AI 余额 ¥${st.info.myBalanceYuan} 会转到原来的账号`} />}
+            {Number(st.info.myBalanceYuan) > 0 && <Feat ic="wallet" text={`新号里的 ${st.info.myBalanceYuan} 牵豆会转到原来的账号`} />}
             <button className="hn-btn" style={{ marginTop: 18 }} disabled={st.busy} onClick={() => confirmMerge(st.info)}>{st.busy ? '处理中…' : '进入原来的账号'}</button>
             <button className="hn-btn flat" style={{ marginTop: 10 }} disabled={st.busy} onClick={() => { clearPending(); later(); }}>先不进，留在现在这个号</button>
           </div>

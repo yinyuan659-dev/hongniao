@@ -714,7 +714,7 @@ struct ChatRoomView: View {
             Button("去认证") { pushRoute = .web("/kyc?next=/me") }
             Button("以后再说", role: .cancel) {}
         } message: {
-            Text("发动态、评论、视频见面都要先做实人认证。\n身份证 + 刷脸，¥1 从 AI 余额扣。")
+            Text("发动态、评论、视频见面都要先做实人认证。\n身份证 + 刷脸，扣 1 牵豆。")
         }
         .routePush($pushRoute)
         .sheet(isPresented: $showAttach) {

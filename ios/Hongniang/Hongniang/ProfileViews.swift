@@ -16,7 +16,7 @@ struct MeView: View {
     @State private var showUserAgreement = false
     @State private var showPrivacy = false
     @State private var toastMsg: String?
-    /// AI 余额（元）；nil = 还没取到
+    /// 牵豆余额；nil = 还没取到
     @State private var aiBalance: String?
     /// 后台要求先做实人认证、而我还没做：显示一行「真人认证 · 未完成」（做过才能发动态 / 评论 / 视频见面）
     @State private var needKyc = false
@@ -174,12 +174,12 @@ struct MeView: View {
             meGroup(t("me.group.content")) {
                 navRow("photo.fill", .orange, t("me.myMoments"), route: .myMoments, first: true)
             }
-            // AI 费用：深聊这类 AI 功能按用量花模型费（平台余额或自己的 Key）；点进去是网页
-            meGroup("AI 费用") {
-                navRow("creditcard.fill", Self.green, "AI 余额", value: aiBalance.map { "¥\($0)" }, route: .web("/ai-fee"), first: true)
+            // 牵豆（原来叫 AI 余额，1 元 = 1 牵豆）：视频见面、AI 功能、真人认证都从这里扣；点进去是网页
+            meGroup("牵豆") {
+                navRow("creditcard.fill", Self.green, "我的牵豆", value: aiBalance, route: .web("/ai-fee"), first: true)
             }
             // 账号与安全：真人认证（后台要求且还没做时才出现）、登录设备（换手机刷脸找回后会多出来，可以移除）；点进去都是网页
-            meGroup("账号与安全", footer: needKyc ? "做过真人认证才能发动态、评论、视频见面。认证一次 ¥1。" : nil) {
+            meGroup("账号与安全", footer: needKyc ? "做过真人认证才能发动态、评论、视频见面。认证一次 1 牵豆。" : nil) {
                 if needKyc {
                     navRow("checkmark.shield.fill", .orange, "真人认证", value: "未完成", dot: true, route: .web("/kyc?next=/me"), first: true)
                 }

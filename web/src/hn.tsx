@@ -123,6 +123,10 @@ export interface AiWalletView {
   autoFallback: boolean;
   feePercent: number;
   canTopup: boolean;
+  /** 充值档位（牵豆 = 元） */
+  topupAmounts?: number[];
+  /** 视频见面每分钟多少牵豆（男方付）；'0.00' = 不收费 */
+  videoPerMin?: string;
   model: string;
 }
 
@@ -158,7 +162,7 @@ export interface CardData {
   match: import('./match').CardMatch | null;
 }
 
-/** 两种付费方式的选择卡片（深聊开始前的说明、AI 费用页、Key 页共用） */
+/** AI 功能两种付费方式的选择卡片：用牵豆 / 用自己的 Key（深聊开始前的说明、牵豆页、Key 页共用） */
 export function PayOptions({ wallet, onPick, onGoKey, onGoTopup }: {
   wallet: { balance: string; payMode: 'platform' | 'own'; hasKey: boolean; feePercent: number };
   onPick: (mode: 'platform' | 'own') => void;
@@ -172,7 +176,7 @@ export function PayOptions({ wallet, onPick, onGoKey, onGoTopup }: {
       <div className={`hn-pay${own ? '' : ' on'}`} onClick={() => onPick('platform')}>
         <span className="hn-sq"><Ic n="wallet" s={18} /></span>
         <div className="hn-grow">
-          <div style={{ fontSize: 14.5, fontWeight: 700 }}>平台余额 <span className="hn-num" style={{ fontWeight: 500, color: 'var(--hn-ink2)' }}>¥{wallet.balance}</span></div>
+          <div style={{ fontSize: 14.5, fontWeight: 700 }}>用牵豆付 <span className="hn-num" style={{ fontWeight: 500, color: 'var(--hn-ink2)' }}>现有 {wallet.balance}</span></div>
           <div className="hn-t3" style={{ marginTop: 2 }}>DeepSeek 实际费用 + {wallet.feePercent}% 手续费</div>
         </div>
         {empty && onGoTopup
@@ -183,7 +187,7 @@ export function PayOptions({ wallet, onPick, onGoKey, onGoTopup }: {
         <span className="hn-sq"><Ic n="key" s={18} /></span>
         <div className="hn-grow">
           <div style={{ fontSize: 14.5, fontWeight: 700 }}>我自己的 DeepSeek Key</div>
-          <div className="hn-t3" style={{ marginTop: 2 }}>用你自己的额度，平台不扣余额</div>
+          <div className="hn-t3" style={{ marginTop: 2 }}>用你自己的额度，平台不扣牵豆</div>
         </div>
         {wallet.hasKey
           ? <span className="hn-ck">{own && <Ic n="check" s={12} />}</span>

@@ -246,7 +246,7 @@ fun InterviewScreen(myAvatar: String, myCity: String, onBack: () -> Unit, onNav:
                     }
                     // 最后一步：实人认证（后台要求且还没做时才出现；做过才能聊天 / 发动态 / 评论）。认证页是网页，内嵌打开
                     if (needKyc && editing == null) {
-                        HnBubble("最后一步：做个实人认证，画像就完成了，之后就能和心动的人聊天。身份证 + 刷脸，一次完成，¥1 从 AI 余额扣。", mine = false)
+                        HnBubble("最后一步：做个实人认证，画像就完成了，之后就能发动态、评论、视频见面。身份证 + 刷脸，一次完成，扣 1 牵豆。", mine = false)
                         Column(Modifier.padding(start = 46.dp, bottom = 12.dp).widthIn(max = 330.dp)) {
                             HnButton("去完成实人认证", Modifier.fillMaxWidth(), height = 44.dp) { onNav(hnH5("/kyc?next=/interview")) }
                         }
@@ -533,7 +533,7 @@ fun NeedKycDialog(onDismiss: () -> Unit, onGo: () -> Unit) {
         onDismissRequest = onDismiss,
         containerColor = Bg2,
         title = { Text("先完成实人认证", color = TextMain, fontSize = 17.sp, fontWeight = FontWeight.SemiBold) },
-        text = { Text("发动态、评论、视频见面都要先做实人认证。\n身份证 + 刷脸，¥1 从 AI 余额扣。", color = TextSub, fontSize = 14.sp, lineHeight = 22.sp) },
+        text = { Text("发动态、评论、视频见面都要先做实人认证。\n身份证 + 刷脸，扣 1 牵豆。", color = TextSub, fontSize = 14.sp, lineHeight = 22.sp) },
         confirmButton = { Text("去认证", color = Accent, fontWeight = FontWeight.SemiBold, modifier = Modifier.noRippleClick(onGo).padding(8.dp)) },
         dismissButton = { Text("以后再说", color = TextSub, modifier = Modifier.noRippleClick(onDismiss).padding(8.dp)) },
     )

@@ -131,6 +131,13 @@ final class AppState: ObservableObject {
     @Published var user: UserProfile?
     /// 注册完直接弹出 AI 红娘资料收集（RootView 监听）
     @Published var openInterview = false
+
+    /// RootView 建的那一个。不走 SwiftUI 环境、直接用 UIKit 弹出来的页面（充值页，见 CallView.swift 的 presentTopup）要靠它拿到同一份状态
+    static weak var current: AppState?
+
+    init() {
+        AppState.current = self
+    }
 }
 
 struct RootView: View {

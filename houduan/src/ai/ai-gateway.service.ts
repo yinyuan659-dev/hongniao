@@ -124,7 +124,7 @@ export class AiGatewayService {
     const chars = o.messages.reduce((s, m) => s + m.content.length, 0);
     const p = priceOf(this.model);
     const worst = Math.ceil(chars * p.miss + o.maxTokens * p.out);
-    if (Number(balance) < worst + feeMicro(worst)) throw new AiPayException('no_balance', '余额不够了');
+    if (Number(balance) < worst + feeMicro(worst)) throw new AiPayException('no_balance', '牵豆不够了');
   }
 
   private async callPlatform(o: AiChatOptions) {

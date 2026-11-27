@@ -16,9 +16,19 @@ import { IntimacyService } from '../intimacy/intimacy.service';
 import { SrsEndpoint, SrsService } from '../srs/srs.service';
 import { assertCanChat, assertCanVideo } from '../common/chat-gate';
 import { assertKyc } from '../common/kyc-gate';
+import { AiWalletService } from '../ai/ai-wallet.service';
+import { yuan2 } from '../ai/ai-price';
+import { NO_BEANS_CODE, PEER_NO_BEANS_CODE, beans, getVideoPriceMicro, minutesAffordable, minutesDue, payerOf } from '../common/video-fee';
 
 /** 掉线检查间隔（毫秒） */
 const WATCH_TICK_MS = 60_000;
+/** 视频扣牵豆的检查间隔（毫秒）：每隔这么久看一遍进行中的收费视频，到了下一分钟就扣 */
+const FEE_TICK_MS = 5_000;
+
+/** 自己付、自己的牵豆不够：客户端弹「去充值」 */
+const noBeans = (message: string) => new ForbiddenException({ message, reason: NO_BEANS_CODE });
+/** 对方付、对方的牵豆不够：客户端提示一句 */
+const peerNoBeans = () => new ForbiddenException({ message: '对方牵豆不足，暂时不能视频', reason: PEER_NO_BEANS_CODE });
 /** 双方连续 N 次检查都有人离线则强制挂断（防异常掉线一直占线） */
 const OFFLINE_STRIKE_LIMIT = 2;
 
@@ -30,9 +40,11 @@ const OFFLINE_STRIKE_LIMIT = 2;
  * 节点地址现在是 https://gphnai.com（nginx 转给 SRS，见 SrsService.endpoint）；媒体仍然直连 SRS 的 UDP 8000。
  * 信令帧经 IM WebSocket 下发：{ op: "call", event, data }
  *
- * 通话不收费（相亲全程 0 收费，开发文档 §1）。
- * 语音通话和发消息一样放开；视频见面要互相喜欢（后台开关可关，测试用），并且默认关闭：
+ * 语音通话不收费，和发消息一样放开。
+ * 视频见面要互相喜欢（后台开关可关，测试用），并且默认关闭：
  * 自己和对方都在「我的」里打开「视频见面」（user.allowVideo）后才能发起（开发文档 §3.5）。
+ * 视频按分钟收牵豆（2026-11-27 起，只有男方付，规则见 common/video-fee.ts）：
+ *   发起 / 接听前查付的人够不够 1 分钟；接通时扣第 1 分钟；feeTick 每 5 秒看一遍，到了下一分钟就扣，扣不出来就挂断。
  */
 @Injectable()
 export class CallService implements OnModuleInit, OnModuleDestroy {
@@ -40,6 +52,9 @@ export class CallService implements OnModuleInit, OnModuleDestroy {
   private readonly srsApi: string;
   private readonly logger = new Logger('Call');
   private watchTimer?: NodeJS.Timeout;
+  private feeTimer?: NodeJS.Timeout;
+  /** 上一轮扣费检查还没跑完时，这一轮直接跳过 */
+  private feeBusy = false;
   /** 双方离线连击计数（连续 OFFLINE_STRIKE_LIMIT 次强制挂断） */
   private readonly offlineStrikes = new Map<string, number>();
 
@@ -47,10 +62,14 @@ export class CallService implements OnModuleInit, OnModuleDestroy {
     this.watchTimer = setInterval(() => {
       this.watchTick().catch((e) => this.logger.error(`掉线检查异常: ${e?.stack ?? e}`));
     }, WATCH_TICK_MS);
+    this.feeTimer = setInterval(() => {
+      this.feeTick().catch((e) => this.logger.error(`视频扣费检查异常: ${e?.stack ?? e}`));
+    }, FEE_TICK_MS);
   }
 
   onModuleDestroy() {
     if (this.watchTimer) clearInterval(this.watchTimer);
+    if (this.feeTimer) clearInterval(this.feeTimer);
   }
 
   constructor(
@@ -59,6 +78,7 @@ export class CallService implements OnModuleInit, OnModuleDestroy {
     private readonly im: ImService,
     private readonly intimacy: IntimacyService,
     private readonly srs: SrsService,
+    private readonly wallet: AiWalletService,
     config: ConfigService,
   ) {
     this.srsServer = config.get<string>('SRS_SERVER') ?? '';
@@ -118,13 +138,29 @@ export class CallService implements OnModuleInit, OnModuleDestroy {
     if (busySet.has(calleeId.toString())) throw new BadRequestException('对方正在通话中');
     if (busySet.has(callerId.toString())) throw new BadRequestException('您正在通话中');
 
+    // 视频按分钟收牵豆，只有男方付（见 common/video-fee.ts）：付的人连 1 分钟都不够，就不让打。
+    // 放在在线、占线检查后面：对方不在线时只说「不在线」，不透露别的
+    let payerId = 0n;
+    let priceMicro = 0;
+    let payerBalance = 0n;
+    if (type === 2) {
+      priceMicro = await getVideoPriceMicro(this.prisma);
+      if (priceMicro > 0) {
+        payerId = payerOf(caller, callee);
+        payerBalance = (await this.wallet.get(payerId)).balance;
+        if (payerBalance < BigInt(priceMicro)) {
+          throw payerId === callerId ? noBeans(`牵豆不够，视频见面每分钟 ${beans(priceMicro)} 牵豆`) : peerNoBeans();
+        }
+      }
+    }
+
     const callId = randomUUID().replace(/-/g, '');
     // 按各节点负载分配 SRS，记在通话记录上：双方（含接听时）拿到同一节点
     const endpoint = await this.srs.pick(`call ${callId}`);
     const record = await this.prisma.callRecord.create({
-      data: { callId, callerId, calleeId, type, status: 0, srsNode: endpoint.srsServer },
+      data: { callId, callerId, calleeId, type, status: 0, srsNode: endpoint.srsServer, payerId, priceMicro },
     });
-    this.logger.log(`invite: callId=${callId} type=${type} srs=${endpoint.srsServer || '(env)'}`);
+    this.logger.log(`invite: callId=${callId} type=${type} srs=${endpoint.srsServer || '(env)'} price=${priceMicro} payer=${payerId}`);
 
     const config = await this.getConfig(endpoint);
     await this.registry.deliver([calleeId], {
@@ -135,9 +171,78 @@ export class CallService implements OnModuleInit, OnModuleDestroy {
         type,
         caller: { id: caller.id.toString(), nickname: caller.nickname, avatar: caller.avatar },
         config,
+        // 被叫是付牵豆的那一方（女方打给男方）时，来电页要写明价格，点「接听」才开始扣
+        fee: this.feeView(calleeId, payerId, priceMicro, payerBalance),
       },
     });
-    return { callId, config, record: { id: record.id } };
+    return { callId, config, record: { id: record.id }, fee: this.feeView(callerId, payerId, priceMicro, payerBalance) };
+  }
+
+  /**
+   * 给某一方看的收费信息。不收费（语音、价格是 0）返回 null。
+   * 不是付钱的那一方：只告诉价格和「不用你付」，不透露对方有多少牵豆。
+   */
+  private feeView(userId: bigint, payerId: bigint, priceMicro: number, payerBalance: bigint) {
+    if (priceMicro <= 0 || payerId === 0n) return null;
+    if (payerId !== userId) return { perMin: beans(priceMicro), iPay: false };
+    return {
+      perMin: beans(priceMicro),
+      iPay: true,
+      balance: yuan2(payerBalance),
+      minutes: minutesAffordable(payerBalance, priceMicro),
+      enough: payerBalance >= BigInt(priceMicro),
+    };
+  }
+
+  /** 发起视频之前问一下：和这个人视频要不要牵豆、谁付、我够不够（男方发起前的确认框用） */
+  async feeFor(userId: bigint, peerId: bigint) {
+    const priceMicro = await getVideoPriceMicro(this.prisma);
+    if (priceMicro <= 0) return { free: true, perMin: '0', iPay: false };
+    const [me, peer] = await Promise.all([
+      this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, gender: true } }),
+      this.prisma.user.findUnique({ where: { id: peerId }, select: { id: true, gender: true } }),
+    ]);
+    if (!me || !peer || me.gender === peer.gender) return { free: true, perMin: '0', iPay: false };
+    const payerId = payerOf(me, peer);
+    const balance = payerId === userId ? (await this.wallet.get(userId)).balance : 0n;
+    return { free: false, ...this.feeView(userId, payerId, priceMicro, balance)! };
+  }
+
+  /** 明细里这一通写的备注：「和小林」（对方的昵称；一通视频每分钟一条流水，备注都一样，明细里合成一条） */
+  private async feeNote(record: { callerId: bigint; calleeId: bigint; payerId: bigint }): Promise<string> {
+    const peerId = record.payerId === record.callerId ? record.calleeId : record.callerId;
+    const peer = await this.prisma.user.findUnique({ where: { id: peerId }, select: { nickname: true } });
+    return `和${peer?.nickname ?? ''}`;
+  }
+
+  /**
+   * 扣第 n 分钟的牵豆。扣到了返回扣完的余额（微元）；牵豆不够返回 null。
+   * 同一通的同一分钟只会扣一次（流水的 refKey 是「通话号:第几分钟」，钱包那边按它去重）。
+   */
+  private async chargeMinute(record: { callId: string; callerId: bigint; calleeId: bigint; payerId: bigint; priceMicro: number }, n: number): Promise<number | null> {
+    try {
+      const r = await this.wallet.charge(record.payerId, record.priceMicro, 'video', `${record.callId}:${n}`, await this.feeNote(record));
+      return r.balanceMicro;
+    } catch (e: any) {
+      if (e?.getResponse?.()?.reason === 'no_balance') return null;
+      throw e;
+    }
+  }
+
+  /** 告诉付钱的那一方：这一通扣到第几分钟了、一共用了多少、还剩多少（通话页左上角那一块；low = 剩下的不够再付 1 分钟） */
+  private async pushFee(record: { callId: string; payerId: bigint; priceMicro: number }, minutes: number, balanceMicro: number) {
+    await this.registry.deliver([record.payerId], {
+      op: 'call',
+      event: 'fee',
+      data: {
+        callId: record.callId,
+        minutes,
+        perMin: beans(record.priceMicro),
+        used: beans(minutes * record.priceMicro),
+        balance: yuan2(balanceMicro),
+        low: balanceMicro < record.priceMicro,
+      },
+    });
   }
 
   async accept(userId: bigint, callId: string) {
@@ -145,14 +250,73 @@ export class CallService implements OnModuleInit, OnModuleDestroy {
     if (record.calleeId !== userId) throw new ForbiddenException('无权操作');
     if (record.status !== 0) throw new BadRequestException('通话状态已变更');
 
+    // 收费的视频：接通这一刻扣第 1 分钟。扣不出来就接不通
+    const paid = record.priceMicro > 0 && record.payerId !== 0n;
+    let balanceMicro = 0;
+    if (paid) {
+      const after = await this.chargeMinute(record, 1);
+      if (after === null) {
+        // 付的人就是正在点接听的这位：让他去充值，来电还在
+        if (record.payerId === userId) throw noBeans('牵豆不够，充值后才能接听');
+        // 付的人是打过来的那一方（发起时还够，这会儿不够了）：这一通取消，两边各说一句
+        await this.prisma.callRecord.update({ where: { callId }, data: { status: 5, endedAt: new Date() } });
+        await this.registry.deliver([record.callerId], { op: 'call', event: 'end', data: { callId, durationSec: 0, reason: '牵豆不够，通话已取消', code: NO_BEANS_CODE } });
+        throw peerNoBeans();
+      }
+      balanceMicro = after;
+    }
+
     await this.prisma.callRecord.update({
       where: { callId },
-      data: { status: 1, startedAt: new Date() },
+      data: { status: 1, startedAt: new Date(), ...(paid ? { paidMinutes: 1 } : {}) },
     });
     // 与 invite 同一节点
     const config = await this.getConfig(await this.srs.endpointFor(record.srsNode));
     await this.registry.deliver([record.callerId], { op: 'call', event: 'accept', data: { callId } });
+    if (paid) await this.pushFee(record, 1, balanceMicro);
     return { callId, config };
+  }
+
+  /** 每 5 秒：看一遍进行中的收费视频，到了下一分钟的就扣；扣不出来的挂断 */
+  private async feeTick() {
+    if (this.feeBusy) return;
+    this.feeBusy = true;
+    try {
+      const active = await this.prisma.callRecord.findMany({ where: { status: 1, priceMicro: { gt: 0 } } });
+      for (const r of active) {
+        try {
+          await this.settle(r);
+        } catch (e: any) {
+          this.logger.error(`视频扣费处理通话异常: callId=${r.callId} err=${e?.stack ?? e}`);
+        }
+      }
+    } finally {
+      this.feeBusy = false;
+    }
+  }
+
+  /** 把一通收费视频扣到它现在应该扣到的那一分钟 */
+  private async settle(r: { callId: string; callerId: bigint; calleeId: bigint; payerId: bigint; priceMicro: number; paidMinutes: number; startedAt: Date | null }) {
+    if (!r.startedAt || r.payerId === 0n) return;
+    const due = minutesDue(r.startedAt);
+    for (let n = r.paidMinutes + 1; n <= due; n++) {
+      // 先在通话记录上占住这一分钟：通话已经结束了、或者这一分钟别处已经处理过，就不再扣
+      const claimed = await this.prisma.callRecord.updateMany({ where: { callId: r.callId, status: 1, paidMinutes: n - 1 }, data: { paidMinutes: n } });
+      if (claimed.count === 0) return;
+      const after = await this.chargeMinute(r, n);
+      if (after === null) {
+        // 扣不出来：这一分钟不算，挂断。付的人看到「牵豆用完了」，对方看到「对方牵豆不足」
+        await this.prisma.callRecord.updateMany({ where: { callId: r.callId, paidMinutes: n }, data: { paidMinutes: n - 1 } });
+        this.logger.log(`牵豆不够，挂断: callId=${r.callId} payer=${r.payerId} paidMinutes=${n - 1}`);
+        await this.end(r.payerId, r.callId, {
+          reason: '对方牵豆不足，通话已结束',
+          notifyBoth: true,
+          payer: { id: r.payerId, reason: '牵豆用完了，通话已结束', code: NO_BEANS_CODE },
+        });
+        return;
+      }
+      await this.pushFee(r, n, after);
+    }
   }
 
   async reject(userId: bigint, callId: string) {
@@ -180,8 +344,9 @@ export class CallService implements OnModuleInit, OnModuleDestroy {
    * 任一方挂断。
    * opts.reason：强制挂断原因（连接中断），随 end 信令下发；
    * opts.notifyBoth：true 时双方都收 end 信令（服务端强制挂断场景）。
+   * opts.payer：牵豆不够被挂断时，付钱的那一方收到的原因和别人不一样（带 code、这一通扣了几分钟、一共多少）。
    */
-  async end(userId: bigint, callId: string, opts?: { reason?: string; notifyBoth?: boolean }) {
+  async end(userId: bigint, callId: string, opts?: { reason?: string; notifyBoth?: boolean; payer?: { id: bigint; reason: string; code: string } }) {
     const record = await this.mustCall(callId);
     if (record.callerId !== userId && record.calleeId !== userId) throw new ForbiddenException('无权操作');
     if (record.status !== 1 && record.status !== 0) return { ok: true };
@@ -201,11 +366,13 @@ export class CallService implements OnModuleInit, OnModuleDestroy {
 
     const peer = record.callerId === userId ? record.calleeId : record.callerId;
     const targets = opts?.notifyBoth ? [record.callerId, record.calleeId] : [peer];
-    await this.registry.deliver(targets, {
-      op: 'call',
-      event: 'end',
-      data: { callId, durationSec, ...(opts?.reason ? { reason: opts.reason } : {}) },
-    });
+    const base = { callId, durationSec, ...(opts?.reason ? { reason: opts.reason } : {}) };
+    for (const target of targets) {
+      const mine = opts?.payer && target === opts.payer.id
+        ? { ...base, reason: opts.payer.reason, code: opts.payer.code, minutes: record.paidMinutes, used: beans(record.paidMinutes * record.priceMicro) }
+        : base;
+      await this.registry.deliver([target], { op: 'call', event: 'end', data: mine });
+    }
     await this.im.sendCallMessage(
       record.callerId,
       record.calleeId,

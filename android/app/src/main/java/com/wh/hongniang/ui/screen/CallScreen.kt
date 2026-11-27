@@ -83,12 +83,28 @@ fun CallOverlay() {
             is CallState.Incoming -> Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
                 Spacer(Modifier.height(110.dp))
                 PeerHeader(peerName, peerAvatar, if (s.type == 2) t("call.invitedVideo") else t("call.invitedVoice"))
+                // 这通视频要我付牵豆（女方打给男方）：接听之前把价格写出来，点「接听」才开始算。牵豆不够时「接听」换成「去充值」
+                val fee = s.fee?.takeIf { it.iPay && !it.free }
+                if (fee != null) {
+                    Spacer(Modifier.height(18.dp))
+                    Text(
+                        if (fee.enough) "接听后由你支付 ${fee.perMin} 牵豆 / 分钟\n你现在有 ${fee.balance} 牵豆"
+                        else "牵豆不够，充值后才能接听\n视频见面 ${fee.perMin} 牵豆 / 分钟，你现在有 ${fee.balance}",
+                        color = Color.White, fontSize = 13.sp, lineHeight = 20.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.clip(RoundedCornerShape(18.dp)).background(Color.White.copy(alpha = 0.14f))
+                            .border(1.dp, Color.White.copy(alpha = 0.28f), RoundedCornerShape(18.dp)).padding(horizontal = 16.dp, vertical = 9.dp),
+                    )
+                }
                 Spacer(Modifier.weight(1f))
                 Row(Modifier.fillMaxWidth().padding(bottom = 70.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                     CircleAction(t("call.decline"), HangupRed, "✕") { CallManager.reject() }
-                    CircleAction(t("call.answer"), AnswerGreen, "✓") {
-                        CallManager.attachContext(context)
-                        CallManager.accept(context)
+                    if (fee != null && !fee.enough) {
+                        CircleAction("去充值", com.wh.hongniang.ui.theme.Accent, "＋") { CallManager.rejectForTopup() }
+                    } else {
+                        CircleAction(t("call.answer"), AnswerGreen, "✓") {
+                            CallManager.attachContext(context)
+                            CallManager.accept(context)
+                        }
                     }
                 }
             }
@@ -247,6 +263,23 @@ private fun ActiveCall(state: CallState.Active, peerName: String, peerAvatar: St
                     timeText, color = Color.White, fontSize = 14.sp,
                     modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = 0.4f)).padding(horizontal = 12.dp, vertical = 5.dp),
                 )
+            }
+            // 视频按分钟扣牵豆（只有付的那一方有）：左上角写已用 / 还剩，每分钟变一次；只够这最后 1 分钟时中间出一条红的提醒
+            val fee by CallManager.feeTick.collectAsState()
+            fee?.let { f ->
+                Text(
+                    "已用 ${f.used} 牵豆\n还剩 ${f.balance}", color = Color.White, fontSize = 12.sp, lineHeight = 18.sp,
+                    modifier = Modifier.align(Alignment.TopStart).padding(start = 12.dp, top = 100.dp)
+                        .clip(RoundedCornerShape(14.dp)).background(Color.Black.copy(alpha = 0.46f)).padding(horizontal = 12.dp, vertical = 7.dp),
+                )
+                if (f.low) {
+                    Text(
+                        "牵豆只够再聊 1 分钟了", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.align(Alignment.TopCenter).padding(start = 14.dp, end = 14.dp, top = 262.dp).fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp)).background(Color(0xEBF04438)).padding(horizontal = 14.dp, vertical = 9.dp),
+                    )
+                }
             }
             if (containerSize != androidx.compose.ui.unit.IntSize.Zero) {
                 val winW = with(density) { 110.dp.toPx() }

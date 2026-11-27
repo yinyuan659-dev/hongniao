@@ -46,6 +46,37 @@ struct CallOverlay: View {
                 }
             }
         }
+        // 视频按分钟收牵豆（只有男方付，样稿 design/10-qiandou.html）：这两个框和通话界面在同一个独立窗口里，能盖住任何页面
+        .overlay {
+            // ① 我要付牵豆的视频：拨出去之前先看价格，点「开始视频」才拨。点暗处 = 取消
+            if let ask = manager.feeAsk {
+                ZStack(alignment: .bottom) {
+                    Color.black.opacity(0.45).ignoresSafeArea().onTapGesture { manager.feeAsk = nil }
+                    feeAskCard(ask)
+                }
+            }
+        }
+        .overlay {
+            // ② 牵豆不够（发起时 / 接听时 / 通话中用完被服务器挂断）：说清楚，可以去充值
+            if let nb = manager.noBeans {
+                ZStack {
+                    Color.black.opacity(0.55).ignoresSafeArea()
+                    VStack(spacing: 0) {
+                        Text(nb.title).font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.text).multilineTextAlignment(.center)
+                        Text(nb.text).font(.system(size: 14)).foregroundStyle(Theme.textSub).multilineTextAlignment(.center).lineSpacing(5)
+                            .padding(.top, 8)
+                        HStack(spacing: 10) {
+                            Button { manager.noBeans = nil } label: { feeButton("知道了", primary: false) }.buttonStyle(.plain)
+                            Button { manager.noBeans = nil; presentTopup() } label: { feeButton("去充值", primary: true) }.buttonStyle(.plain)
+                        }
+                        .padding(.top, 18)
+                    }
+                    .padding(22)
+                    .frame(width: 290)
+                    .background(RoundedRectangle(cornerRadius: 18).fill(Theme.bg2))
+                }
+            }
+        }
         .overlay(alignment: .top) {
             if let msg = manager.errorMsg {
                 Text(msg)
@@ -60,6 +91,71 @@ struct CallOverlay: View {
                     }
             }
         }
+    }
+
+    // MARK: - 视频收牵豆
+
+    /// 来电：这通视频要我付牵豆（女方打给男方）时的收费信息；不用我付 / 不收费是 nil
+    private var payFee: CallFee? {
+        guard let f = manager.incomingFee, f.iPay == true, f.free != true else { return nil }
+        return f
+    }
+
+    /// 来电：我的牵豆够不够接这一通
+    private var payEnough: Bool { payFee?.enough ?? true }
+
+    /// 发起前的价格确认：从底下升上来的一张卡
+    private func feeAskCard(_ ask: CallManager.FeeAsk) -> some View {
+        let fee = ask.fee
+        let enough = fee.enough ?? true
+        let perMin = fee.perMin ?? ""
+        let balance = fee.balance ?? ""
+        return VStack(alignment: .leading, spacing: 0) {
+            Text(ask.name.isEmpty ? "视频见面" : "和\(ask.name)视频见面")
+                .font(.system(size: 18, weight: .heavy)).foregroundStyle(Theme.text)
+            feeRow("价格", "\(perMin) 牵豆 / 分钟").padding(.top, 10)
+            Rectangle().fill(Theme.line).frame(height: 0.5)
+            feeRow("谁付", "由你支付，对方不花钱")
+            Rectangle().fill(Theme.line).frame(height: 0.5)
+            feeRow("你的牵豆", enough ? "\(balance)，大约能聊 \(fee.minutes ?? 0) 分钟" : "\(balance)，不够 1 分钟")
+            Text(enough ? "接通后开始算，不满 1 分钟按 1 分钟。牵豆用完会自动挂断。" : "牵豆不够，至少要 \(perMin)。充值后再打。")
+                .font(.system(size: 12)).foregroundStyle(enough ? Theme.textSub : Theme.accent).lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 8)
+            HStack(spacing: 10) {
+                Button { manager.feeAsk = nil } label: { feeButton("取消", primary: false) }.buttonStyle(.plain)
+                Button {
+                    manager.feeAsk = nil
+                    if enough {
+                        manager.startCall(calleeId: ask.calleeId, type: 2, name: ask.name, avatar: ask.avatar, feeConfirmed: true)
+                    } else {
+                        presentTopup()
+                    }
+                } label: { feeButton(enough ? "开始视频" : "去充值", primary: true) }.buttonStyle(.plain)
+            }
+            .padding(.top, 16)
+        }
+        .padding(.horizontal, 20).padding(.top, 22).padding(.bottom, 20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 28).fill(Theme.bg2).ignoresSafeArea(edges: .bottom))
+    }
+
+    private func feeRow(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .top) {
+            Text(label).font(.system(size: 14)).foregroundStyle(Theme.textSub)
+            Spacer(minLength: 12)
+            Text(value).font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.text).multilineTextAlignment(.trailing)
+        }
+        .padding(.vertical, 9)
+    }
+
+    private func feeButton(_ title: String, primary: Bool) -> some View {
+        Text(title)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(primary ? Color.white : Theme.textSub)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 13)
+            .background(Capsule().fill(primary ? AnyShapeStyle(Theme.accentGrad) : AnyShapeStyle(Color.gray.opacity(0.16))))
     }
 
     @ViewBuilder
@@ -88,6 +184,17 @@ struct CallOverlay: View {
                 VStack {
                     Spacer().frame(height: 110)
                     peerHeader(status: type == 2 ? t("call.invitedVideo") : t("call.invitedVoice"))
+                    // 这通视频要我付牵豆（女方打给男方）：接听之前把价格写出来，点「接听」才开始算。牵豆不够时「接听」换成「去充值」
+                    if let fee = payFee {
+                        Text(payEnough
+                             ? "接听后由你支付 \(fee.perMin ?? "") 牵豆 / 分钟\n你现在有 \(fee.balance ?? "") 牵豆"
+                             : "牵豆不够，充值后才能接听\n视频见面 \(fee.perMin ?? "") 牵豆 / 分钟，你现在有 \(fee.balance ?? "")")
+                            .font(.system(size: 13)).foregroundStyle(.white).multilineTextAlignment(.center).lineSpacing(4)
+                            .padding(.horizontal, 16).padding(.vertical, 9)
+                            .background(RoundedRectangle(cornerRadius: 18).fill(Color.white.opacity(0.14)))
+                            .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.28), lineWidth: 1))
+                            .padding(.top, 18)
+                    }
                     Spacer()
                     HStack {
                         Spacer()
@@ -95,8 +202,14 @@ struct CallOverlay: View {
                             manager.reject()
                         }
                         Spacer()
-                        circleButton(icon: "phone.fill", label: t("call.answer"), bg: Color(red: 0.05, green: 0.78, blue: 0.42)) {
-                            requestPermissions(video: type == 2) { manager.accept() }
+                        if payFee != nil && !payEnough {
+                            circleButton(icon: "plus", label: "去充值", bg: Theme.accent) {
+                                manager.rejectForTopup()
+                            }
+                        } else {
+                            circleButton(icon: "phone.fill", label: t("call.answer"), bg: Color(red: 0.05, green: 0.78, blue: 0.42)) {
+                                requestPermissions(video: type == 2) { manager.accept() }
+                            }
                         }
                         Spacer()
                     }
@@ -175,6 +288,23 @@ struct CallOverlay: View {
                     videoControls
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                // 视频按分钟扣牵豆（只有付的那一方有）：左上角写已用 / 还剩，每分钟变一次；只够这最后 1 分钟时出一条红的提醒
+                if let f = manager.feeTick {
+                    Text("已用 \(f.used) 牵豆\n还剩 \(f.balance)")
+                        .font(.system(size: 12)).foregroundStyle(.white).lineSpacing(3)
+                        .padding(.horizontal, 12).padding(.vertical, 7)
+                        .background(RoundedRectangle(cornerRadius: 14).fill(Color.black.opacity(0.46)))
+                        .padding(.leading, 12).padding(.top, 100)
+                    if f.low {
+                        Text("牵豆只够再聊 1 分钟了")
+                            .font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 9)
+                            .background(RoundedRectangle(cornerRadius: 16).fill(Color(red: 0.94, green: 0.27, blue: 0.22).opacity(0.92)))
+                            .padding(.horizontal, 14).padding(.top, 262)
+                    }
+                }
 
                 // 小窗
                 Group {
@@ -283,6 +413,24 @@ struct CallOverlay: View {
 }
 
 /// 发起呼叫（含权限申请），type: 1=语音 2=视频
+/// 打开充值牵豆的页面（网页 /ai-fee/topup）。从现在最上面的那个页面上再盖一层：
+/// 来电页、牵豆不够的弹框都在通话的独立窗口里，聊天页又多半是全屏弹层，挂在根页面上的弹层会被挡住，所以直接用 UIKit 找最上面的页面来弹。
+@MainActor
+func presentTopup() {
+    guard let scene = UIApplication.shared.connectedScenes
+        .first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene,
+        let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController
+    else { return }
+    var top = root
+    while let presented = top.presentedViewController { top = presented }
+    // 网页自己带顶栏和返回键；点返回会关掉这一层（HnWebPage 里的 dismiss）
+    let page = NavStack { HnWebPage(route: "/ai-fee/topup") }
+        .environmentObject(AppState.current ?? AppState())
+    let host = UIHostingController(rootView: page)
+    host.modalPresentationStyle = .fullScreen
+    top.present(host, animated: true)
+}
+
 func startCallWithPermissions(calleeId: String, type: Int, name: String = "", avatar: String = "") {
     requestPermissions(video: type == 2) {
         // 权限回调在后台线程，显式切回主 actor 调用通话管理器

@@ -12,6 +12,7 @@ import { DeepService } from '../hn/deep.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { getMatchConfig, setMatchConfig } from '../common/chat-gate';
 import { getKycRequired, setKycRequired } from '../common/kyc-gate';
+import { beans, getVideoPriceMicro, setVideoPrice } from '../common/video-fee';
 
 @Controller('admin')
 export class AdminController {
@@ -107,16 +108,35 @@ export class AdminController {
     return this.admin.login(body.username, body.password, ip);
   }
 
-  // ---------- AI 余额 ----------
+  // ---------- 牵豆（原来叫 AI 余额；1 元 = 1 牵豆） ----------
 
   /**
-   * 给账号加 AI 余额：{ who: 短号或用户 id, yuan: 元, refKey: 批次号, note? }。
-   * 同一个批次号只会加一次，重复提交不会多加。
+   * 给账号加牵豆：{ who: 短号或用户 id, yuan: 加多少（牵豆 = 元）, refKey: 批次号, note? }。
+   * 同一个批次号只会加一次，重复提交不会多加。收款接好之前，测试号、给审核用的号的牵豆都从这里加（deploy/beans_add.py）。
    */
   @Post('ai-wallet/credit')
   @UseGuards(AdminGuard)
   aiCredit(@Body() body: { who?: string; yuan?: number; refKey?: string; note?: string }) {
     return this.aiWallet.adminCredit(String(body?.who ?? ''), Number(body?.yuan), String(body?.refKey ?? ''), String(body?.note ?? ''));
+  }
+
+  // ---------- 视频见面每分钟收多少牵豆 ----------
+
+  /** 现在的价格：{ videoPerMin: "0.02" }（每分钟多少牵豆，只有男方付；"0" = 不收费） */
+  @Get('call/fee')
+  @UseGuards(AdminGuard)
+  async callFee() {
+    return { videoPerMin: beans(await getVideoPriceMicro(this.prisma, true)) };
+  }
+
+  /**
+   * 改价：{ videoPerMin: 0.05 }，0～100，最多 4 位小数，0 = 不收费。改完最多 30 秒生效；正在打的那一通按发起时的价格算完。
+   * 没有单独的开关：收费一直是开着的，送审时和上线后价格的显示方式一样。
+   */
+  @Put('call/fee')
+  @UseGuards(AdminGuard)
+  async setCallFee(@Body() body: { videoPerMin?: number }) {
+    return { videoPerMin: beans(await setVideoPrice(this.prisma, body?.videoPerMin)) };
   }
 
   /**

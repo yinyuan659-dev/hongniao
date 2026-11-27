@@ -73,10 +73,10 @@ data class DeepState(
 
 /** 调模型失败时的提示卡：标题 + 说明（按服务端返回的 reason 取） */
 private val DEEP_NOTICE = mapOf(
-    "no_balance" to ("余额不够了，先聊到这里" to "你说的都存好了，充值后接着聊。不影响你被推荐和找人聊天。"),
+    "no_balance" to ("牵豆不够了，先聊到这里" to "你说的都存好了，充值后接着聊。不影响你被推荐和找人聊天。"),
     "key_invalid" to ("你的 Key 用不了" to "可能已经失效了，或者复制得不完整。"),
     "key_no_balance" to ("你的 Key 没有额度了" to "需要去 DeepSeek 后台充值，或者换一种付费方式。"),
-    "need_key" to ("还没有填写你自己的 Key" to "填好以后接着聊，或者改用平台余额。"),
+    "need_key" to ("还没有填写你自己的 Key" to "填好以后接着聊，或者改用牵豆。"),
     "ai_down" to ("AI 暂时没回上话" to "不是你的问题，稍等一下再试。这次没有扣费。"),
 )
 
@@ -161,7 +161,7 @@ fun DeepChatScreen(myAvatar: String, onBack: () -> Unit, onNav: (String) -> Unit
             }.onSuccess {
                 st = it
                 done = it.done
-                if (it.fellBack) toast("你的 Key 用不了，已改用平台余额")
+                if (it.fellBack) toast("你的 Key 用不了，已改用牵豆")
             }.onFailure { e ->
                 fail(e)
                 // 我说的话服务端已经存下了，重新取一次状态把它显示出来
@@ -276,11 +276,11 @@ fun DeepChatScreen(myAvatar: String, onBack: () -> Unit, onNav: (String) -> Unit
                                     }
                                     "key_invalid", "key_no_balance" -> {
                                         HnPill("换一个 Key") { onNav(hnH5("/ai-fee/key")) }
-                                        HnPill("改用平台余额", ghost = true) { pickMode("platform") { notice = "ai_down" } }
+                                        HnPill("改用牵豆", ghost = true) { pickMode("platform") { notice = "ai_down" } }
                                     }
                                     "need_key" -> {
                                         HnPill("去填写 Key") { onNav(hnH5("/ai-fee/key")) }
-                                        HnPill("改用平台余额", ghost = true) { pickMode("platform") { notice = "ai_down" } }
+                                        HnPill("改用牵豆", ghost = true) { pickMode("platform") { notice = "ai_down" } }
                                     }
                                     else -> HnPill(if (state.pending) "继续" else "知道了") { if (state.pending) send() else notice = "" }
                                 }
@@ -369,21 +369,21 @@ fun DeepChatScreen(myAvatar: String, onBack: () -> Unit, onNav: (String) -> Unit
                     val canStart = own || !empty
                     Row(Modifier.padding(top = 18.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("费用怎么付", color = HnInk, fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                        Text("这次预计 ¥${state.estimate} 以内", color = HnInk2, fontSize = 12.sp)
+                        Text("这次预计 ${state.estimate} 牵豆以内", color = HnInk2, fontSize = 12.sp)
                     }
                     PayOption(
-                        "平台余额  ¥${state.wallet.balance}", "DeepSeek 实际费用 + ${state.wallet.feePercent}% 手续费", selected = !own,
+                        "用牵豆付  现有 ${state.wallet.balance}", "DeepSeek 实际费用 + ${state.wallet.feePercent}% 手续费", selected = !own,
                         trailing = if (empty) "去充值" else null,
                         onTrailing = { onNav(hnH5("/ai-fee/topup")) },
                     ) { pickMode("platform") }
                     PayOption(
-                        "我自己的 DeepSeek Key", "用你自己的额度，平台不扣余额", selected = own,
+                        "我自己的 DeepSeek Key", "用你自己的额度，平台不扣牵豆", selected = own,
                         trailing = if (state.wallet.hasKey) null else "去填写",
                         onTrailing = { onNav(hnH5("/ai-fee/key")) },
                     ) { if (state.wallet.hasKey) pickMode("own") else onNav(hnH5("/ai-fee/key")) }
                     HnButton("开始聊", Modifier.padding(top = 16.dp).fillMaxWidth(), enabled = canStart && busy.isEmpty()) { post("/hn/deep/start") }
                     Text(
-                        if (canStart) "不聊也不影响你被推荐和找人聊天" else "余额是 0，也没有填 Key：先充值，或者填自己的 Key",
+                        if (canStart) "不聊也不影响你被推荐和找人聊天" else "牵豆是 0，也没有填 Key：先充值，或者填自己的 Key",
                         color = HnInk3, fontSize = 11.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 10.dp).fillMaxWidth(),
                     )
                 } else {
@@ -459,9 +459,9 @@ private fun CostLine(st: DeepState, total: Boolean, onClick: () -> Unit) {
     val ownNow = st.wallet.payMode == "own" && st.wallet.hasKey
     val text = when {
         s.ownKey || (ownNow && s.calls == 0) -> "用的是你自己的 Key，平台没有扣费"
-        total -> "本次共花 ¥${s.total}（模型费 ¥${s.cost} + 手续费 ¥${s.fee}）"
-        ownNow -> "本次已花 ¥${s.total} · 现在用你自己的 Key"
-        else -> "本次已花 ¥${s.total} · 余额 ¥${st.wallet.balance}"
+        total -> "本次共花 ${s.total} 牵豆（模型费 ${s.cost} + 手续费 ${s.fee}）"
+        ownNow -> "本次已花 ${s.total} 牵豆 · 现在用你自己的 Key"
+        else -> "本次已花 ${s.total} 牵豆 · 还剩 ${st.wallet.balance}"
     }
     Box(Modifier.fillMaxWidth().padding(top = 10.dp), contentAlignment = Alignment.Center) {
         Text(

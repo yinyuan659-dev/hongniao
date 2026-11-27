@@ -303,7 +303,7 @@ struct InterviewView: View {
                 }
                 // 最后一步：实人认证（后台要求且还没做时才出现；做过才能聊天 / 发动态 / 评论）。认证页是网页，内嵌打开
                 if needKyc, editing == nil {
-                    bubble("最后一步：做个实人认证，画像就完成了，之后就能和心动的人聊天。身份证 + 刷脸，一次完成，¥1 从 AI 余额扣。", mine: false)
+                    bubble("最后一步：做个实人认证，画像就完成了，之后就能发动态、评论、视频见面。身份证 + 刷脸，一次完成，扣 1 牵豆。", mine: false)
                     Button { push = .web("/kyc?next=/interview") } label: { HnButtonLabel(title: "去完成实人认证", height: 44) }
                         .buttonStyle(.plain)
                         .frame(maxWidth: 330)

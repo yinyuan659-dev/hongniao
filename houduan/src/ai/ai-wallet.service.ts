@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { CryptoService } from '../common/crypto.service';
 import { FEE_RATE_BP, MICRO, PRICES, split4, yuan2, yuan4 } from './ai-price';
+import { beans, getVideoPriceMicro } from '../common/video-fee';
 
 /** 明细里每个功能显示成什么名字 */
 const FEATURE_TITLE: Record<string, string> = {
@@ -15,6 +16,8 @@ const FEATURE_TITLE: Record<string, string> = {
 /** 固定扣费（AiLedger 里非充值的 type）在明细里显示成什么名字 */
 const LEDGER_TITLE: Record<string, string> = {
   kyc: '实人认证',
+  /** 视频见面按分钟扣（call/call.service.ts）：一分钟一条流水，refKey 是「通话号:第几分钟」，明细里一通合成一条 */
+  video: '视频见面',
   /** 新设备刷脸找回账号、并号时的那次刷脸 */
   recover: '刷脸找回',
   /** 并号：这个号作废，余额转到了原来的账号 */
@@ -27,8 +30,9 @@ function countSuffix(feature: string, count: number): string {
 }
 
 /**
- * AI 余额、付费方式、用户自己的 Key、费用明细。
- * 余额单位是微元（1 元 = 1,000,000），因为一次模型调用只有几厘钱。
+ * 牵豆（2026-11-27 之前叫「AI 余额」，1 元 = 1 牵豆，只是改了名字）、付费方式、用户自己的 Key、费用明细。
+ * AI 功能、实人认证、视频见面都从这一个余额里扣。单位是微元（1 牵豆 = 1,000,000），因为一次模型调用只有几厘钱。
+ * 充值买来的牵豆只能花：不能提现、不能转给别人、不过期（以后 iOS 走苹果内购，推荐奖励的提现是另一本账，不和这里混）。
  */
 @Injectable()
 export class AiWalletService {
@@ -57,6 +61,10 @@ export class AiWalletService {
       feePercent: FEE_RATE_BP / 100,
       /** 收款通道还没接：充值页只能看 */
       canTopup: false,
+      /** 充值页的档位（牵豆 = 元）：最少充 1 */
+      topupAmounts: [1, 5, 10, 30, 50, 100],
+      /** 视频见面每分钟多少牵豆（只有男方付）；「0」= 不收费。充值页「牵豆能干什么」里显示 */
+      videoPerMin: beans(await getVideoPriceMicro(this.prisma)),
       model: process.env.AI_MODEL ?? 'deepseek-flash',
       prices: PRICES,
     };
@@ -133,7 +141,7 @@ export class AiWalletService {
     const done = await this.prisma.aiLedger.findUnique({ where: { userId_type_refKey: { userId, type, refKey } } });
     if (done) return { charged: false, balance: yuan2(w.balance), balanceMicro: Number(w.balance) };
     if (w.balance < BigInt(micro)) {
-      throw new BadRequestException({ message: '余额不足', reason: 'no_balance' });
+      throw new BadRequestException({ message: '牵豆不足', reason: 'no_balance' });
     }
     const after = await this.prisma.$transaction(async (tx) => {
       const u = await tx.aiWallet.update({ where: { userId }, data: { balance: { decrement: BigInt(micro) } } });
@@ -167,8 +175,10 @@ export class AiWalletService {
     const range = { gte: from, lt: to };
     const usages = kind === 'topup' ? [] : await this.prisma.aiUsage.findMany({ where: { userId, createdAt: range }, orderBy: { id: 'asc' } });
     const topups = kind === 'spend' ? [] : await this.prisma.aiLedger.findMany({ where: { userId, type: 'topup', createdAt: range }, orderBy: { id: 'asc' } });
-    // 固定扣费（实人认证等，不是模型调用，记在 AiLedger 里，amount 为负）
-    const charges = kind === 'topup' ? [] : await this.prisma.aiLedger.findMany({ where: { userId, type: { notIn: ['topup'] }, createdAt: range }, orderBy: { id: 'asc' } });
+    // 固定扣费（实人认证、视频见面等，不是模型调用，记在 AiLedger 里，amount 为负）。
+    // 要排除 usage：每次模型调用在 AiLedger 里也有一条 usage 流水，那一笔已经在上面的 usages（AiUsage）里算过了，
+    // 不排除的话同一次 AI 调用会在明细里出现两遍（一条有名字，一条叫「AI 功能」），「花掉」也会多算一倍。2026-11-27 修
+    const charges = kind === 'topup' ? [] : await this.prisma.aiLedger.findMany({ where: { userId, type: { notIn: ['topup', 'usage'] }, createdAt: range }, orderBy: { id: 'asc' } });
 
     const groups = new Map<string, { feature: string; count: number; cost: number; fee: number; own: number; first: Date; last: Date }>();
     for (const u of usages) {
@@ -183,7 +193,31 @@ export class AiWalletService {
       groups.set(u.groupKey, g);
     }
 
+    // 视频见面：一分钟一条流水（refKey = 通话号:第几分钟），一通合成一条「视频见面 · N 分钟」，备注是「和谁」
+    const videos = new Map<string, { minutes: number; micro: number; last: Date; note: string }>();
+    const fixed = charges.filter((c) => {
+      if (c.type !== 'video') return true;
+      const callId = c.refKey.split(':')[0];
+      const v = videos.get(callId) ?? { minutes: 0, micro: 0, last: c.createdAt, note: c.note };
+      v.minutes += 1;
+      v.micro -= Number(c.amount);
+      v.last = c.createdAt;
+      videos.set(callId, v);
+      return false;
+    });
+
     const items = [
+      ...[...videos.values()].map((v) => ({
+        kind: 'usage' as const,
+        groupKey: '',
+        title: `${LEDGER_TITLE.video} · ${v.minutes} 分钟`,
+        time: v.last,
+        ownKey: false,
+        cost: '',
+        fee: '',
+        amount: (v.micro / MICRO).toFixed(4),
+        note: v.note,
+      })),
       ...[...groups.entries()].map(([groupKey, g]) => ({
         kind: 'usage' as const,
         groupKey,
@@ -196,7 +230,7 @@ export class AiWalletService {
         amount: split4(g.cost, g.fee).total,
         note: '',
       })),
-      ...charges.map((c) => ({
+      ...fixed.map((c) => ({
         kind: 'usage' as const,
         groupKey: '',
         title: LEDGER_TITLE[c.type] ?? 'AI 功能',

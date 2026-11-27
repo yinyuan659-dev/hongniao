@@ -22,6 +22,18 @@ struct CallerBrief: Codable {
     let avatar: String
 }
 
+/// 视频见面的收费信息（服务器算好给的；语音、价格是 0 时没有）。
+/// 视频按分钟收牵豆，只有男方付，不管谁发起（2026-11-27，样稿 design/10-qiandou.html；规则在后端 common/video-fee.ts）。
+/// perMin 每分钟多少牵豆；iPay 是不是我付；后三项只有我付的时候才有：balance 我现有的牵豆、minutes 大约能聊几分钟、enough 够不够 1 分钟。
+struct CallFee: Codable {
+    var free: Bool? = false
+    var perMin: String? = "0"
+    var iPay: Bool? = false
+    var balance: String? = ""
+    var minutes: Int? = 0
+    var enough: Bool? = true
+}
+
 enum CallPhase: Equatable {
     case idle
     /// 主叫等待接听
@@ -74,6 +86,41 @@ final class CallManager: ObservableObject {
 
     /// 评分完成后要打开的女方主页 userId（RootView 监听后全屏展示并清空）
     @Published var openUserHome: String?
+
+    // ---- 视频按分钟收牵豆（只有男方付）：界面要用的几个状态，CallView 读它们 ----
+
+    /// 来电时：这通视频要我付牵豆的话，带着价格（来电页要写出来，点「接听」才开始算）
+    @Published var incomingFee: CallFee?
+
+    /// 我要付牵豆的视频，拨出去之前先让我看价格、点「开始视频」：不是 nil 就弹确认框
+    struct FeeAsk {
+        let calleeId: String
+        let name: String
+        let avatar: String
+        let fee: CallFee
+    }
+    @Published var feeAsk: FeeAsk? { didSet { CallWindow.shared.update() } }
+
+    /// 通话中的计费（只有付的那一方有）：已用多少、还剩多少、是不是只够这最后 1 分钟了
+    struct FeeTick {
+        let used: String
+        let balance: String
+        let low: Bool
+    }
+    @Published var feeTick: FeeTick?
+
+    /// 牵豆不够（发起时不够 / 接听时不够 / 通话中用完被挂断）：不是 nil 就弹框，可以去充值
+    struct NoBeans {
+        let title: String
+        let text: String
+    }
+    @Published var noBeans: NoBeans? { didSet { CallWindow.shared.update() } }
+
+    /// 来电页上「牵豆不够，去充值」：先把这通拒掉（不能一边响着一边去充值），再打开充值页
+    func rejectForTopup() {
+        reject()
+        presentTopup()
+    }
 
     /// 对方已完成推流（published 信令）：收到后才订阅，保证订阅晚于发布
     private var peerPublished = false
@@ -188,6 +235,14 @@ final class CallManager: ObservableObject {
                let parsed = try? JSONDecoder().decode(CallConfig.self, from: json) {
                 config = parsed
             }
+            // 收费信息：不收费时没有这一项（或者是旧版服务器）
+            if let f = data["fee"] as? [String: Any],
+               let json = try? JSONSerialization.data(withJSONObject: f),
+               let parsed = try? JSONDecoder().decode(CallFee.self, from: json) {
+                incomingFee = parsed
+            } else {
+                incomingFee = nil
+            }
             peerName = (caller["nickname"] as? String) ?? ""
             peerAvatar = (caller["avatar"] as? String) ?? ""
             peerPublished = false
@@ -211,8 +266,29 @@ final class CallManager: ObservableObject {
                 Self.clog("signal peer published")
                 peerPublished = true
             }
+        case "fee":
+            // 这一通视频扣到第几分钟了（只有付牵豆的那一方会收到）：通话页左上角显示已用 / 还剩；low = 剩下的不够再付 1 分钟
+            if let callId = data["callId"] as? String, callId == Self.currentLogCallId {
+                feeTick = FeeTick(
+                    used: (data["used"] as? String) ?? "",
+                    balance: (data["balance"] as? String) ?? "",
+                    low: (data["low"] as? Bool) ?? false
+                )
+            }
         case "reject", "cancel", "end":
             // 服务端强制挂断（连接中断等）会带 reason，展示给用户
+            if data["code"] as? String == "no_beans" {
+                // 我的牵豆用完了，服务器挂断：不是顶上闪一下就完，弹框说清楚、可以去充值
+                let minutes = (data["minutes"] as? Int) ?? 0
+                let used = (data["used"] as? String) ?? ""
+                Self.clog("call ended: no beans, minutes=\(minutes) used=\(used)")
+                teardown()
+                noBeans = NoBeans(
+                    title: (data["reason"] as? String) ?? "牵豆用完了，通话已结束",
+                    text: minutes > 0 ? "这一通聊了 \(minutes) 分钟，用了 \(used) 牵豆。\n充值后可以接着聊。" : "充值后可以接着聊。"
+                )
+                return
+            }
             if let reason = data["reason"] as? String, !reason.isEmpty {
                 Self.clog("call force-ended by server: \(reason)")
                 errorMsg = reason
@@ -225,10 +301,19 @@ final class CallManager: ObservableObject {
 
     // MARK: - 操作
 
-    func startCall(calleeId: String, type: Int, name: String = "", avatar: String = "") {
+    /// feeConfirmed：视频要我付牵豆时，第一次调用不会拨出去，而是先弹价格确认（feeAsk）；用户点了「开始视频」再带着 true 调一次。
+    /// 所有发起视频的地方（聊天页、别人的主页、遇见、动态）都走这里，所以确认框只在这一处接。
+    func startCall(calleeId: String, type: Int, name: String = "", avatar: String = "", feeConfirmed: Bool = false) {
         peerName = name
         peerAvatar = avatar
         Task {
+            // 问不到（网络问题、旧版服务器）就直接拨：够不够、让不让打，服务器发起时还会再查一遍
+            if type == 2, !feeConfirmed,
+               let fee: CallFee = try? await Api.request("/call/fee?peerId=\(calleeId)"),
+               fee.free != true, fee.iPay == true {
+                feeAsk = FeeAsk(calleeId: calleeId, name: name, avatar: avatar, fee: fee)
+                return
+            }
             // 头像缺失时补拉对方资料（微信式界面需要展示）
             if avatar.isEmpty {
                 struct Brief: Codable { var nickname: String? = ""; var avatar: String? = "" }
@@ -260,6 +345,11 @@ final class CallManager: ObservableObject {
                     if let rel: MatchRelation = try? await Api.request("/match/relation/\(calleeId)") { relState = rel.state }
                     teardown()
                     alertMsg = videoNeedLikeText(relState)
+                } else if (error as? ApiError)?.reason == "no_beans" {
+                    // 我付、我的牵豆不够 1 分钟：弹框，可以去充值。（对方付、对方不够是 peer_no_beans，走下面那一句提示）
+                    let text = error.localizedDescription
+                    teardown()
+                    noBeans = NoBeans(title: "牵豆不够", text: text)
                 } else {
                     errorMsg = error.localizedDescription
                     teardown()
@@ -283,8 +373,16 @@ final class CallManager: ObservableObject {
                 startTimer()
                 await startMedia(callId: callId, peerId: callerId, type: type)
             } catch {
-                errorMsg = error.localizedDescription
-                teardown()
+                if (error as? ApiError)?.reason == "no_beans" {
+                    // 这通视频要我付，我的牵豆不够第 1 分钟：接不了。把来电拒掉（不然对方一直在等），弹框让我去充值
+                    struct OkResp: Decodable { let ok: Bool? }
+                    let _: OkResp? = try? await Api.request("/call/\(callId)/reject", method: "POST")
+                    teardown()
+                    noBeans = NoBeans(title: "牵豆不够，没法接听", text: "充值后再让对方打过来，或者你打过去。")
+                } else {
+                    errorMsg = error.localizedDescription
+                    teardown()
+                }
             }
         }
     }
@@ -607,6 +705,8 @@ final class CallManager: ObservableObject {
     }
 
     private func teardown() {
+        feeTick = nil
+        incomingFee = nil
         // 男方视频通话接通后挂断 → 弹评分界面（在状态重置前捕获）
         if case let .active(callId, peerId, type) = phase, type == 2,
            myGender == 1, callSeconds > 0 {
@@ -697,7 +797,9 @@ private final class PassthroughWindow: UIWindow {
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let view = super.hitTest(point, with: event)
         let manager = CallManager.shared
-        return (manager.phase == .idle && manager.pendingRate == nil && manager.alertMsg == nil) ? nil : view
+        let idle = manager.phase == .idle && manager.pendingRate == nil && manager.alertMsg == nil
+            && manager.feeAsk == nil && manager.noBeans == nil
+        return idle ? nil : view
     }
 }
 
@@ -710,6 +812,7 @@ final class CallWindow {
         DispatchQueue.main.async {
             let manager = CallManager.shared
             let needShow = manager.phase != .idle || manager.errorMsg != nil || manager.pendingRate != nil || manager.alertMsg != nil
+                || manager.feeAsk != nil || manager.noBeans != nil
             if needShow {
                 if self.window == nil {
                     let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }

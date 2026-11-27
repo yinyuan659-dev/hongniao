@@ -58,7 +58,7 @@ export function KycPage() {
     } catch (e) {
       const reason = reasonOf(e);
       if (reason === 'no_balance') {
-        if (window.confirm(`AI 余额不足，实人认证需要 ¥${st.feeYuan}。现在去充值？`)) nav('/ai-fee/topup');
+        if (window.confirm(`牵豆不足，实人认证需要 ${st.feeYuan} 牵豆。现在去充值？`)) nav('/ai-fee/topup');
       } else showToast((e as Error).message);
       setBusy(false);
     }
@@ -101,7 +101,7 @@ export function KycPage() {
         <div className="hn-glass" style={{ borderRadius: 20, padding: '2px 14px 12px', marginTop: 16 }}>
           <Feat ic="shield" title="确认是你本人、已满 18 岁" sub="防骗子、防未成年，相亲更安心" />
           <Feat ic="lock" title="只存「是否通过」" sub="不保存身份证号明文，不保存人脸照片" />
-          <Feat ic="wallet" title={`本次 ¥${st.feeYuan}，从 AI 余额扣`} sub="按成本价，平台不加价；认证不通过不扣" />
+          <Feat ic="wallet" title={`本次 ${st.feeYuan} 牵豆`} sub="按成本价，平台不加价；认证不通过不扣" />
         </div>
 
         <div style={{ marginTop: 16 }}>
@@ -112,15 +112,15 @@ export function KycPage() {
         </div>
 
         <div className="hn-row" style={{ justifyContent: 'space-between', marginTop: 14 }}>
-          <span className="hn-t2 hn-num"><Ic n="wallet" s={14} style={{ verticalAlign: '-2px', marginRight: 4 }} />AI 余额 ¥{st.balanceYuan}</span>
-          <span className="hn-t3 hn-num">{enough ? `认证后剩 ¥${afterYuan}` : '余额不足'}</span>
+          <span className="hn-t2 hn-num"><Ic n="wallet" s={14} style={{ verticalAlign: '-2px', marginRight: 4 }} />牵豆 {st.balanceYuan}</span>
+          <span className="hn-t3 hn-num">{enough ? `认证后剩 ${afterYuan}` : '牵豆不足'}</span>
         </div>
       </div>
 
       <div style={{ padding: '10px 16px calc(14px + env(safe-area-inset-bottom))', borderTop: '1px solid var(--hn-line)', background: 'var(--hn-cream)' }}>
         {enough
           ? <button className="hn-btn" disabled={busy} onClick={start}><Ic n="camera" s={18} />{busy ? '处理中…' : '开始刷脸认证'}</button>
-          : <button className="hn-btn" onClick={() => nav('/ai-fee/topup')}>余额不足，去充值</button>}
+          : <button className="hn-btn" onClick={() => nav('/ai-fee/topup')}>牵豆不足，去充值</button>}
         <div className="hn-t3" style={{ textAlign: 'center', marginTop: 8 }}>点「开始」即同意把姓名、身份证号交给认证服务商核验</div>
       </div>
       {toast}

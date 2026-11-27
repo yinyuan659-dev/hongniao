@@ -962,7 +962,7 @@ export function ChatRoomPage() {
         <div className="mask" onClick={() => setNeedKyc(false)}>
           <div className="dialog" onClick={(e) => e.stopPropagation()}>
             <h3>先完成实人认证</h3>
-            <p>发消息前需要做实人认证（身份证 + 刷脸），¥1 从 AI 余额扣。</p>
+            <p>需要先做实人认证（身份证 + 刷脸），扣 1 牵豆。</p>
             <button className="btn" onClick={() => { setNeedKyc(false); nav(`/kyc?next=${encodeURIComponent('/chatroom/' + conversationId)}`); }}>去认证</button>
             <div className="muted" style={{ marginTop: 14, fontSize: 14, cursor: 'pointer' }} onClick={() => setNeedKyc(false)}>以后再说</div>
           </div>

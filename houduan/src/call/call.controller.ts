@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ArrayMaxSize, IsArray, IsIn, IsInt, IsString, Max, Min } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../common/current-user.decorator';
@@ -52,6 +52,13 @@ export class CallController {
   @Get('config')
   config() {
     return this.calls.getConfig();
+  }
+
+  /** 发起视频之前问：和这个人视频要不要牵豆、谁付、我够不够。{ free, perMin, iPay, balance?, minutes?, enough? } */
+  @Get('fee')
+  fee(@CurrentUser() userId: bigint, @Query('peerId') peerId: string) {
+    if (!/^\d{1,19}$/.test(peerId ?? '')) throw new BadRequestException('参数不正确');
+    return this.calls.feeFor(userId, BigInt(peerId));
   }
 
   @Post('invite')

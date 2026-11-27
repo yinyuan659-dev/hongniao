@@ -396,6 +396,8 @@ fun AppRoot() {
         }
         // 发起视频被拒、原因是还没互相喜欢：弹说明，可以去对方的画像点喜欢
         VideoNeedLikeDialog(onOpenCard = { id -> nav.navigate("u/$id") })
+        // 视频按分钟收牵豆（男方付）：发起前的价格确认、牵豆不够的提示；「去充值」打开充值页（网页）
+        CallFeeDialogs(onTopup = { nav.navigate(hnH5("/ai-fee/topup")) })
         // 有新设备通过刷脸登录了这个账号：提醒一次；「不是我」→ 去登录设备页移除
         if (user != null) NewDeviceDialog(onRemove = { nav.navigate(hnH5("/devices")) })
         CallOverlay()

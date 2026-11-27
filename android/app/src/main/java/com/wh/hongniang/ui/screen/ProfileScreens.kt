@@ -50,7 +50,7 @@ import com.wh.hongniang.i18n.t
 fun MeScreen(modifier: Modifier = Modifier, initialUser: UserProfile?, onNav: (String) -> Unit) {
     var me by remember { mutableStateOf(initialUser) }
     // 资料收集有变化（答题 / 确认）时重新拉一次，回到这页能马上看到「已完成」
-    /** AI 余额（元）；null = 还没取到 */
+    /** 牵豆余额；null = 还没取到 */
     var aiBalance by remember { mutableStateOf<String?>(null) }
     /** 后台要求先做实人认证、而我还没做：显示一行「真人认证 · 未完成」（做过才能发动态 / 评论 / 视频见面） */
     var needKyc by remember { mutableStateOf(false) }
@@ -152,12 +152,12 @@ fun MeScreen(modifier: Modifier = Modifier, initialUser: UserProfile?, onNav: (S
             MeGroup(t("me.group.content")) {
                 MeCell(IC_IMAGE, Color(0xFFFF9500), t("me.myMoments"), first = true, onClick = { onNav("my-moments") }) { MeValue() }
             }
-            // AI 费用：深聊这类 AI 功能按用量花模型费（平台余额或自己的 Key）；点进去是网页
-            MeGroup("AI 费用") {
-                MeCell(IC_WALLET, Color(0xFF34C759), "AI 余额", first = true, onClick = { onNav(hnH5("/ai-fee")) }) { MeValue(aiBalance?.let { "¥$it" }) }
+            // 牵豆（原来叫 AI 余额，1 元 = 1 牵豆）：视频见面、AI 功能、真人认证都从这里扣；点进去是网页
+            MeGroup("牵豆") {
+                MeCell(IC_WALLET, Color(0xFF34C759), "我的牵豆", first = true, onClick = { onNav(hnH5("/ai-fee")) }) { MeValue(aiBalance) }
             }
             // 账号与安全：真人认证（后台要求且还没做时才出现）、登录设备（换手机刷脸找回后会多出来，可以移除）；点进去都是网页
-            MeGroup("账号与安全", footer = if (needKyc) "做过真人认证才能发动态、评论、视频见面。认证一次 ¥1。" else null) {
+            MeGroup("账号与安全", footer = if (needKyc) "做过真人认证才能发动态、评论、视频见面。认证一次 1 牵豆。" else null) {
                 if (needKyc) {
                     MeCell(IC_SHIELD, Color(0xFFFF9500), "真人认证", first = true, onClick = { onNav(hnH5("/kyc?next=/me")) }) { MeValue("未完成", dot = true) }
                 }

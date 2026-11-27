@@ -79,7 +79,7 @@ export function MePage() {
   const [collapsed, setCollapsed] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  /** AI 余额（元）；null = 还没取到 */
+  /** 牵豆余额；null = 还没取到 */
   const [balance, setBalance] = useState<string | null>(null);
   /** 实人认证：后台要求且还没认证时，「账号与安全」里多一行提示去完成 */
   const [kyc, setKyc] = useState<{ required: boolean; realname: boolean } | null>(null);
@@ -215,10 +215,10 @@ export function MePage() {
         <Cell icon="image" color="#ff9500" title={t('me.myMoments')} onClick={() => nav('/my-moments')}><Val /></Cell>
       </div>
 
-      {/* AI 费用：深聊这类 AI 功能按用量花模型费（平台余额或自己的 Key） */}
-      <div className="me-gh">AI 费用</div>
+      {/* 牵豆（原来叫 AI 余额，1 元 = 1 牵豆）：视频见面、AI 功能、真人认证都从这里扣 */}
+      <div className="me-gh">牵豆</div>
       <div className="me-card">
-        <Cell icon="wallet" color="#34c759" title="AI 余额" onClick={() => nav('/ai-fee')}><Val value={balance === null ? undefined : `¥${balance}`} /></Cell>
+        <Cell icon="wallet" color="#34c759" title="我的牵豆" onClick={() => nav('/ai-fee')}><Val value={balance === null ? undefined : `${balance}`} /></Cell>
       </div>
 
       {/* 账号与安全：真人认证（后台要求且还没做时才出现）、能登录这个账号的设备（换手机刷脸找回后会多出来，可以移除） */}
@@ -227,7 +227,7 @@ export function MePage() {
         {needKyc && <Cell icon="shield" color="#ff9500" title="真人认证" onClick={() => nav('/kyc?next=/me')}><Val value="未完成" dot /></Cell>}
         <Cell icon="lock" color="#007aff" title="登录设备" onClick={() => nav('/devices')}><Val value={deviceCount === null ? undefined : `${deviceCount} 台`} /></Cell>
       </div>
-      {needKyc && <div className="me-gf">做过真人认证才能发动态、评论、视频见面。认证一次 ¥1。</div>}
+      {needKyc && <div className="me-gf">做过真人认证才能发动态、评论、视频见面。认证一次 1 牵豆。</div>}
 
       <div className="me-gh">{t('me.group.tools')}</div>
       <div className="me-card">

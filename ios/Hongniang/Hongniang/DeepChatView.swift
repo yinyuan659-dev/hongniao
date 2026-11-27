@@ -91,10 +91,10 @@ struct DeepChatView: View {
 
     /// 调模型失败时的提示卡：标题 + 说明（按服务端返回的 reason 取）
     private static let notices: [String: (title: String, sub: String)] = [
-        "no_balance": ("余额不够了，先聊到这里", "你说的都存好了，充值后接着聊。不影响你被推荐和找人聊天。"),
+        "no_balance": ("牵豆不够了，先聊到这里", "你说的都存好了，充值后接着聊。不影响你被推荐和找人聊天。"),
         "key_invalid": ("你的 Key 用不了", "可能已经失效了，或者复制得不完整。"),
         "key_no_balance": ("你的 Key 没有额度了", "需要去 DeepSeek 后台充值，或者换一种付费方式。"),
-        "need_key": ("还没有填写你自己的 Key", "填好以后接着聊，或者改用平台余额。"),
+        "need_key": ("还没有填写你自己的 Key", "填好以后接着聊，或者改用牵豆。"),
         "ai_down": ("AI 暂时没回上话", "不是你的问题，稍等一下再试。这次没有扣费。"),
     ]
 
@@ -273,10 +273,10 @@ struct DeepChatView: View {
                     Button { push = .web("/ai-fee/key") } label: { HnPillLabel(title: "改用我自己的 Key", ghost: true) }.buttonStyle(.plain)
                 case "key_invalid", "key_no_balance":
                     Button { push = .web("/ai-fee/key") } label: { HnPillLabel(title: "换一个 Key") }.buttonStyle(.plain)
-                    Button { pickMode("platform") { notice = "ai_down" } } label: { HnPillLabel(title: "改用平台余额", ghost: true) }.buttonStyle(.plain)
+                    Button { pickMode("platform") { notice = "ai_down" } } label: { HnPillLabel(title: "改用牵豆", ghost: true) }.buttonStyle(.plain)
                 case "need_key":
                     Button { push = .web("/ai-fee/key") } label: { HnPillLabel(title: "去填写 Key") }.buttonStyle(.plain)
-                    Button { pickMode("platform") { notice = "ai_down" } } label: { HnPillLabel(title: "改用平台余额", ghost: true) }.buttonStyle(.plain)
+                    Button { pickMode("platform") { notice = "ai_down" } } label: { HnPillLabel(title: "改用牵豆", ghost: true) }.buttonStyle(.plain)
                 default:
                     Button { if pending { send() } else { notice = "" } } label: { HnPillLabel(title: pending ? "继续" : "知道了") }.buttonStyle(.plain)
                 }
@@ -387,9 +387,9 @@ struct DeepChatView: View {
             let ownNow = s.wallet?.payMode == "own" && s.wallet?.hasKey == true
             let text: String = {
                 if sp.ownKey == true || (ownNow && (sp.calls ?? 0) == 0) { return "用的是你自己的 Key，平台没有扣费" }
-                if total { return "本次共花 ¥\(sp.total ?? "0")（模型费 ¥\(sp.cost ?? "0") + 手续费 ¥\(sp.fee ?? "0")）" }
-                if ownNow { return "本次已花 ¥\(sp.total ?? "0") · 现在用你自己的 Key" }
-                return "本次已花 ¥\(sp.total ?? "0") · 余额 ¥\(s.wallet?.balance ?? "0.00")"
+                if total { return "本次共花 \(sp.total ?? "0") 牵豆（模型费 \(sp.cost ?? "0") + 手续费 \(sp.fee ?? "0")）" }
+                if ownNow { return "本次已花 \(sp.total ?? "0") 牵豆 · 现在用你自己的 Key" }
+                return "本次已花 \(sp.total ?? "0") 牵豆 · 还剩 \(s.wallet?.balance ?? "0.00")"
             }()
             Button { push = .web("/ai-fee/ledger") } label: {
                 Text("\(text)  ›").font(.system(size: 11)).foregroundStyle(HnTheme.ink2)
@@ -426,21 +426,21 @@ struct DeepChatView: View {
                     HStack {
                         Text("费用怎么付").font(.system(size: 14, weight: .bold)).foregroundStyle(HnTheme.ink)
                         Spacer()
-                        Text("这次预计 ¥\(s.estimate ?? "") 以内").font(.system(size: 12)).foregroundStyle(HnTheme.ink2)
+                        Text("这次预计 \(s.estimate ?? "") 牵豆以内").font(.system(size: 12)).foregroundStyle(HnTheme.ink2)
                     }
                     .padding(.top, 18)
                     payOption(
-                        "平台余额  ¥\(s.wallet?.balance ?? "0.00")", "DeepSeek 实际费用 + \(s.wallet?.feePercent ?? 10)% 手续费",
+                        "用牵豆付  现有 \(s.wallet?.balance ?? "0.00")", "DeepSeek 实际费用 + \(s.wallet?.feePercent ?? 10)% 手续费",
                         selected: !own, trailing: empty ? "去充值" : nil, onTrailing: { push = .web("/ai-fee/topup") }
                     ) { pickMode("platform") {} }
                     payOption(
-                        "我自己的 DeepSeek Key", "用你自己的额度，平台不扣余额",
+                        "我自己的 DeepSeek Key", "用你自己的额度，平台不扣牵豆",
                         selected: own, trailing: s.wallet?.hasKey == true ? nil : "去填写", onTrailing: { push = .web("/ai-fee/key") }
                     ) { if s.wallet?.hasKey == true { pickMode("own") {} } else { push = .web("/ai-fee/key") } }
                     Button { post("/hn/deep/start") } label: { HnButtonLabel(title: "开始聊", enabled: canStart && busy.isEmpty) }
                         .buttonStyle(.plain).disabled(!canStart || !busy.isEmpty)
                         .padding(.top, 16)
-                    Text(canStart ? "不聊也不影响你被推荐和找人聊天" : "余额是 0，也没有填 Key：先充值，或者填自己的 Key")
+                    Text(canStart ? "不聊也不影响你被推荐和找人聊天" : "牵豆是 0，也没有填 Key：先充值，或者填自己的 Key")
                         .font(.system(size: 11)).foregroundStyle(HnTheme.ink3)
                         .frame(maxWidth: .infinity)
                         .padding(.top, 10)
@@ -574,7 +574,7 @@ struct DeepChatView: View {
                 let next: DeepState = try await Api.request("/hn/deep/message", method: "POST", body: body)
                 st = next
                 done = next.done == true
-                if next.fellBack == true { toastMsg = "你的 Key 用不了，已改用平台余额" }
+                if next.fellBack == true { toastMsg = "你的 Key 用不了，已改用牵豆" }
             } catch {
                 fail(error)
                 // 我说的话服务端已经存下了，重新取一次状态把它显示出来

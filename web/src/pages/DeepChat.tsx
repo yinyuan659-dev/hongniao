@@ -30,10 +30,10 @@ interface DeepState {
 
 /** 调模型失败时的提示卡：标题、说明、两个按钮 */
 const NOTICE: Record<string, { icon: string; title: string; sub: string }> = {
-  no_balance: { icon: 'wallet', title: '余额不够了，先聊到这里', sub: '你说的都存好了，充值后接着聊。不影响你被推荐和找人聊天。' },
+  no_balance: { icon: 'wallet', title: '牵豆不够了，先聊到这里', sub: '你说的都存好了，充值后接着聊。不影响你被推荐和找人聊天。' },
   key_invalid: { icon: 'key', title: '你的 Key 用不了', sub: '可能已经失效了，或者复制得不完整。' },
   key_no_balance: { icon: 'key', title: '你的 Key 没有额度了', sub: '需要去 DeepSeek 后台充值，或者换一种付费方式。' },
-  need_key: { icon: 'key', title: '还没有填写你自己的 Key', sub: '填好以后接着聊，或者改用平台余额。' },
+  need_key: { icon: 'key', title: '还没有填写你自己的 Key', sub: '填好以后接着聊，或者改用牵豆。' },
   ai_down: { icon: 'info', title: 'AI 暂时没回上话', sub: '不是你的问题，稍等一下再试。这次没有扣费。' },
 };
 
@@ -110,7 +110,7 @@ export function DeepChatPage() {
     try {
       next = await api<DeepState>('/hn/deep/message', { method: 'POST', body: body.action ? { action: body.action } : { text: shown } });
       setSt(next);
-      if (next.fellBack) showToast('你的 Key 用不了，已改用平台余额');
+      if (next.fellBack) showToast('你的 Key 用不了，已改用牵豆');
     } catch (e) {
       fail(e);
       // 我说的话服务端已经存下了，重新取一次状态，把它显示出来
@@ -225,8 +225,8 @@ export function DeepChatPage() {
               </div>
               <div className="hn-row" style={{ marginTop: 14, flexWrap: 'wrap' }}>
                 {noticeKey === 'no_balance' && <><button className="hn-pill" onClick={() => nav('/ai-fee/topup')}>去充值</button><button className="hn-pill ghost" onClick={() => nav('/ai-fee/key')}>改用我自己的 Key</button></>}
-                {(noticeKey === 'key_invalid' || noticeKey === 'key_no_balance') && <><button className="hn-pill" onClick={() => nav('/ai-fee/key')}>换一个 Key</button><button className="hn-pill ghost" onClick={() => pickMode('platform').then(() => setNotice('ai_down'))}>改用平台余额</button></>}
-                {noticeKey === 'need_key' && <><button className="hn-pill" onClick={() => nav('/ai-fee/key')}>去填写 Key</button><button className="hn-pill ghost" onClick={() => pickMode('platform').then(() => setNotice('ai_down'))}>改用平台余额</button></>}
+                {(noticeKey === 'key_invalid' || noticeKey === 'key_no_balance') && <><button className="hn-pill" onClick={() => nav('/ai-fee/key')}>换一个 Key</button><button className="hn-pill ghost" onClick={() => pickMode('platform').then(() => setNotice('ai_down'))}>改用牵豆</button></>}
+                {noticeKey === 'need_key' && <><button className="hn-pill" onClick={() => nav('/ai-fee/key')}>去填写 Key</button><button className="hn-pill ghost" onClick={() => pickMode('platform').then(() => setNotice('ai_down'))}>改用牵豆</button></>}
                 {noticeKey === 'ai_down' && <button className="hn-pill" onClick={() => (st.pending ? send({}) : setNotice(''))}>{st.pending ? '继续' : '知道了'}</button>}
                 {noticeKey !== 'ai_down' && st.pending && <button className="hn-pill ghost" onClick={() => send({})}>解决了，继续</button>}
               </div>
@@ -291,11 +291,11 @@ export function DeepChatPage() {
               <>
                 <div className="hn-row" style={{ marginTop: 18 }}>
                   <span style={{ fontSize: 14, fontWeight: 700 }}>费用怎么付</span>
-                  <span className="hn-t2" style={{ marginLeft: 'auto', fontSize: 12 }}>这次预计 <b style={{ color: 'var(--hn-rose)' }}>¥{st.estimate}</b> 以内</span>
+                  <span className="hn-t2" style={{ marginLeft: 'auto', fontSize: 12 }}>这次预计 <b style={{ color: 'var(--hn-rose)' }}>{st.estimate}</b> 牵豆以内</span>
                 </div>
                 <PayOptions wallet={st.wallet} onPick={pickMode} onGoKey={() => nav('/ai-fee/key')} onGoTopup={() => nav('/ai-fee/topup')} />
                 <button className="hn-btn" style={{ marginTop: 16 }} disabled={!canStart || !!busy} onClick={() => post('/hn/deep/start')}>开始聊</button>
-                <div className="hn-t3" style={{ textAlign: 'center', marginTop: 10 }}>{canStart ? '不聊也不影响你被推荐和找人聊天' : '余额是 0，也没有填 Key：先充值，或者填自己的 Key'}</div>
+                <div className="hn-t3" style={{ textAlign: 'center', marginTop: 10 }}>{canStart ? '不聊也不影响你被推荐和找人聊天' : '牵豆是 0，也没有填 Key：先充值，或者填自己的 Key'}</div>
               </>
             ) : (
               <>
@@ -322,8 +322,8 @@ function Cost({ st, total, onOpen }: { st: DeepState; total?: boolean; onOpen: (
       {s.ownKey || (ownNow && s.calls === 0)
         ? <span>用的是你自己的 Key，平台没有扣费</span>
         : total
-          ? <span>本次共花 <b>¥{s.total}</b>（模型费 ¥{s.cost} + 手续费 ¥{s.fee}）</span>
-          : <span>本次已花 <b>¥{s.total}</b> · {ownNow ? '现在用你自己的 Key' : <>余额 <b>¥{st.wallet.balance}</b></>}</span>}
+          ? <span>本次共花 <b>{s.total}</b> 牵豆（模型费 {s.cost} + 手续费 {s.fee}）</span>
+          : <span>本次已花 <b>{s.total}</b> 牵豆 · {ownNow ? '现在用你自己的 Key' : <>还剩 <b>{st.wallet.balance}</b></>}</span>}
       <Ic n="right" s={12} />
     </div>
   );

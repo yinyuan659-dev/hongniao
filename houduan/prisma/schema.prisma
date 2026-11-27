@@ -457,6 +457,12 @@ model CallRecord {
   durationSec Int      @default(0) @map("duration_sec")
   /// 本通话分配到的 SRS 节点 IP（空=用环境变量 SRS_SERVER）；负载统计与接听时下发同一节点
   srsNode    String    @default("") @map("srs_node") @db.VarChar(64)
+  /// 这通视频的牵豆谁付（0 = 不收费：语音，或者发起时价格是 0）。2026-11-27 加的，见 common/video-fee.ts
+  payerId    BigInt    @default(0) @map("payer_id")
+  /// 发起时的价格：每分钟多少微元（1 牵豆 = 1,000,000）。通话中途后台改价不影响这一通
+  priceMicro Int       @default(0) @map("price_micro")
+  /// 已经扣到第几分钟（这一通一共扣了 paidMinutes × priceMicro）
+  paidMinutes Int      @default(0) @map("paid_minutes")
   createdAt  DateTime  @default(now()) @map("created_at")
 
   @@index([callerId])

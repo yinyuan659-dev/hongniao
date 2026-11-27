@@ -46,13 +46,28 @@ data class CallConfig(
 @Serializable
 data class CallerBrief(val id: String, val nickname: String, val avatar: String = "")
 
+/**
+ * 视频见面的收费信息（服务器算好给的；语音、价格是 0 时没有）。
+ * 视频按分钟收牵豆，只有男方付，不管谁发起（2026-11-27，样稿 design/10-qiandou.html；规则在后端 common/video-fee.ts）。
+ * perMin 每分钟多少牵豆；iPay 是不是我付；下面三项只有我付的时候才有：balance 我现有的牵豆、minutes 大约能聊几分钟、enough 够不够 1 分钟。
+ */
+@Serializable
+data class CallFee(
+    val free: Boolean = false,
+    val perMin: String = "0",
+    val iPay: Boolean = false,
+    val balance: String = "",
+    val minutes: Int = 0,
+    val enough: Boolean = true,
+)
+
 /** 通话状态机 */
 sealed class CallState {
     data object Idle : CallState()
     /** 主叫等待接听 */
     data class Outgoing(val callId: String, val peerId: String, val type: Int, val config: CallConfig) : CallState()
-    /** 被叫收到邀请 */
-    data class Incoming(val callId: String, val caller: CallerBrief, val type: Int, val config: CallConfig) : CallState()
+    /** 被叫收到邀请。fee：我是付牵豆的那一方（女方打给男方）时带着价格，来电页要写出来 */
+    data class Incoming(val callId: String, val caller: CallerBrief, val type: Int, val config: CallConfig, val fee: CallFee? = null) : CallState()
     /** 通话中 */
     data class Active(val callId: String, val peerId: String, val type: Int, val config: CallConfig) : CallState()
 }
@@ -181,12 +196,14 @@ object CallManager {
                 val type = data["type"]!!.jsonPrimitive.content.toInt()
                 val caller = Api.json.decodeFromJsonElement(CallerBrief.serializer(), data["caller"]!!)
                 val config = Api.json.decodeFromJsonElement(CallConfig.serializer(), data["config"]!!)
+                // 收费信息：不收费时是 null（或者旧版服务器没有这一项）
+                val fee = data["fee"]?.let { runCatching { Api.json.decodeFromJsonElement(CallFee.serializer(), it) }.getOrNull() }
                 peerName.value = caller.nickname
                 peerAvatar.value = caller.avatar
                 peerPublished.value = false
                 bindLogCall(callId)
                 clog("signal invite received type=$type callId=$callId")
-                _state.value = CallState.Incoming(callId, caller, type, config)
+                _state.value = CallState.Incoming(callId, caller, type, config, fee)
                 // App 在后台：来电悬浮窗（微信式，头像+昵称+接听/拒绝）+ 通知兜底（无悬浮窗权限或锁屏时）
                 if (!com.wh.hongniang.net.Session.foreground) {
                     appContextRef?.let { CallFloatWindow.show(it, caller.nickname, caller.avatar, type) }
@@ -207,10 +224,29 @@ object CallManager {
                     peerPublished.value = true
                 }
             }
+            "fee" -> {
+                // 这一通视频扣到第几分钟了（只有付牵豆的那一方会收到）：通话页左上角显示已用 / 还剩；low = 剩下的不够再付 1 分钟
+                if (data["callId"]?.jsonPrimitive?.content == logCallId) {
+                    feeTick.value = FeeTick(
+                        used = data["used"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                        balance = data["balance"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                        low = data["low"]?.jsonPrimitive?.contentOrNull == "true",
+                    )
+                }
+            }
             "reject", "cancel", "end" -> {
                 // 服务端强制挂断（连接中断等）会带 reason，Toast 提示用户
                 val reason = data["reason"]?.jsonPrimitive?.contentOrNull
-                if (!reason.isNullOrEmpty()) {
+                if (data["code"]?.jsonPrimitive?.contentOrNull == "no_beans") {
+                    // 我的牵豆用完了，服务器挂断：不是一句提示就完，弹框说清楚、可以去充值（CallFeeDialogs）
+                    val minutes = data["minutes"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0
+                    val used = data["used"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                    clog("call ended: no beans, minutes=$minutes used=$used")
+                    noBeans.value = NoBeans(
+                        reason ?: "牵豆用完了，通话已结束",
+                        if (minutes > 0) "这一通聊了 $minutes 分钟，用了 $used 牵豆。\n充值后可以接着聊。" else "充值后可以接着聊。",
+                    )
+                } else if (!reason.isNullOrEmpty()) {
                     clog("call force-ended by server: $reason")
                     appContextRef?.let { ctx ->
                         android.os.Handler(android.os.Looper.getMainLooper()).post {
@@ -223,11 +259,46 @@ object CallManager {
         }
     }
 
-    /** 主叫发起 */
-    fun startCall(context: Context, calleeId: String, type: Int, name: String = "", avatar: String = "") {
+    // ---------- 视频按分钟收牵豆（只有男方付）：界面要用的几个状态，CallFeeDialogs / 通话页读它们 ----------
+
+    /** 我要付牵豆的视频，拨出去之前先让我看价格、点「开始视频」：不是 null 就弹确认框 */
+    data class FeeAsk(val calleeId: String, val name: String, val avatar: String, val fee: CallFee)
+    val feeAsk = MutableStateFlow<FeeAsk?>(null)
+
+    /** 通话中的计费（只有付的那一方有）：已用多少、还剩多少、是不是只够这最后 1 分钟了 */
+    data class FeeTick(val used: String, val balance: String, val low: Boolean)
+    val feeTick = MutableStateFlow<FeeTick?>(null)
+
+    /** 牵豆不够（发起时不够 / 接听时不够 / 通话中用完被挂断）：不是 null 就弹框，可以去充值 */
+    data class NoBeans(val title: String, val text: String)
+    val noBeans = MutableStateFlow<NoBeans?>(null)
+
+    /** 弹框、来电页上点了「去充值」：MainActivity 看到 true 就打开充值页，然后置回 false */
+    val openTopup = MutableStateFlow(false)
+
+    /** 来电页上「牵豆不够，去充值」：先把这通拒掉（不能一边响着一边去充值），再去充值页 */
+    fun rejectForTopup() {
+        reject()
+        openTopup.value = true
+    }
+
+    /**
+     * 主叫发起。
+     * feeConfirmed：视频要我付牵豆时，第一次调用不会拨出去，而是先弹价格确认（feeAsk）；用户点了「开始视频」再带着 true 调一次。
+     * 所有发起视频的地方（聊天页、别人的主页、遇见、动态）都走这里，所以确认框只在这一处接。
+     */
+    fun startCall(context: Context, calleeId: String, type: Int, name: String = "", avatar: String = "", feeConfirmed: Boolean = false) {
         peerName.value = name
         peerAvatar.value = avatar
         scope.launch {
+            if (type == 2 && !feeConfirmed) {
+                // 问不到（网络问题、旧版服务器）就直接拨：够不够、让不让打，服务器发起时还会再查一遍
+                val fee = runCatching { Api.getObj<CallFee>("/call/fee?peerId=$calleeId") }.getOrNull()
+                if (fee != null && !fee.free && fee.iPay) {
+                    feeAsk.value = FeeAsk(calleeId, name, avatar, fee)
+                    return@launch
+                }
+            }
             // 头像缺失时补拉对方资料（微信式界面需要展示）
             if (avatar.isEmpty()) {
                 runCatching {
@@ -251,9 +322,13 @@ object CallManager {
                 clog("invite sent type=$type callId=$callId")
                 _state.value = CallState.Outgoing(callId, calleeId, type, config)
             } catch (e: Exception) {
-                if ((e as? com.wh.hongniang.net.ApiException)?.reason == "need_like") {
+                val why = (e as? com.wh.hongniang.net.ApiException)?.reason
+                if (why == "need_like") {
                     // 没互相喜欢，服务器不放行视频：不是一句提示就完，交给界面弹「互相喜欢后才能视频见面」（VideoNeedLikeDialog）
                     videoNeedLike.value = calleeId to peerName.value
+                } else if (why == "no_beans") {
+                    // 我付、我的牵豆不够 1 分钟：弹框，可以去充值。（对方付、对方不够是 peer_no_beans，走下面那一句提示）
+                    noBeans.value = NoBeans("牵豆不够", e.message ?: "充值后才能视频见面。")
                 } else {
                     android.widget.Toast.makeText(context, e.message ?: t("call.callFailed"), android.widget.Toast.LENGTH_SHORT).show()
                 }
@@ -280,7 +355,13 @@ object CallManager {
                 startTimer()
                 startMedia(cur.callId, cur.caller.id, cur.type, cur.config)
             } catch (e: Exception) {
-                android.widget.Toast.makeText(context, e.message ?: t("call.acceptFailed"), android.widget.Toast.LENGTH_SHORT).show()
+                if ((e as? com.wh.hongniang.net.ApiException)?.reason == "no_beans") {
+                    // 这通视频要我付，我的牵豆不够第 1 分钟：接不了。把来电拒掉（不然对方一直在等），弹框让我去充值
+                    runCatching { Api.request("/call/${cur.callId}/reject", "POST") }
+                    noBeans.value = NoBeans("牵豆不够，没法接听", "充值后再让对方打过来，或者你打过去。")
+                } else {
+                    android.widget.Toast.makeText(context, e.message ?: t("call.acceptFailed"), android.widget.Toast.LENGTH_SHORT).show()
+                }
                 teardown()
             }
         }
@@ -599,6 +680,7 @@ object CallManager {
     }
 
     private fun teardown() {
+        feeTick.value = null
         // 男方视频通话接通后挂断 → 弹评分界面（在状态重置前捕获）
         val cur = _state.value
         if (cur is CallState.Active && cur.type == 2 &&

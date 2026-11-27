@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>一线牵 · 牵豆和视频按分钟收费（样稿）</title>
+<!--
+  给用户确认用的界面样稿，不是产品代码。人是 AI 生成的假人，数字是示意。
+  双击用浏览器打开就能看。网址后面加 ?only=a / b / c 只显示其中一组（截图用）。
+  观感沿用 02-ai-fee.html、03-match.html（common.css / common.js）。
+  用户 2026-11-27 定的：余额统一叫「牵豆」，1 元 = 1 牵豆，AI 费用、真人认证、视频都从这里扣；
+  视频见面按分钟收，默认 0.02 牵豆 / 分钟，价格后台可调；只有男方付，不管谁发起；牵豆不够就挂断；
+  收费直接是开着的，没有「默认关」的开关；最少充 1 元；真实收款（安卓微信 / 支付宝、iOS 苹果内购）这次不接，上线前再接。
+-->
+<link rel="stylesheet" href="common.css">
+<style>
+  .tip { margin: 6px 0 16px; padding: 10px 14px; border-radius: 16px; font-size: 12.5px; line-height: 1.55; color: var(--ink-2); text-align: center; background: rgba(255, 255, 255, .7); }
+  .sheet h4 { font-size: 18px; font-weight: 800; padding-top: 20px; }
+  .kv { display: flex; justify-content: space-between; align-items: center; font-size: 14px; padding: 9px 0; color: var(--ink-2); }
+  .kv b { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .kv + .kv { border-top: 1px solid var(--line); }
+  .bean { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 9px; background: var(--grad); color: #fff; font-size: 10px; font-weight: 800; vertical-align: -3px; margin-right: 4px; }
+  .call { background: linear-gradient(180deg, #2a2230 0%, #17141a 100%); color: #fff; align-items: center; }
+  .call .who { margin-top: 74px; width: 112px; height: 112px; border-radius: 56px; border: 3px solid rgba(255, 255, 255, .9); }
+  .call .nm { font-size: 22px; font-weight: 800; margin-top: 16px; }
+  .call .st { font-size: 14px; opacity: .75; margin-top: 6px; }
+  .fee { margin-top: 18px; padding: 9px 16px; border-radius: 18px; background: rgba(255, 255, 255, .14); border: 1px solid rgba(255, 255, 255, .28); font-size: 13px; line-height: 1.5; text-align: center; }
+  .fee b { color: #ffd0a8; }
+  .cbtns { margin-top: auto; margin-bottom: 64px; display: flex; gap: 70px; }
+  .cb { width: 68px; height: 68px; border-radius: 34px; display: flex; align-items: center; justify-content: center; color: #fff; }
+  .cb.no { background: #f04438; } .cb.yes { background: #12b76a; }
+  .cl { font-size: 12px; opacity: .8; text-align: center; margin-top: 8px; }
+  .vid { position: absolute; inset: 0; background-size: cover; background-position: center 20%; }
+  .vid::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0, 0, 0, .45) 0%, transparent 22%, transparent 62%, rgba(0, 0, 0, .6) 100%); }
+  .pip { position: absolute; right: 14px; top: 96px; width: 96px; height: 132px; border-radius: 16px; border: 2px solid rgba(255, 255, 255, .85); background-size: cover; background-position: center; z-index: 3; }
+  .meter { position: absolute; left: 14px; top: 96px; z-index: 3; padding: 7px 12px; border-radius: 15px; background: rgba(0, 0, 0, .46); color: #fff; font-size: 12px; line-height: 1.55; backdrop-filter: blur(8px); }
+  .meter b { color: #ffd0a8; font-variant-numeric: tabular-nums; }
+  .low { position: absolute; left: 14px; right: 14px; top: 244px; z-index: 3; padding: 9px 14px; border-radius: 16px; background: rgba(240, 68, 56, .92); color: #fff; font-size: 13px; text-align: center; font-weight: 600; }
+  .ask { position: absolute; left: 26px; right: 26px; top: 270px; z-index: 47; background: #fff; border-radius: 24px; padding: 20px 18px 16px; box-shadow: 0 20px 44px rgba(43, 20, 28, .26); text-align: center; color: var(--ink); }
+  .ask h4 { font-size: 16.5px; font-weight: 800; }
+  .ask p { font-size: 13.5px; color: var(--ink-2); line-height: 1.65; margin-top: 7px; }
+  .ask .btns { display: flex; gap: 10px; margin-top: 16px; }
+  .ask .btn { flex: 1; height: 44px; font-size: 14.5px; }
+  .ask .btn.ghost { background: #f6f1f2; box-shadow: none; color: var(--ink-2); }
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .tile { height: 62px; border-radius: 18px; background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 18px; font-weight: 800; box-shadow: 0 2px 10px rgba(43, 28, 34, .05); border: 1.5px solid transparent; }
+  .tile.on { border-color: var(--rose); background: #fff5f6; color: var(--rose); box-shadow: 0 6px 16px rgba(255, 61, 99, .14); }
+  .tile small { font-size: 10.5px; font-weight: 500; color: var(--ink-3); margin-top: 1px; }
+  .tile.on small { color: var(--rose); }
+  .banner { margin: 6px 16px 0; padding: 10px 14px; border-radius: 16px; background: #fff4d9; color: #9a5b00; font-size: 12.5px; line-height: 1.55; display: flex; gap: 8px; align-items: flex-start; flex-shrink: 0; }
+  .ttl { font-size: 14px; font-weight: 700; margin: 16px 20px 6px; }
+  .pad { padding: 0 16px; }
+  .bal { font-size: 38px; font-weight: 800; letter-spacing: .5px; font-variant-numeric: tabular-nums; }
+  .lg { display: flex; align-items: center; gap: 12px; padding: 12px 14px; }
+  .lg + .lg { border-top: 1px solid var(--line); }
+  .lg .sq { width: 36px; height: 36px; border-radius: 12px; background: var(--soft); color: var(--rose); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .amt { font-size: 15.5px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .rule { width: 380px; background: #fff; border-radius: 24px; padding: 6px 18px 12px; box-shadow: 0 16px 36px rgba(255, 90, 120, .12); font-size: 13.5px; }
+  .rule .r { display: flex; gap: 10px; padding: 11px 0; align-items: flex-start; line-height: 1.6; }
+  .rule .r + .r { border-top: 1px solid var(--line); }
+  .rule .k { width: 78px; flex-shrink: 0; font-weight: 700; }
+  .rule .v { flex: 1; color: #4b3d43; }
+  .rule .v b { color: var(--rose); }
+  em.chg { font-style: normal; font-size: 10.5px; color: var(--rose); background: var(--soft); border-radius: 8px; padding: 1px 7px; font-weight: 600; margin-left: 6px; }
+</style>
+</head>
+<body>
+
+<div class="intro">
+  <h1>牵豆，和视频按分钟收费（样稿）</h1>
+  <p>余额统一叫「牵豆」，1 元 = 1 牵豆。视频见面按分钟收，只有男方付，牵豆不够就挂断。人是 AI 生成的假人，数字是示意（价格按默认的 0.02 牵豆 / 分钟画的，后台可以改）。</p>
+</div>
+
+<!-- ============ A：发起前、来电 ============ -->
+<section data-s="a">
+  <h2><b>1</b>打视频之前，男方先看到价格</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">男方点「视频见面 / 视频通话」 <small>每次都先弹这个</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">小林</div><span class="ic-btn"><i data-ic="more"></i></span></div>
+        <div class="body">
+          <div class="tip">你们在 11 月 23 日互相喜欢了。<br>线下见面前不要转账，遇到借钱、投资的请直接举报。</div>
+          <div class="br me"><div class="bb me">方便视频聊几句吗？</div><div class="me-av photo" style="background-image:url(img/p1.jpg)"></div></div>
+          <div class="br"><div class="me-av photo" style="background-image:url(img/f1.jpg);background-position:center 20%"></div><div class="bb ai">好呀</div></div>
+        </div>
+        <div class="dim"></div>
+        <div class="sheet">
+          <h4>和小林视频见面</h4>
+          <div style="margin-top:10px">
+            <div class="kv"><span>价格</span><b><i class="bean">豆</i>0.02 牵豆 / 分钟</b></div>
+            <div class="kv"><span>谁付</span><b>由你支付，对方不花钱</b></div>
+            <div class="kv"><span>你的牵豆</span><b>4.98，大约能聊 249 分钟</b></div>
+          </div>
+          <div class="t2" style="margin-top:8px;line-height:1.6;font-size:12px">接通后开始算，不满 1 分钟按 1 分钟。牵豆用完会自动挂断。</div>
+          <div class="row" style="margin-top:16px"><div class="btn ghost" style="flex:1;height:48px;font-size:15px">取消</div><div class="btn" style="flex:1.6;height:48px;font-size:15px"><i data-ic="video" data-s="18"></i>开始视频</div></div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>只有男方会看到这个</b>。女方点视频直接拨出去，和现在一样，不弹价格。</div>
+        <div>牵豆不够 1 分钟时，「开始视频」换成「去充值」，上面多一句「牵豆不够，至少要 0.02」。</div>
+        <div>语音通话不收牵豆，不弹这个。</div>
+        <div>互相喜欢、双方打开「视频见面」那些条件不变，这一层是在它们之后。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">女方打过来，男方的来电页 <small>多一行价格</small></div>
+      <div class="phone"><div class="island"></div><div class="screen call">
+        <div class="status w"><span>9:41</span><span>5G</span></div>
+        <div class="who photo" style="background-image:url(img/f1.jpg);background-position:center 20%"></div>
+        <div class="nm">小林</div>
+        <div class="st">邀请你视频见面…</div>
+        <div class="fee">接听后由你支付 <b>0.02 牵豆 / 分钟</b><br>你现在有 <b>4.98</b> 牵豆</div>
+        <div class="cbtns">
+          <div><div class="cb no"><i data-ic="x" data-s="28"></i></div><div class="cl">拒绝</div></div>
+          <div><div class="cb yes"><i data-ic="video" data-s="28"></i></div><div class="cl">接听</div></div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div>女方发起的视频也是男方付，所以<b>男方接听之前要看到价格</b>，点「接听」才开始算。</div>
+        <div>男方牵豆不够时：来电页上这一行变成「牵豆不够，充值后才能接听」，「接听」变成「去充值」。</div>
+        <div>女方那边：男方牵豆不够，她拨出去会直接提示<b>「对方牵豆不足，暂时不能视频」</b>，不会一直响。<em class="chg">你看要不要这样写</em></div>
+        <div>语音来电没有这一行。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ B：通话中、断掉 ============ -->
+<section data-s="b">
+  <h2><b>2</b>通话中，和牵豆用完</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">通话中，男方看到的 <small>左上角多一块</small></div>
+      <div class="phone"><div class="island"></div><div class="screen" style="background:#000">
+        <div class="vid" style="background-image:url(img/f1.jpg)"></div>
+        <div class="status w" style="z-index:4"><span>9:41</span><span>5G</span></div>
+        <div style="position:absolute;left:0;right:0;top:56px;text-align:center;color:#fff;z-index:3;font-size:15px;font-weight:700">小林 <span style="opacity:.8;font-weight:500;margin-left:6px">02:41</span></div>
+        <div class="meter">已用 <b>0.06</b> 牵豆<br>还剩 <b>4.92</b></div>
+        <div class="pip" style="background-image:url(img/p1.jpg)"></div>
+        <div class="low">牵豆只够再聊 1 分钟了</div>
+        <div style="position:absolute;left:0;right:0;bottom:56px;display:flex;justify-content:center;gap:34px;z-index:3;color:#fff">
+          <div><div class="cb" style="background:rgba(255,255,255,.22);width:58px;height:58px"><i data-ic="camera" data-s="24"></i></div><div class="cl">翻转</div></div>
+          <div><div class="cb no" style="width:58px;height:58px"><i data-ic="x" data-s="26"></i></div><div class="cl">挂断</div></div>
+          <div><div class="cb" style="background:rgba(255,255,255,.22);width:58px;height:58px"><i data-ic="video" data-s="24"></i></div><div class="cl">关画面</div></div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>左上角</b>：这一通已经用了多少、还剩多少，每分钟变一次。只有男方有，女方的通话页和现在一样。</div>
+        <div><b>红条</b>：剩下的牵豆不够付下一分钟时出现（最后 1 分钟），提醒一次。</div>
+        <div>每一分钟<b>开始时</b>扣这一分钟的钱；接通那一刻扣第 1 分钟。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">牵豆用完，自动挂断 <small>男方看到的</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">小林</div><span class="ic-btn"><i data-ic="more"></i></span></div>
+        <div class="body">
+          <div class="tip">你们在 11 月 23 日互相喜欢了。<br>线下见面前不要转账，遇到借钱、投资的请直接举报。</div>
+          <div class="br me"><div class="bb me" style="display:flex;align-items:center;gap:8px"><i data-ic="video" data-s="16"></i>视频通话 04:00</div><div class="me-av photo" style="background-image:url(img/p1.jpg)"></div></div>
+        </div>
+        <div class="dim"></div>
+        <div class="ask">
+          <h4>牵豆用完了，通话已结束</h4>
+          <p>这一通聊了 4 分钟，用了 0.08 牵豆。<br>充值后可以接着聊。</p>
+          <div class="btns"><div class="btn ghost">知道了</div><div class="btn">去充值</div></div>
+        </div>
+        <div class="dock"><div class="ibar" style="margin-top:0"><div class="box">发消息…</div><div class="send"><i data-ic="up" data-s="20"></i></div></div></div>
+      </div></div>
+      <div class="notes">
+        <div>下一分钟的钱扣不出来，<b>服务器直接结束这通视频</b>，两边同时挂断。</div>
+        <div>女方那边只弹一句：<b>「对方牵豆不足，通话已结束」</b>。<em class="chg">你看要不要这样写</em></div>
+        <div>聊天记录里照常留一条「视频通话 04:00」。</div>
+        <div>明细里一通视频合成一条：「视频见面 · 和小林 · 4 分钟　−0.08」。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ C：牵豆页、充值、规则 ============ -->
+<section data-s="c">
+  <h2><b>3</b>「AI 余额」改叫牵豆</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">充值 <small>「我的 → 我的牵豆 → 充值」</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">充值牵豆</div><span style="width:34px"></span></div>
+        <div class="banner"><i data-ic="info" data-s="15"></i><span>收款还在开通，现在不能自己充值。测试期间的牵豆由平台发放。</span></div>
+        <div class="row" style="padding:14px 22px 0;flex-shrink:0"><span class="t2">我的牵豆</span><b style="font-size:16px;font-variant-numeric:tabular-nums"><i class="bean">豆</i>4.98</b><span class="t3" style="margin-left:auto">1 牵豆 = 1 元</span></div>
+        <div class="ttl">充多少</div>
+        <div class="pad"><div class="tiles">
+          <div class="tile on">1<small>1 元</small></div>
+          <div class="tile">5<small>5 元</small></div>
+          <div class="tile">10<small>10 元</small></div>
+          <div class="tile">30<small>30 元</small></div>
+          <div class="tile">50<small>50 元</small></div>
+          <div class="tile">100<small>100 元</small></div>
+        </div></div>
+        <div class="pad" style="margin-top:12px"><div class="glass" style="padding:11px 14px;border-radius:16px;font-size:12.5px;line-height:1.65;color:var(--ink-2)">
+          1 牵豆够视频 50 分钟，AI 深聊一次只要几分钱，不用多充。
+        </div></div>
+        <div class="ttl">牵豆能干什么</div>
+        <div class="pad"><div class="glass" style="overflow:hidden">
+          <div class="lg"><span class="sq"><i data-ic="video" data-s="17"></i></span><div class="grow" style="font-size:14px">视频见面</div><span class="t2 tabnum">0.02 / 分钟</span></div>
+          <div class="lg"><span class="sq"><i data-ic="spark" data-s="17"></i></span><div class="grow" style="font-size:14px">AI 深聊、推荐理由</div><span class="t2">按实际用量</span></div>
+          <div class="lg"><span class="sq"><i data-ic="shield" data-s="17"></i></span><div class="grow" style="font-size:14px">真人认证</div><span class="t2 tabnum">1 / 次</span></div>
+        </div></div>
+        <div class="pad" style="margin-top:14px"><div class="btn" style="opacity:.45">支付 ¥1.00</div></div>
+        <div class="t3" style="text-align:center;margin-top:9px;padding:0 20px;line-height:1.6">牵豆只能在一线牵里使用，不能提现、不能转给别人，不会过期</div>
+      </div></div>
+      <div class="notes">
+        <div><b>最少充 1 元</b>：档位从 1 开始（原来是 5 起）。去掉了「自己填」。</div>
+        <div>原来写「AI 余额 ¥0.98」的地方全部改成「牵豆 0.98」：「我的」页、费用首页、明细、深聊页、真人认证页。</div>
+        <div><b>最底下那句是给以后留的</b>：充值买来的牵豆只能花；以后推荐奖励的提现是另一本账，不和牵豆混。</div>
+        <div>收款接好之前，这一页和现在一样只能看；安卓以后接微信 / 支付宝，iOS 以后接苹果内购。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">规则 <small>这不是界面</small></div>
+      <div class="rule">
+        <div class="r"><div class="k">牵豆</div><div class="v"><b>1 元 = 1 牵豆</b>。就是现在的「AI 余额」改了名字，原来的余额原样变成牵豆，不用换算</div></div>
+        <div class="r"><div class="k">视频价格</div><div class="v"><b>0.02 牵豆 / 分钟</b>，后台可以改，30 秒内生效。填 0 就是不收费。已经在打的那一通按开始时的价格算完</div></div>
+        <div class="r"><div class="k">谁付</div><div class="v"><b>只有男方付</b>，不管谁发起。女方不用牵豆也能打视频</div></div>
+        <div class="r"><div class="k">怎么扣</div><div class="v">接通时扣第 1 分钟，之后每满 1 分钟扣下一分钟。<b>不满 1 分钟按 1 分钟</b>，挂断不退</div></div>
+        <div class="r"><div class="k">不够时</div><div class="v">发起 / 接听前不够 1 分钟：不让打，提示去充值。通话中扣不出下一分钟：<b>服务器挂断</b></div></div>
+        <div class="r"><div class="k">语音、消息</div><div class="v">不收牵豆</div></div>
+        <div class="r"><div class="k">没有开关</div><div class="v">收费一直是开着的；送审时审核看到的就是这个样子</div></div>
+        <div class="r"><div class="k">测试号</div><div class="v">牵豆由后台加。我做一个脚本，你说给哪个短号加多少，我来加；给审核用的测试号也这样预先加好</div></div>
+      </div>
+      <div class="notes">
+        <div><b>按我的理解定的、你没明说的</b>：语音不收；男方每次发起前都弹一次价格；不满 1 分钟按 1 分钟；女方能看到「对方牵豆不足」这句话；去掉充值页的「自己填」。</div>
+        <div><b>要一起改的文字</b>：用户协议和 App 里「通话不收费」「相亲全程不收费」的说法；App Store 的介绍里也要写明视频按分钟收费。</div>
+        <div><b>这次不做的</b>：真实收款（安卓微信 / 支付宝、iOS 苹果内购）。<b>正式上线前必须接好</b>，不然男方没法充值、打不了视频。</div>
+        <div>四处都要改：后端（计费、断流、价格设置）、网页（牵豆页、明细、充值）、安卓、iOS。数据库要<b>加</b>东西记每通视频扣了多少，部署前先备份。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script src="common.js"></script>
+</body>
+</html>
