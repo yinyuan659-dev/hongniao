@@ -222,6 +222,86 @@ struct GroupAvatar: View {
     }
 }
 
+// MARK: - 线路群的聊天页顶上钉着的线路卡（样稿 design/13-travel.html 第 3 组右屏；网页端是 web/src/trip.tsx 的 TripPin）
+
+/// 线路卡上用到的几项（GET /trip/detail/:id 返回的东西里的）
+struct TripPinInfo: Codable {
+    var id: String = ""
+    var title: String? = nil
+    var coverUrl: String? = nil
+    /// 出发日期，北京时间的 YYYY-MM-DD
+    var startDate: String? = nil
+    /// 每人起价（元）
+    var price: Int? = nil
+}
+
+/// 「12 月 6 日」；不是今年的带上年份。日期不是 YYYY-MM-DD 的样子就原样返回
+func tripDateText(_ day: String, thisYear: Int = Calendar(identifier: .gregorian).component(.year, from: Date())) -> String {
+    let parts = day.split(separator: "-", omittingEmptySubsequences: false).map { Int($0) }
+    guard parts.count == 3, let y = parts[0], let m = parts[1], let d = parts[2] else { return day }
+    return (y != thisYear ? "\(y) 年 " : "") + "\(m) 月 \(d) 日"
+}
+
+/// 「¥3,980」
+func yuanText(_ n: Int) -> String {
+    let f = NumberFormatter()
+    f.numberStyle = .decimal
+    f.locale = Locale(identifier: "en_US")
+    return "¥" + (f.string(from: NSNumber(value: n)) ?? "\(n)")
+}
+
+/// 线路群的聊天页顶上钉着的那张线路卡：封面、标题、哪天出发、多少钱；点了看线路详情（网页）。
+/// 线路已经不在了（下架了）服务器回 404，这时不显示。reloadKey 变了就重新取一次（群的状态变了：线路下架时群会解散）。
+struct TripPinCard: View {
+    let tripId: String
+    let reloadKey: String
+    let onOpen: () -> Void
+    @State private var info: TripPinInfo?
+
+    var body: some View {
+        // 外面这层一直在（没有卡片时是一条 0 高的透明条），下面的 .task 才有地方挂
+        ZStack {
+            if let info {
+                Button(action: onOpen) { card(info) }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 12).padding(.bottom, 8)
+            } else {
+                Color.clear.frame(height: 0)
+            }
+        }
+        .task(id: "\(tripId)|\(reloadKey)") {
+            if let v: TripPinInfo = try? await Api.request("/trip/detail/\(tripId)") { info = v } else { info = nil }
+        }
+    }
+
+    private func card(_ t: TripPinInfo) -> some View {
+        HStack(spacing: 10) {
+            ZStack {
+                LinearGradient(
+                    colors: [Color(red: 0.239, green: 0.420, blue: 0.561), Color(red: 0.498, green: 0.655, blue: 0.722),
+                             Color(red: 0.851, green: 0.780, blue: 0.639), Color(red: 0.541, green: 0.416, blue: 0.290)],
+                    startPoint: .top, endPoint: .bottom
+                )
+                if let cover = t.coverUrl, !cover.isEmpty { RemoteImage(url: cover) }
+            }
+            .frame(width: 46, height: 46)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(t.title ?? "").font(.system(size: 13.5, weight: .bold)).foregroundStyle(HnTheme.ink).lineLimit(1)
+                Text("\(tripDateText(t.startDate ?? ""))出发 · \(yuanText(t.price ?? 0)) / 人起")
+                    .font(.system(size: 11)).foregroundStyle(HnTheme.ink3).lineLimit(1)
+            }
+            Spacer(minLength: 6)
+            Text("看线路 ›").font(.system(size: 12.5)).foregroundStyle(HnTheme.ink2).fixedSize()
+        }
+        .padding(.horizontal, 12).padding(.vertical, 9)
+        .background(Color.white)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: Color(red: 0.169, green: 0.110, blue: 0.133).opacity(0.07), radius: 7, x: 0, y: 4)
+        .contentShape(Rectangle())
+    }
+}
+
 /// 群名后面的「旅行 / 活动」小标签
 struct KindTag: View {
     let kind: String

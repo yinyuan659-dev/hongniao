@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, reasonOf } from '../api';
-import { openNativeChat, openNativeH5 } from '../bridge';
+import { hnNative, openNativeChat, openNativeH5 } from '../bridge';
 import { Ic, Nav, useBack, useToast } from '../hn';
 import { useApp } from '../store';
 import {
@@ -190,6 +190,8 @@ export function TripDetailPage() {
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [needKyc, setNeedKyc] = useState(false);
+  const [params] = useSearchParams();
+  const fromGroup = params.get('from') === 'group';
   const load = () => api<TripDetail>(`/trip/detail/${id}`).then((v) => { setD(v); setErr(''); }).catch((e: any) => { setErr(e.message || '打不开这条线路'); setD(null); });
   useEffect(() => { void load(); }, [id]);
   // 只关心这条线路的变化（约单人数、名额、内容、下架）
@@ -223,7 +225,15 @@ export function TripDetailPage() {
   const b = BTN[d.btn] ?? BTN.off;
   const click = () => {
     if (d.btn === 'order') return setAsking(true);
-    if ((d.btn === 'joined' || d.btn === 'owner') && d.group) return openTripGroup(nav, d.group);
+    if ((d.btn === 'joined' || d.btn === 'owner') && d.group) {
+      // 是从这个线路群的聊天页顶上那张线路卡点进来的（?from=group）：群聊页就在下面一层，退回去就行，不再叠一层聊天页
+      if (fromGroup) {
+        if ((window.history.state?.idx ?? 0) > 0) return nav(-1);
+        // App 里（原生群聊页打开的这一页网页）：把这一页关掉
+        if (hnNative('close')) return;
+      }
+      return openTripGroup(nav, d.group);
+    }
   };
   return (
     <div className="hn-page" style={{ background: '#fbf7f5' }}>

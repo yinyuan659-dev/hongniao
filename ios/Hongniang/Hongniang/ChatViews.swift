@@ -608,8 +608,20 @@ struct ChatRoomView: View {
         if let v: GroupInfo = try? await Api.request("/im/group/\(targetId)") { g = v }
     }
 
+    /// 线路群对应的线路 id（不是线路群、或者还没取到群资料时是 nil）
+    private var pinnedTripId: String? {
+        guard isGroup, let g, g.kind == "trip" else { return nil }
+        let id = (g.refId ?? "").filter { $0.isNumber }
+        return id.isEmpty || id == "0" ? nil : id
+    }
+
     private var mainColumn: some View {
         VStack(spacing: 0) {
+            // 线路群顶上钉着这条线路，点了看线路详情（网页；?from=group 让那一页的「进入群聊」直接退回这里，不再叠一层聊天页）。
+            // 活动群的卡片第 3 步做活动时加在这里
+            if let tripId = pinnedTripId {
+                TripPinCard(tripId: tripId, reloadKey: g?.state ?? "") { pushRoute = .web("/trip/\(tripId)?from=group") }
+            }
             pinBarView
             // 顶上一条提示：哪天配上的 + 防骗提醒
             ChatMatchBanner(rel: rel)

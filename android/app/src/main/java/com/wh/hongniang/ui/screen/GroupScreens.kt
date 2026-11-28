@@ -201,6 +201,64 @@ fun GroupAvatar(avatar: String?, kind: String, size: Int = 54, modifier: Modifie
     }
 }
 
+// ---------- 线路群的聊天页顶上钉着的线路卡（样稿 design/13-travel.html 第 3 组右屏；网页端是 web/src/trip.tsx 的 TripPin） ----------
+
+/** 线路卡上用到的几项（GET /trip/detail/:id 返回的东西里的） */
+@Serializable
+data class TripPinInfo(
+    val id: String = "",
+    val title: String = "",
+    val coverUrl: String = "",
+    /** 出发日期，北京时间的 YYYY-MM-DD */
+    val startDate: String = "",
+    /** 每人起价（元） */
+    val price: Int = 0,
+)
+
+/** 「12 月 6 日」；不是今年的带上年份。日期不是 YYYY-MM-DD 的样子就原样返回 */
+internal fun tripDateText(day: String, thisYear: Int = java.time.LocalDate.now().year): String {
+    val p = day.split("-").map { it.toIntOrNull() }
+    if (p.size != 3 || p.any { it == null }) return day
+    return (if (p[0] != thisYear) "${p[0]} 年 " else "") + "${p[1]} 月 ${p[2]} 日"
+}
+
+/** 「¥3,980」 */
+internal fun yuanText(n: Int): String = "¥" + java.text.NumberFormat.getIntegerInstance(java.util.Locale.US).format(n)
+
+/**
+ * 线路群的聊天页顶上钉着的那张线路卡：封面、标题、哪天出发、多少钱；点了看线路详情（网页）。
+ * 线路已经不在了（下架了）服务器回 404，这时不显示。reloadKey 变了就重新取一次（群的状态变了：线路下架时群会解散）。
+ */
+@Composable
+fun TripPinCard(tripId: String, reloadKey: String, onOpen: () -> Unit) {
+    var info by remember(tripId) { mutableStateOf<TripPinInfo?>(null) }
+    LaunchedEffect(tripId, reloadKey) {
+        info = runCatching { Api.getObj<TripPinInfo>("/trip/detail/$tripId") }.getOrNull()
+    }
+    val t = info ?: return
+    val shape = RoundedCornerShape(16.dp)
+    Row(
+        Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp).fillMaxWidth()
+            .shadow(5.dp, shape, ambientColor = Color(0x402B1C22), spotColor = Color(0x402B1C22))
+            .clip(shape).background(Color.White).clickable(onClick = onOpen).padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(46.dp).clip(RoundedCornerShape(12.dp)).background(AVATAR_TRIP)) {
+            if (t.coverUrl.isNotEmpty()) {
+                AsyncImage(model = Api.fullUrl(t.coverUrl), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            }
+        }
+        Column(Modifier.weight(1f).padding(start = 10.dp, end = 8.dp)) {
+            Text(t.title, color = Color(0xFF2B1C22), fontSize = 13.5.sp, lineHeight = 19.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                "${tripDateText(t.startDate)}出发 · ${yuanText(t.price)} / 人起", color = Color(0xFFBCB0B4), fontSize = 11.sp, lineHeight = 16.sp,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+        Text("看线路 ›", color = Color(0xFF8C7D83), fontSize = 12.5.sp, maxLines = 1)
+    }
+}
+
 /** 群名后面的「旅行 / 活动」小标签 */
 @Composable
 fun KindTag(kind: String, modifier: Modifier = Modifier) {

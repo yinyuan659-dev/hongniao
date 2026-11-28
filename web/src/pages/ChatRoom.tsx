@@ -896,7 +896,7 @@ export function ChatRoomPage() {
         </span>
       </div>
       {/* 线路群顶上钉着这条线路（点了看线路详情）。活动群的卡片第 3 步做活动时加在这里 */}
-      {groupId && g?.kind === 'trip' && g.refId && g.refId !== '0' && <TripPin tripId={g.refId} onOpen={() => nav(`/trip/${g.refId}`)} />}
+      {groupId && g?.kind === 'trip' && g.refId && g.refId !== '0' && <TripPin tripId={g.refId} onOpen={() => nav(`/trip/${g.refId}?from=group`)} />}
       {pins.length > 0 && (
         <PinBar
           pins={pins}

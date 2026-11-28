@@ -996,7 +996,12 @@ fun ChatRoomScreen(
             )
         }
 
-        // 样稿里群聊页顶上还钉着这个群对应的线路 / 活动卡片：线路、活动是第 2、3 步才做的，到时候加在这里
+        // 线路群顶上钉着这条线路，点了看线路详情（网页；?from=group 让那一页的「进入群聊」直接退回这里，不再叠一层聊天页）。
+        // 活动群的卡片第 3 步做活动时加在这里
+        val tripId = g?.takeIf { isGroup && it.kind == "trip" }?.refId?.filter { it.isDigit() }?.takeIf { it.isNotEmpty() && it != "0" }
+        if (tripId != null) {
+            TripPinCard(tripId, reloadKey = "$reopen-${g?.state}") { onNav(hnH5("/trip/$tripId?from=group")) }
+        }
         if (pins.isNotEmpty()) {
             PinBar(
                 pins, pinIdx,

@@ -213,9 +213,16 @@ def main():
                 ok('发送中' not in text_of(F, 'body'), '那条消息发出去了（不再是「发送中」）')
                 shot(F, 'trip-web-10-group.png')
                 ok(wait_text(M, '.tp-wb', '1 人约过单'), '领队正停在这条线路的管理页：不刷新，「约单的人」变成 1 人')
+                depth = F.evaluate('history.state && history.state.idx')
                 pin.click()
                 F.locator('[data-act="trip-btn"]').wait_for(state='visible', timeout=8000)
                 ok(F.locator('[data-act="trip-btn"]').inner_text() == '进入群聊' and '1 人已约单' in text_of(F) and F.locator('.tp-faces .hn-meav').count() == 1, '点卡片回线路详情：按钮变成「进入群聊」，1 人已约单，有她的头像', text_of(F))
+                F.locator('[data-act="trip-btn"]').click()
+                F.wait_for_url('**/#/chatroom/**', timeout=8000)
+                ok(visible(F, '【自测】约单进来的 ' + stamp) and F.evaluate('history.state && history.state.idx') == depth,
+                   '在这一页点「进入群聊」：退回刚才那一页群聊（没有再叠一层）', (depth, F.evaluate('history.state && history.state.idx')))
+                F.locator('[data-info="trip-pin"]').click()
+                F.locator('[data-act="trip-btn"]').wait_for(state='visible', timeout=8000)
 
                 print('【7 领队管这条线路：名额、约单的人、进群】')
                 M.locator('[data-act="plus"]').click()
