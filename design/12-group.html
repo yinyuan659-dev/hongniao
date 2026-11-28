@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>一线牵 · 群聊（样稿）</title>
+<!--
+  给用户确认用的界面样稿，不是产品代码。人是 AI 生成的假人，群名、线路、聊天内容都是示意；封面用色块代替。
+  双击用浏览器打开就能看。网址后面加 ?only=a / b / c / d 只显示其中一组（截图用）。
+  观感沿用 03-match.html、09-openchat.html（common.css / common.js）。
+  这是「大厅两个模块」的第 1 步（规划见 11-hall-travel.html）：旅行线路的群、相亲活动的群都靠它。
+  用户 2026-11-27 定的：群聊照原项目（心之音）的搬回来；约单 / 参与 = 进群；数据更新全部走 WebSocket。
+-->
+<link rel="stylesheet" href="common.css">
+<style>
+  .ent { flex: 1; border-radius: 20px; padding: 12px 10px; text-align: center; }
+  .ent .num { font-size: 20px; font-weight: 800; }
+  .cl { display: flex; align-items: center; gap: 12px; padding: 10px 18px; }
+  .cl .av { width: 54px; height: 54px; border-radius: 27px; flex-shrink: 0; position: relative; }
+  .cl .av.g { border-radius: 16px; display: flex; align-items: center; justify-content: center; color: #fff; }
+  .dot { position: absolute; right: -2px; top: -2px; min-width: 18px; height: 18px; border-radius: 9px; background: var(--rose); color: #fff; font-size: 10.5px; font-weight: 700; display: flex; align-items: center; justify-content: center; border: 2px solid #fff; padding: 0 4px; }
+  .dot.mute { background: #cfc6c9; min-width: 12px; width: 12px; height: 12px; padding: 0; right: 0; top: 0; }
+  .ga { background: linear-gradient(160deg, #3d6b8f 0%, #7fa7b8 38%, #d9c7a3 70%, #8a6a4a 100%); }
+  .gb { background: linear-gradient(165deg, #2f5d50 0%, #6fa07a 55%, #cfe3b4 100%); }
+  .gt2 { font-size: 10.5px; height: 18px; padding: 0 7px; border-radius: 9px; display: inline-flex; align-items: center; font-weight: 600; flex-shrink: 0; }
+  .gt2.t { background: #e6f0f7; color: #2f6690; }
+  .gt2.e { background: #e5f4e8; color: #2f7d4a; }
+  .one { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .gcard { margin: 0 14px 10px; border-radius: 16px; background: #fff; padding: 10px 12px; display: flex; gap: 10px; align-items: center; box-shadow: 0 4px 14px rgba(43, 28, 34, .07); flex-shrink: 0; }
+  .gcard .pic { width: 46px; height: 46px; border-radius: 12px; flex-shrink: 0; }
+  .nm { font-size: 11px; color: var(--ink-3); margin: 0 0 3px 47px; }
+  .who { font-size: 10px; color: #fff; background: var(--rose); border-radius: 7px; padding: 0 5px; margin-left: 5px; font-weight: 700; }
+  .sys { text-align: center; font-size: 11.5px; color: var(--ink-3); margin: 2px 0 12px; }
+  .pic-msg { width: 168px; height: 112px; border-radius: 6px 18px 18px 18px; box-shadow: 0 4px 16px rgba(43, 28, 34, .08); }
+  .box2 { margin: 10px 16px 0; background: #fff; border-radius: 18px; padding: 13px 15px; box-shadow: 0 4px 16px rgba(43, 28, 34, .05); flex-shrink: 0; }
+  .box2 h5 { font-size: 14px; font-weight: 800; display: flex; align-items: center; }
+  .box2 h5 span { margin-left: auto; font-size: 12px; font-weight: 500; color: var(--ink-3); }
+  .box2 p { font-size: 13px; line-height: 1.7; color: #4b3d43; margin-top: 5px; }
+  .mem { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px 2px; margin-top: 12px; }
+  .mem > div { text-align: center; font-size: 11px; color: var(--ink-2); }
+  .mem .a { width: 44px; height: 44px; border-radius: 22px; margin: 0 auto 6px; position: relative; border: 2px solid #fff; box-shadow: 0 2px 8px rgba(43, 28, 34, .1); }
+  .mem .a .who { position: absolute; left: 50%; bottom: -7px; transform: translateX(-50%); margin: 0; white-space: nowrap; border: 1.5px solid #fff; }
+  .mem .a.tool { border: 1.5px dashed var(--ink-3); box-shadow: none; display: flex; align-items: center; justify-content: center; color: var(--ink-2); background: #fff; }
+  .rowl { display: flex; align-items: center; height: 50px; padding: 0 15px; font-size: 14.5px; gap: 10px; }
+  .rowl + .rowl { border-top: 1px solid var(--line); }
+  .rowl .end { margin-left: auto; color: var(--ink-3); display: flex; align-items: center; gap: 3px; font-size: 13px; }
+  .switch.on { background: var(--rose); } .switch.on::after { left: 21px; }
+  .own { font-style: normal; font-size: 10.5px; color: var(--rose); background: var(--soft); border-radius: 8px; padding: 1px 7px; font-weight: 600; margin-left: 6px; }
+  .danger { margin: 12px 16px 0; height: 48px; border-radius: 18px; background: #fff; color: #f04438; font-size: 15px; font-weight: 600; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 16px rgba(43, 28, 34, .05); flex-shrink: 0; }
+  .lp { position: absolute; left: 62px; top: 364px; z-index: 47; background: #2b1c22; color: #fff; border-radius: 14px; display: flex; font-size: 13px; padding: 2px 4px; box-shadow: 0 10px 24px rgba(43, 28, 34, .28); }
+  .lp span { padding: 9px 13px; }
+  .lp span.hot { color: #ff9aa9; font-weight: 700; }
+  .rs h4 { font-size: 17px; font-weight: 800; padding: 20px 0 4px; }
+  .rs .why { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .rs .why span { height: 36px; padding: 0 12px; border-radius: 18px; font-size: 13px; display: inline-flex; align-items: center; background: #f6f1f2; color: var(--ink); }
+  .rs .why span.on { background: #fff0f2; color: var(--rose); font-weight: 700; box-shadow: inset 0 0 0 1.5px var(--rose); }
+  .rs .ta { margin-top: 12px; height: 70px; border-radius: 16px; background: #f6f1f2; padding: 11px 14px; font-size: 13.5px; color: var(--ink-3); }
+  .st { font-size: 12px; color: var(--ink-2); margin: 14px 22px 6px; display: flex; align-items: center; gap: 6px; }
+  .st b { width: 18px; height: 18px; border-radius: 9px; background: var(--grad); color: #fff; font-size: 11px; display: inline-flex; align-items: center; justify-content: center; }
+  .endbar { margin: 0 14px; padding: 14px; border-radius: 18px; font-size: 13px; line-height: 1.55; color: var(--ink-2); text-align: center; background: rgba(255, 255, 255, .8); box-shadow: 0 4px 16px rgba(43, 28, 34, .05); }
+  .tipbar { margin: 0 14px 8px; padding: 9px 14px; border-radius: 14px; font-size: 12.5px; line-height: 1.5; color: #9a5b00; background: #fff4d9; text-align: center; }
+  .fakein { margin: 0 14px; display: flex; gap: 8px; align-items: center; }
+  .fakein .b { flex: 1; height: 44px; border-radius: 22px; background: #fff; box-shadow: 0 4px 16px rgba(43, 28, 34, .07); color: var(--ink-3); font-size: 14px; display: flex; align-items: center; padding: 0 18px; }
+  .fakein .s { width: 44px; height: 44px; border-radius: 22px; background: #fff; color: var(--ink); display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 16px rgba(43, 28, 34, .07); }
+  .plan { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; width: 800px; }
+  .pc { background: #fff; border-radius: 22px; padding: 16px 18px; box-shadow: 0 12px 30px rgba(255, 90, 120, .1); font-size: 13.5px; line-height: 1.7; color: #4b3d43; }
+  .pc h3 { font-size: 16px; color: var(--ink); margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+  .pc h3 i { width: 26px; height: 26px; border-radius: 9px; background: var(--soft); color: var(--rose); display: inline-flex; align-items: center; justify-content: center; font-style: normal; font-weight: 800; font-size: 13px; }
+  .pc ul { padding-left: 18px; } .pc li { margin-bottom: 4px; } .pc b { color: var(--ink); }
+  .pc.warn { background: #fffaf0; box-shadow: 0 12px 30px rgba(240, 160, 60, .12); }
+  .pc.warn h3 i { background: #ffedd0; color: #b54708; }
+  .tbd { color: #b54708; background: #fff4e5; border: 1px dashed #f0b56a; border-radius: 5px; padding: 0 5px; font-weight: 600; white-space: nowrap; }
+  .mine { color: #b54708; background: #fff4e5; border-radius: 4px; padding: 0 4px; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="intro">
+  <h1>群聊（样稿）</h1>
+  <p>大厅两个模块的第 1 步：旅行线路的群、相亲活动的群，都是这一套。聊天页的观感和现在的单聊一样，只画了和单聊不一样的地方。人是 AI 生成的假人，群名和聊天内容是示意。</p>
+  <p>标了 <span class="mine">我定的</span> 的是你没说、我按理解先定的；标了 <span class="tbd">待定</span> 的要你给。</p>
+</div>
+
+<!-- ============ A：消息页 + 群聊页 ============ -->
+<section data-s="a">
+  <h2><b>1</b>群出现在消息列表里，点进去就是群聊</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">消息页 <small>群和单聊在同一个列表里</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div style="font-size:24px;font-weight:800;padding:6px 20px 12px">消息</div>
+        <div class="row" style="padding:0 16px;gap:10px">
+          <div class="ent glass"><div class="num" style="color:var(--rose)">2</div><div class="t2" style="font-size:12px;margin-top:2px">喜欢我的</div></div>
+          <div class="ent glass"><div class="num">1</div><div class="t2" style="font-size:12px;margin-top:2px">我喜欢的</div></div>
+          <div class="ent glass"><div class="num">3</div><div class="t2" style="font-size:12px;margin-top:2px">互相喜欢</div></div>
+        </div>
+        <div style="height:14px"></div>
+        <div class="cl">
+          <div class="av g ga"><i data-ic="car" data-s="24"></i><span class="dot">3</span></div>
+          <div class="grow"><div class="row" style="gap:6px"><b class="one" style="font-size:16px">川西环线 12-06 团</b><span class="gt2 t">旅行</span><span class="t3" style="margin-left:auto;flex-shrink:0">刚刚</span></div><div class="t2 one" style="margin-top:4px">老猫：车上有氧气瓶。定金 500，出发前…</div></div>
+        </div>
+        <div class="cl">
+          <div class="av photo" style="background-image:url(img/f2.jpg)"><span class="dot">2</span></div>
+          <div class="grow"><div class="row"><b style="font-size:16px">阿雯</b><span class="t3" style="margin-left:auto">10:24</span></div><div class="t2 one" style="margin-top:4px">周末那家店我也想去</div></div>
+        </div>
+        <div class="cl">
+          <div class="av g gb"><i data-ic="leaf" data-s="24"></i><span class="dot mute"></span></div>
+          <div class="grow"><div class="row" style="gap:6px"><b class="one" style="font-size:16px">龙泉山日出徒步</b><span class="gt2 e">活动</span><span class="t3" style="margin-left:auto;flex-shrink:0">09:12</span></div><div class="t2 one" style="margin-top:4px">小林：我多带两瓶水，谁要</div></div>
+        </div>
+        <div class="cl">
+          <div class="av photo" style="background-image:url(img/f3.jpg)"></div>
+          <div class="grow"><div class="row"><b style="font-size:16px">书岚</b><span class="t3" style="margin-left:auto">昨天</span></div><div class="t2 one" style="margin-top:4px">好的，那到时候见</div></div>
+        </div>
+        <div class="tabbar"><div class="tab">广场</div><div class="tab">大厅</div><div class="tab"><div class="plus"><i data-ic="plus" data-s="18"></i></div></div><div class="tab on">消息</div><div class="tab">我的</div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>群和单聊混在一起</b>，按最后一条消息的时间排。不另开一个「群聊」入口 <span class="mine">我定的</span>。</div>
+        <div><b>一眼分得出</b>：群的头像是方的（线路的封面 / 活动的类型图标），人是圆的；群名后面有「旅行」「活动」小标签。</div>
+        <div>预览那一行是「谁：说了什么」。红点是未读条数；<b>开了免打扰的群</b>只显示一个灰点，不算进底部「消息」的未读数。</div>
+        <div>约单 / 参与成功后，这个群<b>马上</b>出现在列表最上面，不用等有人说话。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">群聊页 <small>旅行线路的群</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">川西环线 12-06 团（8）</div><span class="ic-btn"><i data-ic="more"></i></span></div>
+        <div class="gcard"><div class="pic ga"></div><div class="grow"><b style="font-size:13.5px">川西环线 7 天</b><div class="t3" style="margin-top:3px">12 月 6 日出发 · ¥3,980 / 人起</div></div><span class="t2" style="font-size:12.5px;display:flex;align-items:center">看线路<i data-ic="right" data-s="14"></i></span></div>
+        <div class="body">
+          <div class="sys">小周 加入了群聊</div>
+          <div class="nm">老猫<span class="who">领队</span></div>
+          <div class="br"><div class="me-av" style="background:linear-gradient(135deg,#4a6b5d,#9fbf8f)"></div><div class="bb ai">欢迎，这趟 6 台车。你是自己开车还是坐车？</div></div>
+          <div class="br me"><div class="bb me">坐车，一个人。高反严重吗？</div><div class="me-av photo" style="background-image:url(img/p1.jpg)"></div></div>
+          <div class="nm">小林</div>
+          <div class="br"><div class="me-av photo" style="background-image:url(img/f1.jpg);background-position:center 20%"></div><div class="bb ai">我上次去第二天有点头疼，带点葡萄糖</div></div>
+          <div class="nm">老猫<span class="who">领队</span></div>
+          <div class="br" style="margin-bottom:8px"><div class="me-av" style="background:linear-gradient(135deg,#4a6b5d,#9fbf8f)"></div><div class="pic-msg ga"></div></div>
+          <div class="br"><div style="width:38px;flex-shrink:0"></div><div class="bb ai">上周拍的，垭口这段。车上有氧气瓶</div></div>
+        </div>
+        <div class="dock"><div class="fakein" style="margin:0"><div class="b">发消息…</div><div class="s"><i data-ic="plus" data-s="20"></i></div></div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>标题</b>：群名 +（人数）。右上角「···」进群资料。</div>
+        <div><b>顶上钉着这个群是干什么的</b>：线路群钉线路（点了看线路详情），活动群钉活动（时间、地点）。一直在，不会被聊天顶走。</div>
+        <div><b>别人的消息上面有昵称</b>；群主的昵称后面有红色小标：线路群是「领队」，活动群是「发起人」。点头像进他的相亲画像，在那里可以单独给他发消息。</div>
+        <div><b>能发的和单聊一样</b>：文字、图片、视频、语音消息、文件，能回复、转发。<b>群里没有语音 / 视频通话</b>，也不显示「已读」。</div>
+        <div>有人进群、退群、被移出，中间出一行灰色小字。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ B：群资料 ============ -->
+<section data-s="b">
+  <h2><b>2</b>群资料：普通成员看到的，和群主看到的</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">群资料 <small>普通成员</small></div>
+      <div class="phone"><div class="island"></div><div class="screen" style="background:#fbf7f5">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">群资料</div><span style="width:34px"></span></div>
+        <div class="box2" style="margin-top:2px"><div class="row"><div class="ga" style="width:52px;height:52px;border-radius:15px;flex-shrink:0"></div><div class="grow"><b style="font-size:16px">川西环线 12-06 团</b><div class="t2" style="margin-top:3px;font-size:12.5px">8 人 · 领队 老猫</div></div><span class="gt2 t">旅行</span></div></div>
+        <div class="box2">
+          <h5>群成员<span>全部 8 人 ›</span></h5>
+          <div class="mem">
+            <div><div class="a" style="background:linear-gradient(135deg,#4a6b5d,#9fbf8f)"><span class="who">领队</span></div>老猫</div>
+            <div><div class="a photo" style="background-image:url(img/f1.jpg);background-position:center 20%"></div>小林</div>
+            <div><div class="a photo" style="background-image:url(img/p1.jpg)"></div>我</div>
+            <div><div class="a photo" style="background-image:url(img/p2.jpg)"></div>小周</div>
+            <div><div class="a photo" style="background-image:url(img/f2.jpg)"></div>阿雯</div>
+            <div><div class="a photo" style="background-image:url(img/p3.jpg)"></div>大刘</div>
+            <div><div class="a photo" style="background-image:url(img/f3.jpg)"></div>书岚</div>
+            <div><div class="a" style="background:#cfe0f5"></div>阿杰</div>
+          </div>
+        </div>
+        <div class="box2"><h5>群公告</h5><p>12 月 6 日早 7 点成都南站东广场集合。带身份证、厚外套、常用药。定金的事在群里问我。</p></div>
+        <div class="box2" style="padding:0 0">
+          <div class="rowl">消息免打扰<span class="end"><span class="switch"></span></span></div>
+          <div class="rowl">举报这个群<span class="end"><i data-ic="right" data-s="15"></i></span></div>
+        </div>
+        <div class="danger">退出群聊</div>
+      </div></div>
+      <div class="notes">
+        <div><b>成员</b>：头像 + 昵称，群主排第一个。点头像进他的相亲画像。人多了只显示前两行，点「全部」看完整名单。</div>
+        <div><b>群公告</b>只有群主能写，成员只能看。</div>
+        <div><b>消息免打扰</b>：打开后这个群来消息不响、不计未读数，只留一个灰点。</div>
+        <div><b>退出群聊</b>：点了要再确认一次。退了以后还想进，回线路 / 活动页重新点「约单 / 参与」（没满就能进）。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">群资料 <small>群主（领队 / 活动发起人）</small></div>
+      <div class="phone"><div class="island"></div><div class="screen" style="background:#fbf7f5">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">群资料</div><span style="width:34px"></span></div>
+        <div class="box2" style="margin-top:2px"><div class="row"><div class="ga" style="width:52px;height:52px;border-radius:15px;flex-shrink:0"></div><div class="grow"><b style="font-size:16px">川西环线 12-06 团</b><div class="t2" style="margin-top:3px;font-size:12.5px">8 人 · 我是领队</div></div><span class="gt2 t">旅行</span></div></div>
+        <div class="box2">
+          <h5>群成员<span>全部 8 人 ›</span></h5>
+          <div class="mem">
+            <div><div class="a" style="background:linear-gradient(135deg,#4a6b5d,#9fbf8f)"><span class="who">领队</span></div>我</div>
+            <div><div class="a photo" style="background-image:url(img/f1.jpg);background-position:center 20%"></div>小林</div>
+            <div><div class="a photo" style="background-image:url(img/p1.jpg)"></div>阿远</div>
+            <div><div class="a photo" style="background-image:url(img/p2.jpg)"></div>小周</div>
+            <div><div class="a photo" style="background-image:url(img/f2.jpg)"></div>阿雯</div>
+            <div><div class="a photo" style="background-image:url(img/p3.jpg)"></div>大刘</div>
+            <div><div class="a photo" style="background-image:url(img/f3.jpg)"></div>书岚</div>
+            <div><div class="a" style="background:#cfe0f5"></div>阿杰</div>
+            <div style="color:#f04438"><div class="a tool" style="color:#f04438;border-color:#f7a8a2"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14"/></svg></div>移出</div>
+          </div>
+        </div>
+        <div class="box2"><h5>群公告<em class="own">群主才有</em><span style="color:var(--rose);font-weight:700">编辑</span></h5><p>12 月 6 日早 7 点成都南站东广场集合。带身份证、厚外套、常用药。定金的事在群里问我。</p></div>
+        <div class="box2" style="padding:0 0">
+          <div class="rowl">群名<em class="own">群主才有</em><span class="end">川西环线 12-06 团<i data-ic="right" data-s="15"></i></span></div>
+          <div class="rowl">消息免打扰<span class="end"><span class="switch"></span></span></div>
+        </div>
+        <div class="danger">解散群聊</div>
+      </div></div>
+      <div class="notes">
+        <div><b>群主比成员多三样</b>：改群名、写群公告、移出成员；最下面是「解散群聊」而不是「退出」。</div>
+        <div><b>移出</b>：点成员最后那个「移出」，再点要移出的人，确认。被移出的人<b>不能自己再进这个群</b> <span class="mine">我定的</span>，不然移了也白移。</div>
+        <div><b>群主不能拉人进群</b> <span class="mine">我定的</span>：进群只有一条路，自己在线路 / 活动页点「约单 / 参与」。这样没人会被莫名其妙拉进群。</div>
+        <div><b>群主不能退群、不能把群转给别人</b> <span class="mine">我定的</span>：群跟着线路 / 活动走。不想办了就取消活动（或下架线路），群跟着解散。</div>
+        <div>不做「管理员」这一层 <span class="mine">我定的</span>，只有群主和成员两种人。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ C：举报 + 群用不了的时候 ============ -->
+<section data-s="c">
+  <h2><b>3</b>举报，和群用不了的时候</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">举报 <small>长按一条消息 → 举报；或群资料里「举报这个群」</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">龙泉山日出徒步（6）</div><span class="ic-btn"><i data-ic="more"></i></span></div>
+        <div class="gcard"><div class="pic gb"></div><div class="grow"><b style="font-size:13.5px">龙泉山日出徒步</b><div class="t3" style="margin-top:3px">周六 09:00 · 山泉铺地铁站 B 口</div></div><span class="t2" style="font-size:12.5px;display:flex;align-items:center">看活动<i data-ic="right" data-s="14"></i></span></div>
+        <div class="body">
+          <div class="nm">小林<span class="who">发起人</span></div>
+          <div class="br"><div class="me-av photo" style="background-image:url(img/f1.jpg);background-position:center 20%"></div><div class="bb ai">周六 9 点 B 口见，我穿红色外套</div></div>
+          <div class="nm">阿杰</div>
+          <div class="br"><div class="me-av" style="background:#cfe0f5"></div><div class="bb ai" style="box-shadow:0 0 0 2px var(--rose)">加我微信，我这边有个稳赚的项目</div></div>
+        </div>
+        <div class="lp"><span>复制</span><span>回复</span><span class="hot">举报</span></div>
+        <div class="dim"></div>
+        <div class="sheet rs">
+          <h4>举报这条消息</h4>
+          <div class="t2">平台会查看这条消息和它前后的聊天记录。</div>
+          <div class="why"><span>垃圾广告</span><span>色情低俗</span><span class="on">诈骗</span><span>辱骂骚扰</span><span>违法违规</span><span>线下不安全</span><span>其他</span></div>
+          <div class="ta">补充说明（选填）</div>
+          <div class="btn" style="margin-top:14px">提交举报</div>
+          <div style="text-align:center;font-size:14px;color:var(--ink-2);padding-top:14px">取消</div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>举报一条消息</b>：长按 → 举报。这个单聊里已经有了，群里用同一套；原因还是现在那六项，多加一项「线下不安全」。</div>
+        <div><b>举报整个群</b>：群资料里「举报这个群」，同样选原因。</div>
+        <div><b>平台怎么处理</b>：在网页后台里看到举报，能看这个群的聊天记录，可以删消息、把人移出、封这个人、关掉整个群。</div>
+        <div>群主也可以直接把人移出，不用等平台。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">群聊页底部 <small>五种情况，只画底部那一条</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+
+        <div class="st" style="margin-top:4px"><b>1</b>正常</div>
+        <div class="fakein"><div class="b">发消息…</div><div class="s"><i data-ic="plus" data-s="20"></i></div></div>
+
+        <div class="st" style="margin-top:22px"><b>2</b>活动 / 行程已经结束，群还留几天</div>
+        <div class="tipbar">活动已结束，这个群 3 天后自动解散</div>
+        <div class="fakein"><div class="b">发消息…</div><div class="s"><i data-ic="plus" data-s="20"></i></div></div>
+
+        <div class="st" style="margin-top:22px"><b>3</b>我退出了，或者被群主移出了</div>
+        <div class="endbar">你已不在这个群里<br><span style="font-size:12px;color:var(--ink-3)">之前的聊天记录还能看</span></div>
+
+        <div class="st" style="margin-top:22px"><b>4</b>群解散了（群主解散、到期、活动取消）</div>
+        <div class="endbar">这个群已解散</div>
+
+        <div class="st" style="margin-top:22px"><b>5</b>群被平台关闭</div>
+        <div class="endbar">这个群因违规已被平台关闭</div>
+      </div></div>
+      <div class="notes">
+        <div><b>到期自动解散</b> <span class="mine">我定的</span>：活动群在活动开始时间过后 3 天；线路群在行程最后一天过后 7 天。到期前群里会有一行提示。</div>
+        <div><b>解散以后</b>：不能再发消息，这个群留在消息列表里，之前的聊天记录还能看；不想看可以左滑删掉。</div>
+        <div>第 3、4、5 种情况下输入框换成一句话，没有别的按钮。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ D：规则 ============ -->
+<section data-s="d">
+  <h2><b>4</b>规则和做法（这不是界面）</h2>
+  <div class="plan">
+    <div class="pc">
+      <h3><i>1</i>群从哪来</h3>
+      <ul>
+        <li>只有两种群：<b>线路的群</b>（线路审核通过时自动建，领队是群主）和<b>活动的群</b>（活动发布时自动建，发起人是群主）。</li>
+        <li>进群只有一条路：在线路页点「约单」、在活动页点「参与」。</li>
+        <li><b>用户不能自己随便建群</b>，没有群广场、邀请码、入群密码、扫码进群 <span class="mine">我定的</span>。原项目里这些都有，这里先不搬：相亲 App 里随便建群，管不过来，也最容易被拿去拉人、推销。以后想放开再加。</li>
+        <li>人数上限：活动群 = 活动的男女名额 + 发起人；线路群 200 人 <span class="mine">我定的</span>（约单不等于付钱，会比名额多）。</li>
+      </ul>
+    </div>
+    <div class="pc">
+      <h3><i>2</i>数据更新全部走 WebSocket（你定的）</h3>
+      <ul>
+        <li>下面这些变化，服务器直接推到手机上，页面自己变：新消息、有人进群 / 退群 / 被移出、群名和公告改了、群解散 / 被关闭、消息列表里的预览和未读数、群人数。</li>
+        <li>页面第一次打开时拉一次数据，之后<b>不定时去问服务器</b>；网络断了重新连上后自动补一次。</li>
+        <li>后面的线路、活动、报名人数、审核结果也按这个办。</li>
+        <li>App 关着的时候 WebSocket 是断的，这时候要靠手机推送，<b>推送现在还没做</b>（第 4 步）。</li>
+      </ul>
+    </div>
+    <div class="pc">
+      <h3><i>3</i>三端怎么做</h3>
+      <ul>
+        <li><b>后端</b>：照原项目搬回来，去掉用不上的。要<b>加两张表、给会话表加一列</b>（只加不改；部署前先备份，照例先问你）。群消息和单聊一样加密存。</li>
+        <li><b>安卓、iOS</b>：原项目有原生的群聊页和群资料页，搬回来按这份样稿改。安卓我只能做到编译通过，iOS 只能静态检查。</li>
+        <li><b>浏览器里的网页版</b>：原项目的网页版本来就没有群聊，要做就是新写 <span class="tbd">待定</span>。我建议做：三端里只有网页我能自己拿两个测试号真正测一遍。</li>
+        <li><b>平台的网页后台</b>（你定的，手机能打开）：第一期先有「群列表、看群消息、关群 / 恢复、移出人、处理举报」。</li>
+      </ul>
+    </div>
+    <div class="pc">
+      <h3><i>4</i>原项目有、这次不搬的</h3>
+      <ul>
+        <li>频道、机器人、语音房、币群、礼物。</li>
+        <li>群里的语音 / 视频通话。</li>
+        <li>自己建群、拉人进群、群广场、邀请码、入群密码、转让群主、管理员。</li>
+      </ul>
+    </div>
+    <div class="pc warn">
+      <h3><i>!</i>要你知道的</h3>
+      <ul>
+        <li><b>「不再联系」管不到群里</b> <span class="mine">我定的</span>：两个人互相点过「不再联系」，单聊还是不能发；但在同一个群里，彼此的群消息看得到。实在不想看到，只能退群或举报。</li>
+        <li><b>聊天已经全部放开</b>，所以群里的人点头像就能单独找对方聊。这是你之前定的规矩，群里一样。</li>
+        <li><b>用户协议要跟着改</b>：加上群聊、平台可以查看被举报的群的聊天记录、平台不组织不担保线下活动。协议现在本来就还没给律师看。</li>
+        <li>群聊是当初为了过审删掉的。现在搬回来的是「有举报、有人管、只跟着线路和活动走」的群，比原来那种随便建的群好过审，但<b>送审时群里必须是真的能用的</b>。</li>
+      </ul>
+    </div>
+    <div class="pc warn">
+      <h3><i>?</i>这一步做完你能看到什么</h3>
+      <ul>
+        <li>线路和活动要到第 2、3 步才有，所以这一步做完，App 里<b>还没有地方能点进群</b>。</li>
+        <li>我会用后台给两个测试号建一个测试群来验证收发、进退、移出、解散、举报；验证完把测试群删掉，不留在服务器上。</li>
+        <li>这一步不发新的安卓包也可以，等第 2 步有了入口再一起发。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<script src="common.js"></script>
+</body>
+</html>

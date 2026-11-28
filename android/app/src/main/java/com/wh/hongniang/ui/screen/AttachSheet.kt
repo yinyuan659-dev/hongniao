@@ -137,6 +137,8 @@ fun AttachSheet(
     onAction: (AttachAction) -> Unit,
     /** 胶囊里的「文件」：系统文件选择器选的任意文件，每个发一条文件消息；null 不显示 */
     onFiles: ((List<Uri>) -> Unit)? = null,
+    /** 群聊里没有语音 / 视频通话：胶囊里不显示这两项 */
+    noCall: Boolean = false,
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -404,7 +406,7 @@ fun AttachSheet(
                     .padding(bottom = 8.dp),
             ) {
                 if (selection.isEmpty()) {
-                    AttachTabBar(canVideoCall, onFiles != null) { a ->
+                    AttachTabBar(canVideoCall, onFiles != null, noCall) { a ->
                         if (a == AttachAction.File) pickFiles.launch(arrayOf("*/*")) else exit { onAction(a) }
                     }
                 } else {
@@ -503,13 +505,15 @@ private fun DeniedTip(onGrant: () -> Unit, onSystemPicker: () -> Unit) {
 private data class AttachTab(val label: String, val action: AttachAction?, val icon: @Composable (Color) -> Unit)
 
 @Composable
-private fun AttachTabBar(canVideoCall: Boolean, canFile: Boolean, onAction: (AttachAction) -> Unit) {
+private fun AttachTabBar(canVideoCall: Boolean, canFile: Boolean, noCall: Boolean, onAction: (AttachAction) -> Unit) {
     val tabs = buildList {
         add(AttachTab(t("attach.album"), null) { ImageIcon(it, 24.dp) })
         if (canFile) add(AttachTab(t("attach.file"), AttachAction.File) { FileIcon(it, 24.dp) })
         add(AttachTab(t("attach.location"), AttachAction.Location) { LocationArrowIcon(it, 22.dp) })
-        add(AttachTab(t("attach.voiceCall"), AttachAction.VoiceCall) { PhoneIcon(it, 22.dp) })
-        if (canVideoCall) add(AttachTab(t("attach.videoCall"), AttachAction.VideoCall) { VideoIcon(it, 24.dp) })
+        if (!noCall) {
+            add(AttachTab(t("attach.voiceCall"), AttachAction.VoiceCall) { PhoneIcon(it, 22.dp) })
+            if (canVideoCall) add(AttachTab(t("attach.videoCall"), AttachAction.VideoCall) { VideoIcon(it, 24.dp) })
+        }
     }
     // 窄屏放不下就左右滑
     Row(

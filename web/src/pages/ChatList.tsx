@@ -8,12 +8,18 @@ import { ChatSearch } from '../components/ChatSearch';
 import { parseInviteCode, QrScanner, ScanIcon } from '../components/QrScanner';
 import { t } from '../i18n';
 import { MatchSummary } from '../match';
+import { useApp } from '../store';
+import { GroupAvatar, GroupEvent, GroupLite, KindTag, stateAfter, sysText } from '../group';
 import '../hn.css';
 
 interface ConversationItem {
   id: string;
+  /** 1 单聊 2 群聊 */
+  type?: number;
   peer?: { id: string; nickname: string; avatar: string; gender: number };
-  lastMsg?: { type: string; content: string; createdAt: string } | null;
+  /** 群聊才有：群的信息 + 我和这个群的关系（state）、我的身份（role） */
+  group?: GroupLite;
+  lastMsg?: { type: string; content: string; createdAt: string; senderId?: string; senderNickname?: string } | null;
   unread: number;
   muted?: boolean;
   lastMsgAt: string;
@@ -32,8 +38,18 @@ function previewText(msg?: ConversationItem['lastMsg']): string {
     case 'audio': return t('msg.preview.voice');
     case 'file': return fileSnippet(msg.content);
     case 'location': return t('msg.preview.location');
+    case 'sys': return sysText(msg.content);
     default: return msg.type.startsWith('call') ? t('msg.preview.call') : '';
   }
+}
+
+/** 群的预览是「谁：说了什么」；灰色小字（有人进群、退群…）本身就是一句完整的话，不加名字 */
+function groupPreview(c: ConversationItem, myId?: string): string {
+  const m = c.lastMsg;
+  if (!m) return '';
+  const text = previewText(m);
+  if (m.type === 'sys' || !m.senderNickname || m.senderId === myId) return text;
+  return `${m.senderNickname}：${text}`;
 }
 
 function timeText(iso: string): string {
@@ -87,6 +103,7 @@ export function ScanFlow({ onClose, text: given }: { onClose: () => void; text?:
 
 export function ChatListPage() {
   const nav = useNavigate();
+  const me = useApp((s) => s.user);
   const [convs, setConvs] = useState<ConversationItem[]>([]);
   const [showSearch, setShowSearch] = useState(false);
   const [showScan, setShowScan] = useState(false);
@@ -105,10 +122,23 @@ export function ChatListPage() {
       if (frame.op === 'msg' || frame.op === 'conv_cleared' || frame.op === 'conv_refresh') loadConvs();
       // 有人喜欢了我 / 互相喜欢了 / 对方结束了聊天：数字和列表都刷新
       if (frame.op === 'match') { loadSum(); loadConvs(); }
+      // 群有变化（改名、有人进出、解散…）：推送里带着最新的群信息，这一行马上改；后面跟着的 conv_refresh 再把预览、未读对齐
+      if (frame.op === 'group') {
+        const ev = frame.data as GroupEvent;
+        setConvs((prev) => prev.map((c) => (
+          c.group && c.group.id === ev.groupId ? { ...c, group: { ...c.group, ...ev.group, state: stateAfter(ev, me?.id, c.group.state), role: c.group.role } } : c
+        )));
+      }
+      // 断线后重新连上：断线那段时间的变化没收到，补拉一次
+      if (frame.op === 'ws_reopen') { loadConvs(); loadSum(); }
     });
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me?.id]);
 
   const openConv = (c: { id: string; targetId: string; title: string; focusMsgId?: string }) => {
+    // 群聊：原生 App 还没有群聊页（第 1 步先做网页），所以不走原生，直接进网页的聊天页
+    const g = convs.find((x) => x.id === c.id)?.group;
+    if (g) return nav(`/chatroom/${c.id}`, { state: { title: g.name, groupId: g.id, focusMsgId: c.focusMsgId } });
     if (openNativeChat(c.id, 1, c.targetId, c.title)) return;
     nav(`/chatroom/${c.id}`, { state: { title: c.title, targetId: c.targetId, focusMsgId: c.focusMsgId } });
   };
@@ -143,6 +173,29 @@ export function ChatListPage() {
       </div>
 
       {entries.map((c) => {
+        if (c.group) {
+          // 群：头像是方的，群名后面有「旅行 / 活动」小标签，预览是「谁：说了什么」；开了免打扰的只显示一个灰点
+          const g = c.group;
+          const gone = g.state && g.state !== 'ok';
+          return (
+            <div key={c.id} className="cl-row" onClick={() => openConv({ id: c.id, targetId: g.id, title: g.name })}>
+              <GroupAvatar g={g} size={54} style={gone ? { opacity: 0.55 } : undefined} />
+              <div className="cl-row-main">
+                <div className="cl-row-top" style={{ gap: 6 }}>
+                  <span className="cl-row-title ellipsis" style={{ flex: '0 1 auto' }}>{g.name}</span>
+                  <KindTag kind={g.kind} />
+                  <span className="small" style={{ marginLeft: 'auto', flexShrink: 0 }}>{timeText(c.lastMsgAt)}</span>
+                </div>
+                <div className="cl-row-sub">
+                  <span className="ellipsis">{groupPreview(c, me?.id)}</span>
+                  {c.unread > 0 && (c.muted
+                    ? <span style={{ width: 9, height: 9, borderRadius: 5, background: 'var(--text-3)', flexShrink: 0 }} />
+                    : <span className="cs-badge">{c.unread > 99 ? '99+' : c.unread}</span>)}
+                </div>
+              </div>
+            </div>
+          );
+        }
         const title = c.peer?.nickname ?? '';
         const avatar = c.peer?.avatar;
         const targetId = c.peer?.id ?? '';

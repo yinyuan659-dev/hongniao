@@ -60,6 +60,8 @@ data class SearchMsgHit(
     val senderNickname: String = "",
     val content: String = "",
     val createdAt: String = "",
+    /** 1 单聊 2 群聊（群聊时 targetId 是群 id，title / avatar 是群名、群封面） */
+    val convType: Int = 1,
 )
 
 @Serializable
@@ -97,9 +99,15 @@ private fun saveRecent(ctx: Context, list: List<SearchRecent>) {
         .apply()
 }
 
-private fun convTitle(c: ConversationItem) = c.peer?.nickname ?: ""
-private fun convAvatar(c: ConversationItem) = c.peer?.avatar
-private fun convTarget(c: ConversationItem) = c.peer?.id ?: ""
+private fun convTitle(c: ConversationItem) = c.group?.name ?: c.peer?.nickname ?: ""
+/** 单聊是对方的用户 id，群聊是群 id */
+private fun convTarget(c: ConversationItem) = c.group?.id ?: c.peer?.id ?: ""
+
+/** 会话的头像：群是方的，人是圆的 */
+@Composable
+private fun ConvAvatar(c: ConversationItem, size: Int) {
+    if (c.group != null) GroupAvatar(c.group.avatar, c.group.kind, size) else Avatar(c.peer?.avatar, size)
+}
 
 /** 关键词高亮（不区分大小写） */
 private fun highlight(text: String, q: String): AnnotatedString = buildAnnotatedString {
@@ -139,6 +147,8 @@ fun ChatSearchDialog(
     onDismiss: () -> Unit,
     onOpenChat: (convId: String, targetId: String, title: String) -> Unit,
     onOpenMessage: (convId: String, targetId: String, title: String, msgId: String) -> Unit,
+    /** 点的是群（或者群里的一条消息，msgId 不为空）：打开群聊页 */
+    onOpenGroup: (convId: String, groupId: String, title: String, msgId: String) -> Unit,
     /** 搜到的用户（id, 昵称）：直接打开私聊 */
     onOpenUser: (String, String) -> Unit,
     onScan: () -> Unit,
@@ -169,7 +179,7 @@ fun ChatSearchDialog(
     fun openConv(c: ConversationItem) {
         addRecent(SearchRecent("conv", c.id))
         keyboard?.hide()
-        onOpenChat(c.id, convTarget(c), convTitle(c))
+        if (c.group != null) onOpenGroup(c.id, c.group.id, c.group.name, "") else onOpenChat(c.id, convTarget(c), convTitle(c))
     }
     fun openExtra(e: SearchExtra) {
         addRecent(SearchRecent("extra", e.key))
@@ -277,7 +287,7 @@ fun ChatSearchDialog(
                             items(top, key = { it.id }) { c ->
                                 Column(Modifier.width(72.dp).clickable { openConv(c) }, horizontalAlignment = Alignment.CenterHorizontally) {
                                     Box(contentAlignment = Alignment.TopEnd) {
-                                        Avatar(convAvatar(c), 56)
+                                        ConvAvatar(c, 56)
                                         RoundBadge(c.unread)
                                     }
                                     Text(convTitle(c), color = TextMain, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
@@ -322,13 +332,15 @@ fun ChatSearchDialog(
                     }
                 } else {
                     items(msgHits, key = { "m-${it.id}" }) { m ->
-                        MessageResultRow(m, keyword) {
-                            val c = convById[m.conversationId]
+                        val c = convById[m.conversationId]
+                        MessageResultRow(m, keyword, groupKind = if (m.convType == 2) c?.group?.kind ?: "" else null) {
                             if (c != null) addRecent(SearchRecent("conv", c.id))
                             keyboard?.hide()
                             val title = if (c != null) convTitle(c) else m.title
                             val target = if (c != null) convTarget(c) else m.targetId
-                            onOpenMessage(m.conversationId, target, title, m.id)
+                            // 群里的消息：进群聊页并定位到这一条
+                            if (m.convType == 2 || c?.group != null) onOpenGroup(m.conversationId, target, title, m.id)
+                            else onOpenMessage(m.conversationId, target, title, m.id)
                         }
                     }
                     if (msgHits.isEmpty()) item("none") { SearchHint(if (loading) t("chatSearch.searching") else t("chatSearch.noMessages")) }
@@ -366,10 +378,10 @@ private fun ResultRow(onClick: () -> Unit, leading: @Composable () -> Unit, cont
 private fun ConvResultRow(c: ConversationItem, keyword: String, onOpen: (ConversationItem) -> Unit) {
     ResultRow(
         onClick = { onOpen(c) },
-        leading = { Avatar(convAvatar(c), 44) },
+        leading = { ConvAvatar(c, 44) },
         content = {
             Text(highlight(convTitle(c), keyword), color = TextMain, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(preview(c.lastMsg), color = TextSub, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
+            Text(if (c.group != null) groupPreview(c.lastMsg, com.wh.hongniang.net.Session.uid) else preview(c.lastMsg), color = TextSub, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
         },
         trailing = { RoundBadge(c.unread) },
     )
@@ -400,11 +412,12 @@ private fun UserResultRow(title: String, avatar: String, subtitle: String, keywo
     )
 }
 
+/** groupKind：这条消息在群里时是群的类型（不知道就传空串，头像按默认的画）；单聊的消息传 null */
 @Composable
-private fun MessageResultRow(m: SearchMsgHit, keyword: String, onClick: () -> Unit) {
+private fun MessageResultRow(m: SearchMsgHit, keyword: String, groupKind: String? = null, onClick: () -> Unit) {
     ResultRow(
         onClick = onClick,
-        leading = { Avatar(m.avatar, 44) },
+        leading = { if (groupKind != null) GroupAvatar(m.avatar, groupKind, 44) else Avatar(m.avatar, 44) },
         content = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(m.title, color = TextMain, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))

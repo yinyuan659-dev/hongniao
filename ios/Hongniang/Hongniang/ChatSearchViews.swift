@@ -93,9 +93,22 @@ private func shortDate(_ iso: String?) -> String {
     return df.string(from: d)
 }
 
-private func convTitle(_ c: ConversationItem) -> String { c.peer?.nickname ?? "" }
-private func convAvatar(_ c: ConversationItem) -> String? { c.peer?.avatar }
-private func convTarget(_ c: ConversationItem) -> String { c.peer?.id ?? "" }
+private func convTitle(_ c: ConversationItem) -> String { c.group?.nameText ?? c.peer?.nickname ?? "" }
+/// 单聊是对方的用户 id，群聊是群 id
+private func convTarget(_ c: ConversationItem) -> String { c.group?.id ?? c.peer?.id ?? "" }
+
+/// 会话的头像：群是方的，人是圆的
+private struct ConvAvatar: View {
+    let c: ConversationItem
+    let size: CGFloat
+    var body: some View {
+        if let g = c.group {
+            GroupAvatar(avatar: g.avatar, kind: g.kindText, size: size)
+        } else {
+            AvatarView(url: c.peer?.avatar, size: size)
+        }
+    }
+}
 
 private struct UnreadBadge: View {
     let n: Int
@@ -245,7 +258,7 @@ struct ChatSearchView: View {
                     ForEach(top) { c in
                         Button { openConv(c) } label: {
                             VStack(spacing: 6) {
-                                AvatarView(url: convAvatar(c), size: 56)
+                                ConvAvatar(c: c, size: 56)
                                     .overlay(alignment: .topTrailing) { UnreadBadge(n: c.unread ?? 0).offset(x: 4, y: -2) }
                                 Text(convTitle(c)).font(.system(size: 12)).foregroundStyle(Theme.text).lineLimit(1)
                             }
@@ -356,7 +369,7 @@ struct ChatSearchView: View {
 
     private func convRow(_ c: ConversationItem) -> some View {
         row(action: { openConv(c) }, badge: c.unread ?? 0) {
-            AvatarView(url: convAvatar(c), size: 44)
+            ConvAvatar(c: c, size: 44)
         } main: {
             highlighted(convTitle(c), keyword).font(.system(size: 16, weight: .medium)).foregroundColor(Theme.text).lineLimit(1)
             Text(previewOf(c.lastMsg)).font(.system(size: 13)).foregroundStyle(Theme.textSub).lineLimit(1)
@@ -400,7 +413,12 @@ struct ChatSearchView: View {
                 onOpenChat(ChatTarget(convId: m.conversationId, convType: m.convType ?? 1, targetId: m.targetId ?? "", title: m.title ?? "", focusMsgId: m.id))
             }
         }) {
-            AvatarView(url: m.avatar, size: 44)
+            // 群里的消息：头像是群的（方的）
+            if m.convType == 2 {
+                GroupAvatar(avatar: m.avatar, kind: convs.first(where: { $0.id == m.conversationId })?.group?.kindText ?? "test", size: 44)
+            } else {
+                AvatarView(url: m.avatar, size: 44)
+            }
         } main: {
             HStack(spacing: 6) {
                 Text(m.title ?? "").font(.system(size: 16, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)

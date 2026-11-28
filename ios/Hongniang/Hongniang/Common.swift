@@ -211,6 +211,8 @@ enum Route: Hashable {
     case web(String)
     /// 原来的原生对方主页（动态、评分）；从画像网页里「看 TA 的动态」进
     case userHomeNative(String)
+    /// 群资料（群聊页右上角「···」进来），参数是群 id
+    case groupInfo(String)
 }
 
 @ViewBuilder
@@ -229,6 +231,7 @@ func routeView(_ route: Route) -> some View {
     case .interviewEdit(let key): InterviewView(editKey: key)
     case .deep: DeepChatView()
     case .web(let route): HnWebPage(route: route)
+    case .groupInfo(let id): GroupInfoView(groupId: id)
     }
 }
 

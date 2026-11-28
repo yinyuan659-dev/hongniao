@@ -299,7 +299,7 @@ private fun MeValue(value: String? = null, dot: Boolean = false) {
  * 和网页（hn.tsx 的 Ic）、样稿用的是同一套图标；圆和圆角矩形这里写成了等价的路径。
  */
 @Composable
-private fun LineIcon(paths: List<String>, tint: Color, size: androidx.compose.ui.unit.Dp) {
+internal fun LineIcon(paths: List<String>, tint: Color, size: androidx.compose.ui.unit.Dp) {
     val parsed = remember(paths) { paths.map { PathParser().parsePathString(it).toPath() } }
     Canvas(Modifier.size(size)) {
         val k = this.size.minDimension / 24f
@@ -309,7 +309,7 @@ private fun LineIcon(paths: List<String>, tint: Color, size: androidx.compose.ui
     }
 }
 
-private val IC_CHEVRON = listOf("m9 18 6-6-6-6")
+internal val IC_CHEVRON = listOf("m9 18 6-6-6-6")
 private val IC_COPY = listOf(
     "M10 8h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2z",
     "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2",

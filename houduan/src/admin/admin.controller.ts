@@ -7,6 +7,7 @@ import { AdminGuard } from './admin.guard';
 import { AdminService } from './admin.service';
 import { HallTabsService } from '../module/hall-tabs.service';
 import { MessageService } from '../im/message.service';
+import { GroupService } from '../im/group.service';
 import { AiWalletService } from '../ai/ai-wallet.service';
 import { DeepService } from '../hn/deep.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -22,6 +23,7 @@ export class AdminController {
     private readonly appVersion: AppVersionService,
     private readonly hallTabs: HallTabsService,
     private readonly msgs: MessageService,
+    private readonly groups: GroupService,
     private readonly aiWallet: AiWalletService,
     private readonly deep: DeepService,
     private readonly prisma: PrismaService,
@@ -39,6 +41,69 @@ export class AdminController {
   @UseGuards(AdminGuard)
   reportHandle(@Param('id') id: string, @Body() body: { action?: string }) {
     return this.msgs.adminHandleReport(BigInt(id), String(body?.action ?? ''));
+  }
+
+  // ---------- 群聊管理（样稿 design/12-group.html） ----------
+
+  /** 群列表：cat = alive 正常 / dissolved 已解散 / closed 被关闭 / all；q 搜群名、群 id、群主 6 位短号 */
+  @Get('groups')
+  @UseGuards(AdminGuard)
+  groupList(@Query('q') q?: string, @Query('cat') cat?: string, @Query('page') page?: string, @Query('size') size?: string) {
+    return this.groups.adminList({ q, cat, page: page ? Number(page) : undefined, size: size ? Number(size) : undefined });
+  }
+
+  /** 群成员（含已经退出 / 被移出的） */
+  @Get('groups/:id/members')
+  @UseGuards(AdminGuard)
+  groupMembers(@Param('id') id: string) {
+    return this.groups.adminMembers(BigInt(id));
+  }
+
+  /** 群里最近的消息（新的在前），beforeId 往前翻 */
+  @Get('groups/:id/messages')
+  @UseGuards(AdminGuard)
+  groupMessages(@Param('id') id: string, @Query('beforeId') beforeId?: string) {
+    return this.groups.adminMessages(BigInt(id), beforeId ? BigInt(beforeId) : undefined);
+  }
+
+  /** 关闭（违规）/ 恢复：{ closed: true | false } */
+  @Post('groups/:id/closed')
+  @UseGuards(AdminGuard)
+  groupClosed(@Param('id') id: string, @Body() body: { closed?: boolean }) {
+    return this.groups.adminSetClosed(BigInt(id), body?.closed !== false);
+  }
+
+  /** 把人移出群：{ userId } */
+  @Post('groups/:id/remove')
+  @UseGuards(AdminGuard)
+  groupRemove(@Param('id') id: string, @Body() body: { userId?: string }) {
+    return this.groups.adminRemove(BigInt(id), BigInt(String(body?.userId ?? '')));
+  }
+
+  /**
+   * 建一个测试群（kind=test）：{ owner, name, members?: [], memberLimit?, expireInSec? }，owner / members 是 6 位短号或用户 id。
+   * 正式的群只由线路、活动模块建；这个接口只给验证群聊用，测完用下面的删除接口删掉。
+   */
+  @Post('groups/test')
+  @UseGuards(AdminGuard)
+  groupCreateTest(@Body() body: { owner?: string; name?: string; members?: string[]; memberLimit?: number; expireInSec?: number }) {
+    return this.groups.adminCreateTest(String(body?.owner ?? ''), String(body?.name ?? ''), Array.isArray(body?.members) ? body.members.map(String) : [], {
+      memberLimit: body?.memberLimit, expireInSec: body?.expireInSec,
+    });
+  }
+
+  /** 把一个号加进群（测试用）：{ who } */
+  @Post('groups/:id/add')
+  @UseGuards(AdminGuard)
+  groupAdd(@Param('id') id: string, @Body() body: { who?: string }) {
+    return this.groups.adminAdd(BigInt(id), String(body?.who ?? ''));
+  }
+
+  /** 彻底删掉一个测试群（只认 kind=test） */
+  @Post('groups/:id/delete-test')
+  @UseGuards(AdminGuard)
+  groupDeleteTest(@Param('id') id: string) {
+    return this.groups.adminDeleteTest(BigInt(id));
   }
 
   // 这里原来有 iOS「审核模式」和演示账号的接口，2026-11-25 删掉了。

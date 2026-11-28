@@ -142,6 +142,8 @@ struct MsgMenuOverlay: View {
     let myReaction: String?
     let pinned: Bool
     let actions: MenuActions
+    /// 群聊里没有「已读」，不显示那一行
+    var showRead: Bool = true
     let onDismiss: () -> Void
 
     @State private var expand = false
@@ -176,7 +178,7 @@ struct MsgMenuOverlay: View {
             }
         }
         .task {
-            if mine { info = try? await Api.request("/im/messages/\(msgId)/readers") }
+            if mine && showRead { info = try? await Api.request("/im/messages/\(msgId)/readers") }
         }
     }
 
@@ -392,24 +394,34 @@ private func reportReasonLabel(_ r: String) -> String {
     }
 }
 
+/// 举报：msgId = 举报一条消息；groupId 有值 = 举报整个群（群资料里「举报这个群」，这时 msgId 不用）。
+/// inGroup：群里的举报多一项「线下不安全」（样稿 design/12-group.html 第 3 组）。
 struct ReportSheet: View {
     let msgId: String
+    var groupId: String? = nil
+    var inGroup: Bool = false
     let onDone: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var other = false
     @State private var text = ""
     @State private var busy = false
 
+    /// 「线下不安全」排在「其他」前面（它没有翻译 key，reportReasonLabel 会原样显示）
+    private var reasons: [String] {
+        guard inGroup || groupId != nil else { return REPORT_REASONS }
+        return Array(REPORT_REASONS.dropLast()) + ["线下不安全", "其他"]
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(t("msg.reportTitle")).font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.text)
+                Text(groupId != nil ? "举报这个群" : t("msg.reportTitle")).font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.text)
                 Spacer()
                 Button(t("common.cancel")) { dismiss() }.font(.system(size: 14)).foregroundStyle(Theme.textSub)
             }
             .padding(16)
             if !other {
-                ForEach(REPORT_REASONS, id: \.self) { r in
+                ForEach(reasons, id: \.self) { r in
                     Button {
                         if r == "其他" { other = true } else { submit(r) }
                     } label: {
@@ -450,7 +462,8 @@ struct ReportSheet: View {
             struct ReportResp: Codable { var ok: Bool?; var duplicated: Bool? }
             let tip: String
             do {
-                let r: ReportResp = try await Api.request("/im/messages/\(msgId)/report", method: "POST", body: ["reason": reason])
+                let path = groupId.map { "/im/group/\($0)/report" } ?? "/im/messages/\(msgId)/report"
+                let r: ReportResp = try await Api.request(path, method: "POST", body: ["reason": reason])
                 tip = r.duplicated == true ? t("msg.reportDuplicated") : t("msg.reported")
             } catch {
                 tip = error.localizedDescription
@@ -478,8 +491,7 @@ struct ForwardSheet: View {
     @State private var picked: [String] = []
     @State private var busy = false
 
-    private func name(_ c: ConversationItem) -> String { c.peer?.nickname ?? "" }
-    private func avatar(_ c: ConversationItem) -> String { c.peer?.avatar ?? "" }
+    private func name(_ c: ConversationItem) -> String { c.group?.nameText ?? c.peer?.nickname ?? "" }
 
     private var shown: [ConversationItem] {
         let k = q.trimmingCharacters(in: .whitespaces)
@@ -513,7 +525,11 @@ struct ForwardSheet: View {
                         HStack(spacing: 12) {
                             Image(systemName: on ? "checkmark.circle.fill" : "circle")
                                 .font(.system(size: 20)).foregroundStyle(on ? linkBlue : Theme.textDim)
-                            AvatarView(url: avatar(c), size: 40)
+                            if let g = c.group {
+                                GroupAvatar(avatar: g.avatar, kind: g.kindText, size: 40)
+                            } else {
+                                AvatarView(url: c.peer?.avatar, size: 40)
+                            }
                             Text(name(c)).font(.system(size: 15)).foregroundStyle(Theme.text).lineLimit(1)
                             Spacer(minLength: 0)
                         }
@@ -530,13 +546,18 @@ struct ForwardSheet: View {
         .background(Theme.bg2)
         .task {
             let list: [ConversationItem] = (try? await Api.request("/im/conversations")) ?? []
-            convs = list.filter { $0.peer != nil }
+            // 群只有我现在还在、群也正常的（state = ok）才能转发进去
+            convs = list.filter { c in
+                if let g = c.group { return g.stateText == "ok" }
+                return c.peer != nil
+            }
         }
     }
 
     private func send() {
-        let targets: [[String: Any]] = picked.compactMap { id in
+        let targets: [[String: Any]] = picked.compactMap { id -> [String: Any]? in
             guard let c = convs.first(where: { $0.id == id }) else { return nil }
+            if let g = c.group { return ["convType": 2, "targetId": g.id] }
             if c.type == 1, let p = c.peer { return ["convType": 1, "targetId": p.id] }
             return nil
         }

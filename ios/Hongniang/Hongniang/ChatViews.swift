@@ -20,14 +20,21 @@ struct LastMsg: Codable, Hashable {
     var type: String? = ""
     var content: String? = ""
     var createdAt: String? = ""
+    /// 群聊那一行才有：最后一条是谁发的（灰色小字没有）
+    var senderNickname: String? = nil
 }
 
 struct ConversationItem: Codable, Identifiable, Hashable {
     var id: String = ""
+    /// 1 单聊 2 群聊。单聊有 peer 没有 group，群聊反过来
     var type: Int = 1
     var peer: PeerBrief? = nil
+    /// 群聊才有：群的信息 + 我和这个群的关系（state）、我的身份（role）
+    var group: GroupInfo? = nil
     var lastMsg: LastMsg? = nil
     var unread: Int? = 0
+    /// 免打扰（现在只有群有）：未读只显示灰点，不算进底部「消息」上的数字
+    var muted: Bool? = nil
     var lastMsgAt: String? = ""
     /// 互相喜欢的才有：fresh = 刚配上还没说过话
     var match: ConvMatch? = nil
@@ -69,13 +76,25 @@ func previewOf(_ msg: LastMsg?) -> String {
     case "audio": return t("chat.preview.voice")
     case "file": return fileSnippet(msg.content ?? "", label: t("chat.preview.file"))
     case "location": return t("chat.preview.location")
+    case "sys": return sysText(msg.content ?? "")
     default: return type.hasPrefix("call") ? t("chat.preview.call") : ""
     }
 }
 
+/// 群的预览是「谁：说了什么」；灰色小字（有人进群、退群…）本身就是一句完整的话，自己发的也不加名字
+func groupPreviewOf(_ msg: LastMsg?, myId: String) -> String {
+    let text = previewOf(msg)
+    guard let msg, msg.type != "sys", let name = msg.senderNickname, !name.isEmpty, msg.senderId != myId else { return text }
+    return "\(name)：\(text)"
+}
+
 /// 消息主页：标题 + 搜索 + 会话列表（会话按最新时间排）
 struct MessagesView: View {
+    @EnvironmentObject var state: AppState
     @State private var convs: [ConversationItem] = []
+    /// 长按已经用不了的群点了「从消息列表里删除」：先问一句
+    @State private var hideGroup: GroupInfo?
+    @State private var toastMsg: String?
     @State private var chatTarget: ChatTarget?
     @State private var pushRoute: Route?
     @State private var removeListener: (() -> Void)?
@@ -99,7 +118,14 @@ struct MessagesView: View {
                         LazyVStack(spacing: 0) {
                             // 喜欢我的 / 我喜欢的 / 互相喜欢：点开是喜欢列表（网页）
                             LikeEntriesView(sum: likeSum)
-                            ForEach(entries) { convRow($0) }
+                            // 群和单聊混在一个列表里，按最后一条消息的时间排
+                            ForEach(entries) { c in
+                                if let g = c.group {
+                                    groupRow(c, g)
+                                } else {
+                                    convRow(c)
+                                }
+                            }
                             if entries.isEmpty {
                                 Text("还没有聊天。\n互相喜欢以后，对方会出现在这里。").font(.subheadline).foregroundStyle(Theme.textSub)
                                     .multilineTextAlignment(.center).lineSpacing(8)
@@ -145,12 +171,49 @@ struct MessagesView: View {
             WsClient.shared.connect()
             removeListener = WsClient.shared.addListener { frame in
                 let op = frame["op"] as? String
-                if op == "msg" || op == "conv_cleared" || op == "conv_refresh" { Task { await loadConvs() } }
+                // ws_reopen：断线后重新连上（不是服务器的帧，见 WsClient），断线那段时间的变化没收到，补拉一次
+                if op == "msg" || op == "conv_cleared" || op == "conv_refresh" || op == "ws_reopen" { Task { await loadConvs() } }
+                // 群有变化（改名、有人进出、解散…）：推送里带着最新的群信息，这一行马上改；后面跟着的 conv_refresh 再把预览、未读对齐
+                if op == "group", let ev = groupEventOf(frame) {
+                    let myId = state.user?.id ?? ""
+                    convs = convs.map { c -> ConversationItem in
+                        guard let g = c.group, g.id == ev.groupId else { return c }
+                        var next = c
+                        next.group = g.merged(ev, myId: myId)
+                        return next
+                    }
+                }
             }
         }
         .onDisappear { removeListener?() }
         // 有人喜欢了我 / 互相喜欢了 / 对方结束了聊天：数字和列表都重新取
         .onChange(of: matchCenter.version) { _ in Task { await loadConvs() } }
+        // 聊天页关掉了：读过的消息不该还算未读，列表重新取一次
+        .onReceive(NotificationCenter.default.publisher(for: .hnChatClosed)) { _ in Task { await loadConvs() } }
+        .alert(
+            "从消息列表里删除？",
+            isPresented: Binding(get: { hideGroup != nil }, set: { if !$0 { hideGroup = nil } }),
+            presenting: hideGroup
+        ) { g in
+            Button(t("common.delete"), role: .destructive) { doHideGroup(g) }
+            Button(t("common.cancel"), role: .cancel) {}
+        } message: { _ in
+            Text("只是从你自己的消息列表里删掉，删了以后这个群的聊天记录就看不到了。")
+        }
+        .toast($toastMsg)
+    }
+
+    /// 把一个已经用不了的群从自己的消息列表里删掉
+    private func doHideGroup(_ g: GroupInfo) {
+        Task { @MainActor in
+            struct OkResp: Codable { var ok: Bool? }
+            do {
+                let _: OkResp = try await Api.request("/im/group/\(g.id)/hide", method: "POST")
+                convs.removeAll { $0.group?.id == g.id }
+            } catch {
+                toastMsg = (error as? ApiError)?.msg ?? t("chat.sendFailed")
+            }
+        }
     }
 
     private var header: some View {
@@ -189,7 +252,7 @@ struct MessagesView: View {
 
     /// 消息列表一行：左图标 54 + 标题 / 时间 + 预览 / 角标，分隔线和文字对齐
     private func listRow<Leading: View, Title: View>(
-        time: String, sub: String, badge: Int, pinned: Bool = false,
+        time: String, sub: String, badge: Int, pinned: Bool = false, dot: Bool = false,
         @ViewBuilder leading: () -> Leading, @ViewBuilder title: () -> Title
     ) -> some View {
         HStack(spacing: 12) {
@@ -209,6 +272,10 @@ struct MessagesView: View {
                                 .padding(.horizontal, 6).frame(minWidth: 20, minHeight: 20)
                                 .background(Capsule().fill(Theme.accent))
                         }
+                        // 开了免打扰的群有没读的：只显示一个灰点
+                        if dot {
+                            Circle().fill(Theme.textDim).frame(width: 9, height: 9)
+                        }
                         if pinned {
                             Image(systemName: "pin.fill").font(.system(size: 11)).foregroundStyle(Theme.textDim).rotationEffect(.degrees(45))
                         }
@@ -222,6 +289,36 @@ struct MessagesView: View {
         .padding(.leading, 16)
         .frame(height: 72)
         .contentShape(Rectangle())
+    }
+
+    /// 群那一行：头像是方的，群名后面有「旅行 / 活动」小标签，预览是「谁：说了什么」；开了免打扰的只显示一个灰点。
+    /// 已经用不了的群（解散了 / 被关闭 / 我不在了）头像变淡，长按可以从列表里删掉
+    @ViewBuilder
+    private func groupRow(_ c: ConversationItem, _ g: GroupInfo) -> some View {
+        let gone = g.stateText != "ok"
+        let muted = c.muted == true
+        let unread = c.unread ?? 0
+        let row = Button {
+            chatTarget = ChatTarget(convId: c.id, convType: 2, targetId: g.id, title: g.nameText)
+        } label: {
+            listRow(
+                time: fmtTime(c.lastMsgAt), sub: groupPreviewOf(c.lastMsg, myId: state.user?.id ?? ""),
+                badge: muted ? 0 : unread, dot: muted && unread > 0
+            ) {
+                GroupAvatar(avatar: g.avatar, kind: g.kindText, size: 54).opacity(gone ? 0.55 : 1)
+            } title: {
+                Text(g.nameText).font(.system(size: 16, weight: .medium)).foregroundStyle(Theme.text).lineLimit(1)
+                KindTag(kind: g.kindText)
+            }
+        }
+        .buttonStyle(.plain)
+        if gone {
+            row.contextMenu {
+                Button(role: .destructive) { hideGroup = g } label: { Label("从消息列表里删除", systemImage: "trash") }
+            }
+        } else {
+            row
+        }
     }
 
     private func convRow(_ c: ConversationItem) -> some View {
@@ -456,21 +553,59 @@ struct ChatRoomView: View {
     @State private var upPicked: [String: PickedChatFile] = [:]
     @State private var showFilePicker = false
 
+    // 群聊（样稿 design/12-group.html）：这一页单聊、群聊共用，convType == 2 就是群聊，这时 targetId 是群 id。
+    // 和单聊不一样的地方：标题是「群名（人数）」，右上角「···」进群资料；中间有灰色小字（消息类型 sys）；
+    // 群主的昵称后面有「领队 / 发起人」小标，点别人头像进他的相亲画像；没有已读、没有通话；置顶只有群主；
+    // 群用不了以后（我不在了 / 解散了 / 被关闭）输入区换成一句话。
+    /// 群资料 + 我和这个群的关系。进来取一次，之后的变化靠推送（op: "group"）直接改，不轮询
+    @State private var g: GroupInfo?
+    /// 到了活动 / 行程的结束时间加一，让「N 天后自动解散」那句提示出现
+    @State private var endTick = 0
+
     private var myId: String { state.user?.id ?? "" }
     private var rows: [ChatRow] { groupAlbums(messages) }
+    private var isGroup: Bool { convType == 2 }
+    /// 群里现在不能发的原因（left / kicked / dissolved / closed）；能发是 nil
+    private var groupGone: String? {
+        guard let s = g?.state, s != "ok" else { return nil }
+        return s
+    }
 
     /// 滚动定位用的行 id（相册按第一张）
     private func anchorId(_ id: String) -> String {
         rows.first(where: { r in r.items.contains(where: { $0.id == id }) })?.first.id ?? id
     }
-    private var canPin: Bool { convType == 1 }
+    /// 群聊里只有群主能置顶 / 取消置顶；群用不了以后也不给
+    private var canPin: Bool { convType == 1 || (g?.isOwner == true && groupGone == nil) }
 
     // body 拆成几段，整块写在一起 Swift 类型检查会超时
     var body: some View {
         matchDecorated(decorated(msgActionLayers(mainColumn)))
             .task { await onLoad() }
-            .onDisappear { removeListener?() }
+            .onDisappear {
+                removeListener?()
+                // 消息列表和底部「消息」上的数字重新取一次：读过的不该还算未读
+                NotificationCenter.default.post(name: .hnChatClosed, object: nil)
+            }
             .scanHandler($scannedQr)
+            // 在群资料页退出了 / 从列表里删掉了这个群：把聊天页也关掉，回到消息列表
+            .onReceive(NotificationCenter.default.publisher(for: .hnGroupExit)) { n in
+                if isGroup, (n.object as? String) == targetId { dismissChat() }
+            }
+            // 「N 天后自动解散」那句要跟着时间变：到了结束时间出现（到了解散时间服务器会推送）。只在结束的那一刻重画一次，不是轮询
+            .task(id: g?.endAt ?? "") {
+                guard isGroup, let end = parseIsoDate(g?.endAt) else { return }
+                let wait = end.timeIntervalSinceNow
+                guard wait > 0 else { return }
+                try? await Task.sleep(nanoseconds: UInt64((wait + 0.5) * 1_000_000_000))
+                if !Task.isCancelled { endTick += 1 }
+            }
+    }
+
+    /// 取群资料（群聊才取）
+    private func loadGroup() async {
+        guard isGroup else { return }
+        if let v: GroupInfo = try? await Api.request("/im/group/\(targetId)") { g = v }
     }
 
     private var mainColumn: some View {
@@ -485,7 +620,8 @@ struct ChatRoomView: View {
 
     /// 取我和对方的关系：进来取一次；互相喜欢了 / 对方结束了聊天、从对方的画像网页回来，都重新取
     private func loadRel() async {
-        guard !targetId.isEmpty else { return }
+        // 群聊里 targetId 是群 id，没有「我和对方的关系」这回事
+        guard convType == 1, !targetId.isEmpty else { return }
         if let r: MatchRelation = try? await Api.request("/match/relation/\(targetId)") { rel = r }
     }
 
@@ -561,14 +697,22 @@ struct ChatRoomView: View {
         let ids = row.items.map(\.id)
         let flashOn = flashId.map { ids.contains($0) } ?? false
         return VStack(spacing: 0) {
-            if shouldShowTime(row.start) {
-                Text(fmtTime(m.createdAt))
-                    .font(.system(size: 11)).foregroundStyle(Theme.textDim)
+            if m.type == "sys" {
+                // 群里中间那行灰色小字（有人进群、退群、被移出、改群名、解散…）：不是气泡，不能长按、不能选
+                Text(sysText(m.content))
+                    .font(.system(size: 11.5)).foregroundStyle(Theme.textDim).multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, 12).padding(.top, 5).padding(.bottom, 9)
+            } else {
+                if shouldShowTime(row.start) {
+                    Text(fmtTime(m.createdAt))
+                        .font(.system(size: 11)).foregroundStyle(Theme.textDim)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                }
+                messageRow(row)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(flashOn ? Theme.accent.opacity(0.14) : Color.clear))
             }
-            messageRow(row)
-                .background(RoundedRectangle(cornerRadius: 8).fill(flashOn ? Theme.accent.opacity(0.14) : Color.clear))
         }
         .id(m.id)
     }
@@ -634,6 +778,9 @@ struct ChatRoomView: View {
     private var bottomArea: some View {
         if let sel = selecting {
             selectBar(sel)
+        } else if let gone = groupGone {
+            // 群用不了了（我退出了 / 被移出了 / 群解散了 / 被平台关闭）：输入区换成一句话，没有别的按钮；之前的聊天记录照常能看
+            GroupEndBar(state: gone)
         } else if let r = rel, r.state == "ended" {
             // 有一方点了「不再联系」：输入区换成一句说明，聊天记录照常能看。其余情况一律能发
             ChatBlockedBar(rel: r)
@@ -652,18 +799,42 @@ struct ChatRoomView: View {
         .animation(.easeOut(duration: 0.15), value: recording)
         .fullBg()
         .toast($toastMsg)
-        .navigationTitle(title)
+        .navigationTitle(shownTitle)
         .navigationBarTitleDisplayMode(.inline)
         .compatNavBarBackground(Theme.bg)
         .toolbar { toolbarItems }
     }
 
+    /// 群聊的标题是「群名（人数）」；群用不了以后（我不在了 / 解散了 / 被关闭）不显示人数
+    private var shownTitle: String {
+        guard isGroup else { return title }
+        guard let g else { return title }
+        let name = g.nameText.isEmpty ? title : g.nameText
+        return g.stateText == "ok" ? "\(name)（\(g.count)）" : name
+    }
+
     @ToolbarContentBuilder
     private var toolbarItems: some ToolbarContent {
         ToolbarItem(placement: .principal) {
-            Text(title).font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+            Text(shownTitle).font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.text).lineLimit(1)
         }
         ToolbarItem(placement: .navigationBarTrailing) {
+            if isGroup {
+                // 群聊：右上角「···」直接进群资料，没有下拉菜单（群聊不能清空）
+                Button { pushRoute = .groupInfo(targetId) } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Theme.text)
+                        .frame(width: 32, height: 32)
+                }
+            } else {
+                singleMenu
+            }
+        }
+    }
+
+    /// 单聊右上角的下拉菜单
+    private var singleMenu: some View {
             Menu {
                 if !targetId.isEmpty {
                     Button { pushRoute = .userHome(targetId) } label: { Label("看 TA 的画像", systemImage: "person.crop.rectangle") }
@@ -691,7 +862,6 @@ struct ChatRoomView: View {
                     .foregroundStyle(Theme.text)
                     .frame(width: 32, height: 32)
             }
-        }
     }
 
     private func decorated<V: View>(_ v: V) -> some View {
@@ -765,6 +935,10 @@ struct ChatRoomView: View {
         Task { @MainActor in
             await loadPins()
         }
+        // 群聊：群资料（人数、我的身份、还能不能发）。从群资料页回来也会走到这里，再取一次
+        Task { @MainActor in
+            await loadGroup()
+        }
         if let last = messages.last { WsClient.shared.markRead(conversationId: convId, msgId: last.id) }
         WsClient.shared.connect()
         removeListener = WsClient.shared.addListener { frame in handleFrame(frame) }
@@ -785,11 +959,33 @@ struct ChatRoomView: View {
                 toastMsg = frame["msg"] as? String ?? t("chat.sendFailed")
                 // 对方已结束聊天：重新取一次关系，输入区换成说明
                 if code == "chat_ended" { Task { await loadRel() } }
+                // 群用不了了（我不在群里了 / 解散了 / 被关闭）：输入区马上换成那句话
+                if let gone = groupReasonState(code), g != nil {
+                    g?.state = (g?.state == "kicked" && gone == "left") ? "kicked" : gone
+                }
             }
             let tid = frame["tempId"] as? String
             let idx = tid != nil ? messages.firstIndex(where: { $0.id == tid }) : messages.lastIndex(where: { $0.id.hasPrefix("t_") })
             if let idx {
                 messages.remove(at: idx)
+            }
+            return
+        }
+        if op == "group" {
+            // 群有变化：推送里带着最新的群信息，标题上的人数、群名、能不能发马上跟着改
+            guard isGroup, let ev = groupEventOf(frame), ev.groupId == targetId else { return }
+            if let cur = g { g = cur.merged(ev, myId: myId) }
+            // 我自己重新进群了（或者群资料还没取到）：成员名单、我的身份要重新拿
+            if g == nil || (ev.event == "join" && ev.userId == myId) { Task { await loadGroup() } }
+            return
+        }
+        if op == "ws_reopen" {
+            // 断线后重新连上（不是服务器的帧，见 WsClient）：断线那段时间的消息和群的变化没收到，补拉一次
+            Task { @MainActor in
+                await mergeLatest()
+                await loadPins()
+                await loadGroup()
+                await loadRel()
             }
             return
         }
@@ -859,8 +1055,19 @@ struct ChatRoomView: View {
 
     // MARK: - 底部输入区（微信式）
 
+    /// 活动 / 行程已经结束、群还没解散的那几天，输入框上面的那句提示；不用提示时是 nil
+    private var groupTip: String? {
+        // 读一下 endTick：到了结束时间它会加一，这里跟着重新算
+        _ = endTick
+        guard isGroup, let g else { return nil }
+        return expireTip(g)
+    }
+
     private var bottomBar: some View {
         VStack(spacing: 0) {
+            if let tip = groupTip {
+                GroupExpireTip(text: tip)
+            }
             if let r = replyTo {
                 ReplyBar(nickname: r.senderNickname ?? "", snippet: msgSnippet(r.type, r.content)) { replyTo = nil }
             }
@@ -1180,6 +1387,22 @@ struct ChatRoomView: View {
         messages = (try? await Api.request("/im/messages?conversationId=\(convId)")) ?? []
     }
 
+    /// 断线重连后补拉最新的一段：已有的留着，新的补进来，还没发出去的排最后
+    private func mergeLatest() async {
+        guard let list: [MsgItem] = try? await Api.request("/im/messages?conversationId=\(convId)") else { return }
+        var byId: [String: MsgItem] = [:]
+        for m in messages where !m.pending { byId[m.id] = m }
+        for m in list {
+            var next = m
+            // 本地刚发出去的图靠 upKey 找预览图，补拉回来的同一条不要把它盖掉
+            if let old = byId[m.id] { next.upKey = old.upKey }
+            byId[m.id] = next
+        }
+        let done = byId.values.sorted { (Int64($0.id) ?? Int64.max) < (Int64($1.id) ?? Int64.max) }
+        messages = done + messages.filter { $0.pending }
+        if let last = list.last { WsClient.shared.markRead(conversationId: convId, msgId: last.id) }
+    }
+
     /// 对方头像兜底：从消息列表里找一条对方的非空头像（个别消息头像缺失时使用）
     private var peerAvatarGuess: String {
         let myId = state.user?.id ?? ""
@@ -1212,10 +1435,17 @@ struct ChatRoomView: View {
     private func makeBubble(_ row: ChatRow) -> MsgBubble {
         let m = row.first
         let mine = m.senderId == myId
+        // 群聊：群主的昵称后面有小标（领队 / 发起人），点别人的头像进他的相亲画像
+        let ownerKind: String? = (isGroup && g?.ownerId == m.senderId) ? g?.kindText : nil
+        let senderId = m.senderId
+        let onAvatar: (() -> Void)? = isGroup ? { pushRoute = .userHome(senderId) } : nil
         return MsgBubble(
             m: m, mine: mine,
-            fallbackAvatar: mine ? (state.user?.avatar ?? "") : peerAvatarGuess,
+            // 群聊里别人的头像缺了就空着，不能拿另一个人的顶上
+            fallbackAvatar: mine ? (state.user?.avatar ?? "") : (isGroup ? "" : peerAvatarGuess),
             myId: myId,
+            ownerKind: ownerKind,
+            onAvatar: onAvatar,
             onMenu: { inputFocused = false; showEmoji = false; menuMsg = m },
             onReact: { react(m.id, $0) },
             onJump: { jumpTo($0) },
@@ -1334,6 +1564,8 @@ struct ChatRoomView: View {
                         myReaction: m.reactions?.first(where: { $0.userIds.contains(myId) })?.emoji,
                         pinned: pins.contains(where: { $0.id == m.id }),
                         actions: menuActions(m),
+                        // 群里没有「已读」
+                        showRead: !isGroup,
                         onDismiss: { menuMsg = nil }
                     )
                     .transition(.opacity)
@@ -1346,7 +1578,7 @@ struct ChatRoomView: View {
                 titleVisibility: .visible
             ) {
                 if delCanForAll {
-                    Button(t("msg.deleteForMeAndPeer", ["name": title]), role: .destructive) {
+                    Button(t("msg.deleteForMeAndPeer", ["name": isGroup ? "群里所有人" : title]), role: .destructive) {
                         if let ids = deleteIds { doDelete(ids, forAll: true) }
                     }
                     Button(t("msg.deleteForMeOnly"), role: .destructive) {
@@ -1362,8 +1594,9 @@ struct ChatRoomView: View {
                 if !delCanForAll { Text(t("msg.deleteForMeHint")) }
             }
             .sheet(item: $reportId) { id in
-                ReportSheet(msgId: id) { toastMsg = $0 }
-                    .compatDetents(height: 420)
+                // 群里的举报多一项「线下不安全」
+                ReportSheet(msgId: id, inGroup: isGroup) { toastMsg = $0 }
+                    .compatDetents(height: isGroup ? 460 : 420)
             }
             .sheet(item: $forwardIds) { list in
                 ForwardSheet(fromConvId: convId, ids: list.ids) { tip in
@@ -1504,6 +1737,10 @@ struct MsgBubble: View {
     /// 消息本身头像缺失时的兜底
     var fallbackAvatar: String = ""
     var myId: String = ""
+    /// 群聊里发这条消息的人是群主：群的类型（昵称后面的小标按它写「领队 / 发起人 / 群主」）；不是群主、或者是单聊，是 nil
+    var ownerKind: String? = nil
+    /// 点别人的头像（群聊里进他的相亲画像）；单聊是 nil
+    var onAvatar: (() -> Void)? = nil
     var onMenu: (() -> Void)? = nil
     var onReact: ((String) -> Void)? = nil
     var onJump: ((String) -> Void)? = nil
@@ -1532,11 +1769,20 @@ struct MsgBubble: View {
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
             if mine { Spacer(minLength: 50) }
-            if !mine { AvatarView(url: avatarUrl, size: 38) }
+            if !mine {
+                AvatarView(url: avatarUrl, size: 38)
+                    .contentShape(Circle())
+                    .onTapGesture { onAvatar?() }
+            }
             VStack(alignment: mine ? .trailing : .leading, spacing: 2) {
                 if !mine {
-                    Text(m.senderNickname ?? "").font(.system(size: 11)).foregroundStyle(Theme.textSub)
-                        .padding(.leading, 4)
+                    HStack(spacing: 5) {
+                        Text(m.senderNickname ?? "").font(.system(size: 11)).foregroundStyle(Theme.textSub)
+                        if let ownerKind {
+                            OwnerBadge(kind: ownerKind)
+                        }
+                    }
+                    .padding(.leading, 4)
                 }
                 if let f = m.fwdFrom, !f.isEmpty {
                     Text(t("chat.forwardedFrom", ["name": f])).font(.system(size: 11)).foregroundStyle(linkBlue).padding(.horizontal, 4)

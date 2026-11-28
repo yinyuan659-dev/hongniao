@@ -46,11 +46,12 @@ fun MainScreen(
             runCatching {
                 val convs = com.wh.hongniang.net.Api.getList<ConversationItem>("/im/conversations")
                 val likes = runCatching { com.wh.hongniang.net.Api.getObj<MatchSummary>("/match/summary").likedMeNew }.getOrDefault(0)
-                unreadTotal = convs.sumOf { it.unread } + likes
+                // 开了免打扰的群不算
+                unreadTotal = convs.sumOf { if (it.muted) 0 else it.unread } + likes
             }
         }
     }
-    LaunchedEffect(tab, MatchCenter.version, HnEvents.version) {
+    LaunchedEffect(tab, MatchCenter.version, HnEvents.version, ChatEvents.version) {
         refreshUnread()
         // 切换页面停止广场列表内正在播放的视频
         FeedVideoCenter.current?.pause()
@@ -58,7 +59,8 @@ fun MainScreen(
     DisposableEffect(Unit) {
         val remove = com.wh.hongniang.net.WsClient.addListener { frame ->
             val op = (frame["op"] as? kotlinx.serialization.json.JsonPrimitive)?.content
-            if (op == "msg") refreshUnread()
+            // conv_refresh：消息列表有变化（群的免打扰开关、进群退群…）；ws_reopen：断线后重新连上，补拉一次
+            if (op == "msg" || op == "conv_refresh" || op == "ws_reopen") refreshUnread()
         }
         onDispose { remove() }
     }

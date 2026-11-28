@@ -14,6 +14,7 @@ import { langOf, translate } from '../i18n/translate';
 import { NEED_PROFILE_CODE, NeedProfileException } from '../common/need-profile';
 import { NEED_KYC_CODE, NeedKycException } from '../common/kyc-gate';
 import { ChatGateException } from '../common/chat-gate';
+import { GroupGateException } from './group.service';
 
 @WebSocketGateway({ path: '/ws', maxPayload: 128 * 1024 })
 export class ImGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -129,7 +130,8 @@ export class ImGateway implements OnGatewayConnection, OnGatewayDisconnect {
         msg: translate(e?.message ?? '操作失败', this.socketLang.get(ws) ?? null),
         // 没完成资料收集：客户端按 code 弹「去完成」，不靠文字判断（文字会被翻译）
         // 没互相喜欢 / 对方已结束聊天：code 是 need_like / chat_ended
-        ...(e instanceof NeedProfileException ? { code: NEED_PROFILE_CODE } : e instanceof NeedKycException ? { code: NEED_KYC_CODE } : e instanceof ChatGateException ? { code: e.code } : {}),
+        // 群用不了：code 是 group_left / group_dissolved / group_closed
+        ...(e instanceof NeedProfileException ? { code: NEED_PROFILE_CODE } : e instanceof NeedKycException ? { code: NEED_KYC_CODE } : e instanceof ChatGateException || e instanceof GroupGateException ? { code: e.code } : {}),
       }));
     }
   }

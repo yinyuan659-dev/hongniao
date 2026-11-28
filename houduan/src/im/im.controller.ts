@@ -3,6 +3,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../common/current-user.decorator';
 import { ImService } from './im.service';
 import { MessageService } from './message.service';
+import { GroupService } from './group.service';
 
 function toId(v: unknown): bigint {
   const s = String(v ?? '');
@@ -20,6 +21,7 @@ export class ImController {
   constructor(
     private readonly im: ImService,
     private readonly msgs: MessageService,
+    private readonly groups: GroupService,
   ) {}
 
   @Get('conversations')
@@ -103,6 +105,56 @@ export class ImController {
   @Post('conversations/open-by-code')
   openByCode(@CurrentUser() userId: bigint, @Body() dto: { code?: string }) {
     return this.im.openByInviteCode(userId, String(dto?.code ?? ''));
+  }
+
+  // ---------- 群聊（样稿 design/12-group.html）。进群不在这里：只能从线路页「约单」、活动页「参与」进 ----------
+
+  /** 群资料：名字、公告、人数、我的身份、成员名单（已经不在群里的人看不到名单） */
+  @Get('group/:id')
+  group(@CurrentUser() userId: bigint, @Param('id') id: string) {
+    return this.groups.view(userId, toId(id));
+  }
+
+  /** 退出群聊（群主不能退） */
+  @Post('group/:id/leave')
+  groupLeave(@CurrentUser() userId: bigint, @Param('id') id: string) {
+    return this.groups.leave(userId, toId(id));
+  }
+
+  /** 群主移出成员 */
+  @Post('group/:id/kick')
+  groupKick(@CurrentUser() userId: bigint, @Param('id') id: string, @Body() dto: { userId?: string }) {
+    return this.groups.kick(userId, toId(id), toId(dto?.userId));
+  }
+
+  /** 群主解散群聊 */
+  @Post('group/:id/dissolve')
+  groupDissolve(@CurrentUser() userId: bigint, @Param('id') id: string) {
+    return this.groups.dissolve(userId, toId(id));
+  }
+
+  /** 群主改群名 / 群公告：{ name?, notice? }，只传要改的 */
+  @Post('group/:id/update')
+  groupUpdate(@CurrentUser() userId: bigint, @Param('id') id: string, @Body() dto: { name?: string; notice?: string }) {
+    return this.groups.update(userId, toId(id), { name: dto?.name, notice: dto?.notice });
+  }
+
+  /** 消息免打扰：{ muted: true | false } */
+  @Post('group/:id/mute')
+  groupMute(@CurrentUser() userId: bigint, @Param('id') id: string, @Body() dto: { muted?: boolean }) {
+    return this.groups.setMuted(userId, toId(id), dto?.muted !== false);
+  }
+
+  /** 从自己的消息列表里删掉（只有已解散 / 被关闭 / 自己已经不在的群） */
+  @Post('group/:id/hide')
+  groupHide(@CurrentUser() userId: bigint, @Param('id') id: string) {
+    return this.groups.hide(userId, toId(id));
+  }
+
+  /** 举报这个群 */
+  @Post('group/:id/report')
+  groupReport(@CurrentUser() userId: bigint, @Param('id') id: string, @Body() dto: { reason?: string }) {
+    return this.groups.report(userId, toId(id), String(dto?.reason ?? ''));
   }
 
   /** 打开与某用户的会话（不存在则创建），返回会话 id */

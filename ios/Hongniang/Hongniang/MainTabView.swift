@@ -36,10 +36,15 @@ struct MainTabView: View {
             await refreshUnread()
             _ = WsClient.shared.addListener { frame in
                 let op = frame["op"] as? String
-                if op == "msg" {
+                // conv_refresh：消息列表有变化（群的免打扰开关、进群退群…）；ws_reopen：断线后重新连上，补拉一次
+                if op == "msg" || op == "conv_refresh" || op == "ws_reopen" {
                     Task { await refreshUnread() }
                 }
             }
+        }
+        // 聊天页关掉了：读过的消息不该还算未读，角标重新算
+        .onReceive(NotificationCenter.default.publisher(for: .hnChatClosed)) { _ in
+            Task { await refreshUnread() }
         }
         .onChange(of: tab) { _ in
             // 切换页面停止广场列表内正在播放的视频
@@ -59,7 +64,8 @@ struct MainTabView: View {
     private func refreshUnread() async {
         let convs: [ConversationItem] = (try? await Api.request("/im/conversations")) ?? []
         let sum: MatchSummary? = try? await Api.request("/match/summary")
-        unreadTotal = convs.reduce(0) { $0 + ($1.unread ?? 0) } + (sum?.likedMeNew ?? 0)
+        // 开了免打扰的群不算
+        unreadTotal = convs.reduce(0) { $0 + ($1.muted == true ? 0 : ($1.unread ?? 0)) } + (sum?.likedMeNew ?? 0)
     }
 
     private var bottomBar: some View {

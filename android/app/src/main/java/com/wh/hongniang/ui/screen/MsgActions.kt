@@ -128,7 +128,8 @@ class MenuActions(
     val onReply: () -> Unit,
     val onCopy: (() -> Unit)?,
     val onSave: (() -> Unit)?,
-    val onPin: () -> Unit,
+    /** 群聊里只有群主能置顶，别人传 null */
+    val onPin: (() -> Unit)?,
     val onForward: (() -> Unit)?,
     val onReport: (() -> Unit)?,
     val onDelete: () -> Unit,
@@ -143,13 +144,16 @@ private fun fmtReadAt(iso: String): String = runCatching {
     t("msg.readDate", "m" to tm.monthValue, "d" to tm.dayOfMonth, "time" to "%02d:%02d".format(tm.hour, tm.minute))
 }.getOrDefault("")
 
-/** Telegram 式消息菜单：顶上一排表情，自己的消息显示已读时间，下面按类型给操作（传 null 的不显示） */
+/**
+ * Telegram 式消息菜单：顶上一排表情，自己的消息显示已读时间，下面按类型给操作（传 null 的不显示）。
+ * showRead = false：群聊里没有「已读」，不显示那一行。
+ */
 @Composable
-fun MsgMenuDialog(msgId: String, mine: Boolean, myReaction: String?, pinned: Boolean, actions: MenuActions, onDismiss: () -> Unit) {
+fun MsgMenuDialog(msgId: String, mine: Boolean, myReaction: String?, pinned: Boolean, actions: MenuActions, showRead: Boolean = true, onDismiss: () -> Unit) {
     var expand by remember { mutableStateOf(false) }
     var info by remember { mutableStateOf<ReadInfo?>(null) }
     LaunchedEffect(msgId) {
-        if (mine) info = runCatching { Api.getObj<ReadInfo>("/im/messages/$msgId/readers") }.getOrNull()
+        if (mine && showRead) info = runCatching { Api.getObj<ReadInfo>("/im/messages/$msgId/readers") }.getOrNull()
     }
     fun run(fn: (() -> Unit)?) { onDismiss(); fn?.invoke() }
 
@@ -250,9 +254,9 @@ fun ReplyBar(nickname: String, snippet: String, onCancel: () -> Unit) {
 @Serializable
 data class PinItem(val id: String, val senderId: String = "", val senderNickname: String = "", val type: String = "", val content: String = "", val pinnedAt: String = "")
 
-/** 顶部置顶条：点一下跳到这条，再点轮到下一条（新的在前） */
+/** 顶部置顶条：点一下跳到这条，再点轮到下一条（新的在前）。onUnpin 传 null 就没有右边的 ×（群聊里只有群主能取消置顶） */
 @Composable
-fun PinBar(pins: List<PinItem>, index: Int, onJump: () -> Unit, onUnpin: () -> Unit) {
+fun PinBar(pins: List<PinItem>, index: Int, onJump: () -> Unit, onUnpin: (() -> Unit)?) {
     val p = pins.getOrNull(index % pins.size.coerceAtLeast(1)) ?: return
     Row(Modifier.fillMaxWidth().background(Bg2).noRippleClick(onJump).padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.height(32.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -265,7 +269,7 @@ fun PinBar(pins: List<PinItem>, index: Int, onJump: () -> Unit, onUnpin: () -> U
             Text("${t("msg.pinnedMessage")}${if (pins.size > 1) " #${index % pins.size + 1}" else ""}", color = LinkBlue, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             Text(if (p.type == "text") p.content else msgSnippet(p.type, ""), color = TextSub, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        Text("×", color = TextDim, fontSize = 22.sp, modifier = Modifier.noRippleClick(onUnpin).padding(horizontal = 6.dp))
+        if (onUnpin != null) Text("×", color = TextDim, fontSize = 22.sp, modifier = Modifier.noRippleClick(onUnpin).padding(horizontal = 6.dp))
     }
 }
 
@@ -296,14 +300,20 @@ private val REPORT_REASONS = listOf(
     "辱骂骚扰" to "msg.report.abuse", "违法违规" to "msg.report.illegal", "其他" to "msg.report.other",
 )
 
+/**
+ * 举报：msgId = 举报一条消息；groupId 有值 = 举报整个群（群资料里「举报这个群」，这时 msgId 不用）。
+ * inGroup：群里的举报多一项「线下不安全」（样稿 design/12-group.html 第 3 组）。
+ */
 @Composable
-fun ReportMsgDialog(msgId: String, onDone: (String) -> Unit, onDismiss: () -> Unit) {
+fun ReportMsgDialog(msgId: String, groupId: String? = null, inGroup: Boolean = false, onDone: (String) -> Unit, onDismiss: () -> Unit) {
     val scope = rememberCoroutineScope()
     var other by remember { mutableStateOf(false) }
     var text by remember { mutableStateOf("") }
+    // 「线下不安全」排在「其他」前面；这一项没有翻译 key，直接显示原文
+    val reasons = if (inGroup || groupId != null) REPORT_REASONS.dropLast(1) + ("线下不安全" to "") + REPORT_REASONS.last() else REPORT_REASONS
     fun submit(reason: String) = scope.launch {
         val tip = runCatching {
-            val r = Api.request("/im/messages/$msgId/report", "POST", buildJsonObject { put("reason", reason) })
+            val r = Api.request(if (groupId != null) "/im/group/$groupId/report" else "/im/messages/$msgId/report", "POST", buildJsonObject { put("reason", reason) })
             if (r?.jsonObject?.get("duplicated")?.jsonPrimitive?.content == "true") t("msg.reportDuplicated") else t("msg.reported")
         }.getOrElse { it.message ?: t("msg.reportFailed") }
         onDone(tip)
@@ -311,11 +321,11 @@ fun ReportMsgDialog(msgId: String, onDone: (String) -> Unit, onDismiss: () -> Un
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = Bg2,
-        title = { Text(t("msg.reportTitle"), color = TextMain) },
+        title = { Text(if (groupId != null) "举报这个群" else t("msg.reportTitle"), color = TextMain) },
         text = {
             if (!other) Column {
-                REPORT_REASONS.forEach { (r, key) ->
-                    Text(t(key), color = TextMain, fontSize = 15.sp, modifier = Modifier.fillMaxWidth().noRippleClick { if (r == "其他") other = true else submit(r) }.padding(vertical = 11.dp))
+                reasons.forEach { (r, key) ->
+                    Text(if (key.isEmpty()) r else t(key), color = TextMain, fontSize = 15.sp, modifier = Modifier.fillMaxWidth().noRippleClick { if (r == "其他") other = true else submit(r) }.padding(vertical = 11.dp))
                 }
             } else androidx.compose.material3.OutlinedTextField(text, { text = it.take(200) }, placeholder = { Text(t("msg.reportPlaceholder"), color = TextDim) }, minLines = 3)
         },
@@ -335,9 +345,11 @@ fun ForwardDialog(fromConvId: String, ids: List<String>, onDone: (String, List<S
     var picked by remember { mutableStateOf<List<String>>(emptyList()) }
     var busy by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        convs = runCatching { Api.getList<ConversationItem>("/im/conversations") }.getOrDefault(emptyList()).filter { it.peer != null }
+        // 群只有我现在还在、群也正常的（state = ok）才能转发进去
+        convs = runCatching { Api.getList<ConversationItem>("/im/conversations") }.getOrDefault(emptyList())
+            .filter { if (it.group != null) it.group.state == "ok" else it.peer != null }
     }
-    fun name(c: ConversationItem) = c.peer?.nickname ?: ""
+    fun name(c: ConversationItem) = c.group?.name ?: c.peer?.nickname ?: ""
     val shown = convs.filter { q.isBlank() || name(it).contains(q.trim(), ignoreCase = true) }
 
     fun send() {
@@ -351,8 +363,8 @@ fun ForwardDialog(fromConvId: String, ids: List<String>, onDone: (String, List<S
                     put("targets", buildJsonArray {
                         picked.mapNotNull { id -> convs.find { it.id == id } }.forEach { c ->
                             addJsonObject {
-                                put("convType", 1)
-                                put("targetId", c.peer!!.id)
+                                put("convType", if (c.group != null) 2 else 1)
+                                put("targetId", c.group?.id ?: c.peer!!.id)
                             }
                         }
                     })
@@ -382,7 +394,7 @@ fun ForwardDialog(fromConvId: String, ids: List<String>, onDone: (String, List<S
                         Modifier.fillMaxWidth().noRippleClick { picked = if (on) picked - c.id else if (picked.size >= 10) picked else picked + c.id }.padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Avatar(c.peer?.avatar, 38)
+                        if (c.group != null) GroupAvatar(c.group.avatar, c.group.kind, 38) else Avatar(c.peer?.avatar, 38)
                         Spacer(Modifier.width(10.dp))
                         Text(name(c), color = TextMain, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                         Spacer(Modifier.weight(1f))

@@ -2,11 +2,14 @@ import { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
 import { ScanIcon } from './QrScanner';
 import { fileSnippet } from './ChatMedia';
+import { sysText } from '../group';
 import { t } from '../i18n';
 
 export interface SearchConv {
   id: string;
   peer?: { id: string; nickname: string; avatar: string };
+  /** 群聊才有 */
+  group?: { id: string; name: string; avatar: string };
   lastMsg?: { type: string; content: string } | null;
   unread: number;
 }
@@ -62,11 +65,11 @@ function saveRecent(list: Recent[]) {
 }
 
 function convTitle(c: SearchConv) {
-  return c.peer?.nickname ?? '';
+  return c.group?.name ?? c.peer?.nickname ?? '';
 }
 
 function convAvatar(c: SearchConv) {
-  return c.peer?.avatar;
+  return c.group ? c.group.avatar : c.peer?.avatar;
 }
 
 function previewOf(msg?: SearchConv['lastMsg']) {
@@ -78,6 +81,7 @@ function previewOf(msg?: SearchConv['lastMsg']) {
     case 'audio': return t('msg.preview.voice');
     case 'file': return fileSnippet(msg.content);
     case 'location': return t('msg.preview.location');
+    case 'sys': return sysText(msg.content);
     default: return msg.type.startsWith('call') ? t('msg.preview.call') : '';
   }
 }
@@ -163,7 +167,7 @@ export function ChatSearch({
 
   const openConv = (c: SearchConv, focusMsgId?: string) => {
     remember({ kind: 'conv', id: c.id });
-    onOpenConv({ id: c.id, targetId: c.peer?.id ?? '', title: convTitle(c), focusMsgId });
+    onOpenConv({ id: c.id, targetId: c.group?.id ?? c.peer?.id ?? '', title: convTitle(c), focusMsgId });
   };
   const openExtra = (e: SearchExtra) => {
     remember({ kind: 'extra', id: e.key });

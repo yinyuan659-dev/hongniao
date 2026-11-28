@@ -18,6 +18,7 @@ import { decodeQrFromImage, ScanIcon } from '../components/QrScanner';
 import { ScanFlow } from './ChatList';
 import { t } from '../i18n';
 import { Relation, ReportSheet as UserReportSheet } from '../match';
+import { expireTip, GROUP_END_TEXT, GROUP_REASON_STATE, GroupEvent, GroupView, OwnerBadge, stateAfter, sysText } from '../group';
 
 /** 「11 月 23 日」 */
 function matchDay(iso: string | null): string {
@@ -124,11 +125,15 @@ function AudioBubble({ a }: { a: any }) {
 /** 点这些元素走它们自己的逻辑（看大图、播放、点链接等），不弹消息菜单 */
 const NO_MENU = 'a,img,video,audio,.no-menu,.react-chips,.reply-quote';
 
-function MsgBubble({ m, album, mine, myId, uploads, onImage, onMenu, onReact, onJump, onRetry }: {
+function MsgBubble({ m, album, mine, myId, uploads, group, onAvatar, onImage, onMenu, onReact, onJump, onRetry }: {
   m: MsgItem;
   /** 多图相册（第一张就是 m） */
   album?: MsgItem[];
   mine: boolean; myId?: string;
+  /** 群聊：群主的昵称后面有红色小标（领队 / 发起人），自己的消息不显示「已读」 */
+  group?: { kind: string; ownerId: string };
+  /** 点别人的头像（群聊里进他的相亲画像） */
+  onAvatar?: (userId: string) => void;
   uploads?: Record<string, UploadState>;
   onImage: (url: string) => void;
   /** target：相册里长按的那一张 */
@@ -223,7 +228,11 @@ function MsgBubble({ m, album, mine, myId, uploads, onImage, onMenu, onReact, on
       }
   }
   const avatar = (
-    <div className="avatar" style={{ width: 36, height: 36, flexShrink: 0 }}>
+    <div
+      className="avatar"
+      style={{ width: 36, height: 36, flexShrink: 0, cursor: !mine && onAvatar ? 'pointer' : undefined }}
+      onClick={!mine && onAvatar ? () => onAvatar(m.senderId) : undefined}
+    >
       {m.senderAvatar && <img src={m.senderAvatar} alt="" />}
     </div>
   );
@@ -249,7 +258,12 @@ function MsgBubble({ m, album, mine, myId, uploads, onImage, onMenu, onReact, on
         onTouchEnd={() => clearTimeout(press.current)}
       >
         {/* 对齐 iOS：只显示对方昵称，自己的不显示 */}
-        {!mine && <div className="small" style={{ marginBottom: 3 }}>{m.senderNickname}</div>}
+        {!mine && (
+          <div className="small" style={{ marginBottom: 3 }}>
+            {m.senderNickname}
+            {group && m.senderId === group.ownerId && <OwnerBadge kind={group.kind} />}
+          </div>
+        )}
         <div className={`bubble ${mine ? 'mine' : 'theirs'}${isMedia ? ' media' : ''}`} style={{ opacity: m.pending && m.type !== 'image' && m.type !== 'file' && m.type !== 'video' ? 0.6 : 1 }}>
           {m.fwdFrom && <div className="fwd-from">{t('msg.fwdFrom', { name: m.fwdFrom })}</div>}
           {m.replyTo && <ReplyQuote r={m.replyTo} onClick={() => onJump(m.replyTo!.id)} />}
@@ -266,7 +280,7 @@ function MsgBubble({ m, album, mine, myId, uploads, onImage, onMenu, onReact, on
               ? <span style={{ color: 'var(--danger)' }}>{t('chat.upload.failed')}</span>
               : <span>{all.some((a) => a.upKey && uploads?.[a.upKey]) ? t('chat.upload.uploading') : t('msg.sending')}</span>
           )}
-          {mine && !all.some((a) => a.pending) && (
+          {mine && !group && !all.some((a) => a.pending) && (
             <span className={all.every((a) => a.isRead) ? '' : 'accent'}>{all.every((a) => a.isRead) ? t('msg.read') : t('msg.unread')}</span>
           )}
         </div>
@@ -281,20 +295,47 @@ export function ChatRoomPage() {
   const location = useLocation();
   const nav = useNavigate();
   const me = useApp((s) => s.user);
-  const navState = (location.state ?? {}) as { title?: string; targetId?: string; focusMsgId?: string; draft?: string };
-  // 正常是从上一页带着「对方是谁」进来的；直接打开这个网址（没带）时，从会话列表里找出对方
-  const [found, setFound] = useState<{ title?: string; targetId?: string }>({});
+  const navState = (location.state ?? {}) as { title?: string; targetId?: string; groupId?: string; focusMsgId?: string; draft?: string };
+  // 正常是从上一页带着「对方是谁 / 哪个群」进来的；直接打开这个网址（没带）时，从会话列表里找出来
+  const [found, setFound] = useState<{ title?: string; targetId?: string; groupId?: string }>({});
   const state = { ...found, ...navState };
   useEffect(() => {
-    if (navState.targetId || !conversationId) return;
-    api<{ id: string; peer?: { id: string; nickname: string } }[]>('/im/conversations')
+    if (navState.targetId || navState.groupId || !conversationId) return;
+    api<{ id: string; peer?: { id: string; nickname: string }; group?: { id: string; name: string } }[]>('/im/conversations')
       .then((list) => {
         const c = list.find((x) => x.id === conversationId);
-        if (c?.peer) setFound({ title: c.peer.nickname, targetId: c.peer.id });
+        if (c?.group) setFound({ title: c.group.name, groupId: c.group.id });
+        else if (c?.peer) setFound({ title: c.peer.nickname, targetId: c.peer.id });
       })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
+
+  const meRef = useRef(me);
+  meRef.current = me;
+
+  // ---------- 群聊（样稿 design/12-group.html）：这一页单聊、群聊共用，state.groupId 有值就是群聊 ----------
+  const groupId = state.groupId;
+  /** 群资料 + 我和这个群的关系。之后的变化靠推送（op: 'group'）直接改，不轮询 */
+  const [g, setG] = useState<GroupView | null>(null);
+  const groupRef = useRef(groupId);
+  groupRef.current = groupId;
+  const loadGroup = () => {
+    if (groupRef.current) api<GroupView>(`/im/group/${groupRef.current}`).then(setG).catch(() => {});
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(loadGroup, [groupId]);
+  /** 群里现在能不能发：还在群里，群也是正常的 */
+  const groupGone = g && g.state !== 'ok' ? g.state : null;
+  // 「N 天后自动解散」那句要跟着时间变：到了结束时间出现；到了解散时间服务器会推送。这里只在这两个时刻各重画一次，不是轮询
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!g?.endAt || g.state !== 'ok') return;
+    const wait = new Date(g.endAt).getTime() - Date.now();
+    if (wait <= 0 || wait > 2_000_000_000) return;
+    const timer = setTimeout(() => setTick((n) => n + 1), wait + 500);
+    return () => clearTimeout(timer);
+  }, [g?.endAt, g?.state]);
 
   const [messages, setMessages] = useState<MsgItem[]>([]);
   const messagesRef = useRef(messages);
@@ -402,6 +443,30 @@ export function ChatRoomPage() {
       if (frame.op === 'match') {
         // 互相喜欢了 / 对方结束了聊天：马上换成能发 / 不能发
         loadRel();
+      } else if (frame.op === 'group') {
+        // 群有变化：推送里带着最新的群信息，标题上的人数、群名、能不能发马上跟着改
+        const ev = frame.data as GroupEvent;
+        if (ev.groupId !== groupRef.current) return;
+        const myId = meRef.current?.id;
+        setG((prev) => (prev ? { ...prev, ...ev.group, state: stateAfter(ev, myId, prev.state), role: prev.role, muted: prev.muted, members: prev.members } : prev));
+        // 我自己重新进群了：成员名单、我的身份要重新拿
+        if (ev.event === 'join' && ev.userId === myId) loadGroup();
+      } else if (frame.op === 'ws_reopen') {
+        // 断线后重新连上：断线那段时间的消息和群的变化没收到，补拉一次（已有的留着，新的补进来，还没发出去的排最后）
+        api<MsgItem[]>(`/im/messages?conversationId=${conversationId}`).then((list) => {
+          setMessages((prev) => {
+            const byId = new Map(prev.filter((m) => !m.pending).map((m) => [m.id, m]));
+            for (const m of list) byId.set(m.id, m);
+            const num = (id: string) => { try { return BigInt(id); } catch { return 0n; } };
+            const done = [...byId.values()].sort((a, b) => (num(a.id) < num(b.id) ? -1 : num(a.id) > num(b.id) ? 1 : 0));
+            return [...done, ...prev.filter((m) => m.pending)];
+          });
+          const last = list[list.length - 1];
+          if (last) wsManager.markRead(conversationId, last.id);
+        }).catch(() => {});
+        loadPins();
+        loadGroup();
+        loadRel();
       } else if (frame.op === 'msg') {
         const m = frame.data as MessagePayload;
         if (m.conversationId === conversationId) {
@@ -438,6 +503,9 @@ export function ChatRoomPage() {
           showToast(frame.msg ?? t('msg.sendFailed'));
           // 对方已结束聊天：输入区换成提示
           if (frame.code === 'chat_ended') loadRel();
+          // 群用不了了（我不在群里了 / 解散了 / 被关闭）：输入区马上换成那句话
+          const gone = GROUP_REASON_STATE[frame.code];
+          if (gone) setG((prev) => (prev ? { ...prev, state: prev.state === 'kicked' && gone === 'left' ? 'kicked' : gone } : prev));
         }
       } else if (frame.op === 'read' && frame.conversationId === conversationId) {
         // 对方已读：把我发出的、id 不大于回执 msgId 的消息标记为已读
@@ -464,13 +532,17 @@ export function ChatRoomPage() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length]);
 
+  /** 发到哪：群聊是群 id，单聊是对方的用户 id */
+  const dest = groupId ?? state.targetId;
+  const wsSend = (msgType: string, content: string, replyId?: string) => wsManager.send(dest!, msgType, content, replyId, groupId ? 2 : 1);
+
   const sendRaw = (msgType: string, content: string) => {
-    if (!state.targetId || !me) return;
+    if (!dest || !me) return;
     // 一次回复只挂在紧接着发的第一条上（多图连发时后面的不带）
     const r = replyRef.current;
     replyRef.current = null;
     if (r) setReplyTo(null);
-    const tempId = wsManager.send(state.targetId, msgType, content, r?.id);
+    const tempId = wsSend(msgType, content, r?.id);
     setMessages((prev) => [...prev, {
       id: tempId, tempId, senderId: me.id, senderNickname: me.nickname, senderAvatar: me.avatar,
       type: msgType, content, createdAt: new Date().toISOString(), pending: true,
@@ -513,9 +585,9 @@ export function ChatRoomPage() {
   /** 传完的图发出去：本地那条换成 tempId，等 ack */
   const sendUploaded = (key: string, url: string) => {
     const m = messagesRef.current.find((x) => x.upKey === key);
-    if (!m || !state.targetId) return;
+    if (!m || !dest) return;
     const content = imageContent(url, parseImage(m.content));
-    const tempId = wsManager.send(state.targetId, 'image', content, m.replyTo?.id);
+    const tempId = wsSend('image', content, m.replyTo?.id);
     setMessages((prev) => prev.map((x) => (x.upKey === key ? { ...x, id: tempId, tempId, content } : x)));
     delete upFiles.current[key];
     return wsManager.waitAck(tempId);
@@ -581,8 +653,8 @@ export function ChatRoomPage() {
 
   const sendPicked = (key: string, content: string) => {
     const m = messagesRef.current.find((x) => x.upKey === key);
-    if (!m || !state.targetId) return;
-    const tempId = wsManager.send(state.targetId, m.type, content, m.replyTo?.id);
+    if (!m || !dest) return;
+    const tempId = wsSend(m.type, content, m.replyTo?.id);
     setMessages((prev) => prev.map((x) => (x.upKey === key ? { ...x, id: tempId, tempId, content } : x)));
     delete upFiles.current[key];
   };
@@ -676,6 +748,8 @@ export function ChatRoomPage() {
   };
 
   const isMine = (m: MsgItem) => !!me && m.senderId === me.id;
+  /** 群聊里气泡要知道谁是群主（昵称后面的「领队 / 发起人」小标） */
+  const bubbleGroup = groupId ? { kind: g?.kind ?? '', ownerId: g?.ownerId ?? '' } : undefined;
 
   const menuActions = (m: MsgItem): MenuActions => ({
     onReact: (e) => react(m.id, e),
@@ -683,7 +757,8 @@ export function ChatRoomPage() {
     onCopy: m.type === 'text' ? () => copyText(m.content) : undefined,
     onSave: m.type === 'image' || m.type === 'video' ? () => saveMedia(m.type === 'image' ? imageUrl(m.content) : m.content, m.type)
       : m.type === 'file' && parseFile(m.content).url ? () => downloadFile(parseFile(m.content)) : undefined,
-    onPin: () => togglePin(m.id, !pins.some((p) => p.id === m.id)),
+    // 群聊里只有群主能置顶；群用不了以后（退了 / 解散了）表情、回复、置顶都不给
+    onPin: !groupId || (g?.role === 'owner' && !groupGone) ? () => togglePin(m.id, !pins.some((p) => p.id === m.id)) : undefined,
     onForward: FORWARDABLE.has(m.type) ? () => setForwardIds([m.id]) : undefined,
     onReport: !isMine(m) ? () => setReportId(m.id) : undefined,
     onDelete: () => setDeleteIds([m.id]),
@@ -768,10 +843,13 @@ export function ChatRoomPage() {
     <div className="app">
       <div className="navbar">
         <span className="back" onClick={() => nav(-1)}>‹</span>
-        <span className="title ellipsis">{state.title ?? t('chat.title')}</span>
+        {/* 群聊的标题是「群名（人数）」；群用不了以后（我不在了 / 解散了 / 被关闭）不显示人数。右上角「···」进群资料 */}
+        <span className="title ellipsis">
+          {groupId ? `${g?.name ?? state.title ?? ''}${g && g.state === 'ok' ? `（${g.memberCount}）` : ''}` : state.title ?? t('chat.title')}
+        </span>
         <span className="nav-more">
-          <span className="nav-more-btn" onClick={() => setNavMenu(true)}>···</span>
-          {navMenu && (
+          <span className="nav-more-btn" onClick={() => (groupId ? nav(`/group/${groupId}`) : setNavMenu(true))}>···</span>
+          {navMenu && !groupId && (
             <>
               <div className="nav-menu-mask" onClick={() => setNavMenu(false)} />
               <div className="nav-menu">
@@ -816,6 +894,7 @@ export function ChatRoomPage() {
           )}
         </span>
       </div>
+      {/* 样稿里群聊页顶上还钉着这个群对应的线路 / 活动卡片：线路、活动是第 2、3 步才做的，到时候加在这里 */}
       {pins.length > 0 && (
         <PinBar
           pins={pins}
@@ -848,10 +927,18 @@ export function ChatRoomPage() {
             const prev = i > 0 ? new Date(messages[i - 1].createdAt).getTime() : 0;
             const cur = new Date(m.createdAt).getTime();
             const showTime = !!m.createdAt && !Number.isNaN(cur) && (i === 0 || cur - prev > 5 * 60 * 1000);
-            const g = album ? parseImage(m.content).g : undefined;
+            const albumId = album ? parseImage(m.content).g : undefined;
             const allSel = !!selecting && row.every((x) => selecting.has(x.id));
+            // 群里中间那行灰色小字（有人进群、退群、被移出、改群名、解散…）：不是气泡，不能长按、不能选
+            if (m.type === 'sys') {
+              return (
+                <div key={m.id} id={`msg-${m.id}`} style={{ textAlign: 'center', fontSize: 11.5, color: 'var(--text-3)', padding: '2px 12px 12px', lineHeight: 1.5 }}>
+                  {sysText(m.content)}
+                </div>
+              );
+            }
             return (
-              <div key={g ? `g_${g}` : m.tempId ?? m.upKey ?? m.id} id={`msg-${m.id}`} className={flashId && row.some((x) => x.id === flashId) ? 'msg-flash' : undefined}>
+              <div key={albumId ? `g_${albumId}` : m.tempId ?? m.upKey ?? m.id} id={`msg-${m.id}`} className={flashId && row.some((x) => x.id === flashId) ? 'msg-flash' : undefined}>
                 {showTime && (
                   <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--text-3)', padding: '8px 0' }}>
                     {formatTime(m.createdAt)}
@@ -860,7 +947,7 @@ export function ChatRoomPage() {
                 {selecting ? (
                   <div className="sel-row" onClick={() => !row.some((x) => x.pending) && row.forEach((x) => toggleSelect(x.id, !allSel))}>
                     <span className={`sel-circle${allSel ? ' on' : ''}`}>{allSel ? '✓' : ''}</span>
-                    <MsgBubble m={m} album={album} mine={isMine(m)} myId={me?.id} uploads={uploads} onImage={() => {}} onMenu={() => {}} onReact={() => {}} onJump={() => {}} />
+                    <MsgBubble m={m} album={album} mine={isMine(m)} myId={me?.id} uploads={uploads} group={bubbleGroup} onImage={() => {}} onMenu={() => {}} onReact={() => {}} onJump={() => {}} />
                   </div>
                 ) : (
                   <MsgBubble
@@ -869,6 +956,8 @@ export function ChatRoomPage() {
                     mine={isMine(m)}
                     myId={me?.id}
                     uploads={uploads}
+                    group={bubbleGroup}
+                    onAvatar={groupId ? (uid) => nav(`/u/${uid}`) : undefined}
                     onImage={setFullImage}
                     onMenu={(x, y, target) => {
                       const tm = target ?? m;
@@ -895,6 +984,12 @@ export function ChatRoomPage() {
           <span className={selected.length ? '' : 'off'} onClick={() => selected.length && forwardSelected()}>{t('msg.forward')}</span>
           <span className={selected.length ? '' : 'off'} style={selected.length ? { color: 'var(--danger)' } : undefined} onClick={() => selected.length && setDeleteIds(selected.map((m) => m.id))}>{t('common.delete')}</span>
         </div>
+      ) : groupGone ? (
+        // 群用不了了（我退出了 / 被移出了 / 群解散了 / 被平台关闭）：输入区换成一句话，没有别的按钮；之前的聊天记录照常能看
+        <div style={{ background: 'var(--bg-card)', padding: '14px 16px calc(14px + env(safe-area-inset-bottom))', textAlign: 'center', fontSize: 14, color: 'var(--text-2)', lineHeight: 1.6 }}>
+          {GROUP_END_TEXT[groupGone]}
+          {(groupGone === 'left' || groupGone === 'kicked') && <div style={{ fontSize: 12, color: 'var(--text-3)' }}>之前的聊天记录还能看</div>}
+        </div>
       ) : rel && rel.state === 'ended' ? (
         // 有一方点了「不再联系」：输入区换成一句说明，聊天记录照常能看。其余情况一律能发（发消息已经放开）
         <div style={{ background: 'var(--bg-card)', padding: '14px 16px calc(14px + env(safe-area-inset-bottom))', textAlign: 'center', fontSize: 14, color: 'var(--text-2)', lineHeight: 1.6 }}>
@@ -902,6 +997,10 @@ export function ChatRoomPage() {
         </div>
       ) : (
       <div style={{ background: 'var(--bg-card)', position: 'relative' }}>
+        {/* 活动 / 行程已经结束、群还没解散的那几天：输入框上面一条提示，照常能发 */}
+        {groupId && g && expireTip(g) && (
+          <div style={{ margin: '8px 12px 0', padding: '8px 14px', borderRadius: 14, fontSize: 12.5, lineHeight: 1.5, color: '#9a5b00', background: '#fff4d9', textAlign: 'center' }}>{expireTip(g)}</div>
+        )}
         {replyTo && <ReplyBar m={replyTo} onCancel={() => setReplyTo(null)} />}
         <div className="row" style={{ padding: 8, gap: 8 }}>
           <span
@@ -972,6 +1071,7 @@ export function ChatRoomPage() {
       {showAttach && (
         <AttachSheet
           canVideoCall
+          noCall={!!groupId}
           onClose={() => setShowAttach(false)}
           onSend={sendMedia}
           onFiles={sendFiles}
@@ -1028,7 +1128,7 @@ export function ChatRoomPage() {
         <DeleteDialog
           count={deleteIds.length}
           canForAll={messages.filter((m) => deleteIds.includes(m.id)).every(isMine)}
-          peerName={state.title}
+          peerName={groupId ? '群里所有人' : state.title}
           onConfirm={doDelete}
           onClose={() => setDeleteIds(null)}
         />
@@ -1049,7 +1149,7 @@ export function ChatRoomPage() {
         />
       )}
       {reportId && (
-        <ReportSheet msgId={reportId} onClose={() => setReportId(null)} onDone={(tip) => { setReportId(null); showToast(tip); }} />
+        <ReportSheet msgId={reportId} inGroup={!!groupId} onClose={() => setReportId(null)} onDone={(tip) => { setReportId(null); showToast(tip); }} />
       )}
       {showDownload && <DownloadDialog onClose={() => setShowDownload(false)} />}
     </div>

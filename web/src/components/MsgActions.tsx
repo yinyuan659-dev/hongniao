@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import type { Reaction, ReplyPreview } from '../ws';
 import { fileSnippet } from './ChatMedia';
+import { GroupAvatar } from '../group';
 import { t } from '../i18n';
 
 /** 与后端 MSG_REACTIONS 一致；前 7 个是菜单顶上那一排 */
@@ -94,7 +95,8 @@ export function MsgMenu({
           {!expand && <span className="more" title={t('msg.moreReactions')} onClick={() => setExpand(true)}>⌄</span>}
         </div>
         <div className="msg-menu-list">
-          {readInfo && (
+          {/* 群里不显示「已读」（接口回 group: true） */}
+          {readInfo && !readInfo.group && (
             <div className="read-line">{readInfo.read ? `✓✓ ${readInfo.readAt ? fmtReadAt(readInfo.readAt) + ' ' : ''}${t('msg.read')}` : `✓ ${t('msg.unread')}`}</div>
           )}
           {items.filter(([, fn]) => !!fn).map(([label, fn, danger]) => (
@@ -206,12 +208,21 @@ const REPORT_REASONS: [string, string][] = [
   ['辱骂骚扰', 'msg.report.abuse'], ['违法违规', 'msg.report.illegal'], ['其他', 'msg.report.other'],
 ];
 
-export function ReportSheet({ msgId, onClose, onDone }: { msgId: string; onClose: () => void; onDone: (tip: string) => void }) {
+/**
+ * 举报：msgId = 举报一条消息；groupId = 举报整个群（群资料里「举报这个群」）。
+ * inGroup：群里的举报多一项「线下不安全」（样稿 design/12-group.html 第 3 组）。
+ */
+export function ReportSheet({ msgId, groupId, inGroup, onClose, onDone }: {
+  msgId?: string; groupId?: string; inGroup?: boolean; onClose: () => void; onDone: (tip: string) => void;
+}) {
   const [other, setOther] = useState(false);
   const [text, setText] = useState('');
+  const reasons: [string, string][] = inGroup || groupId
+    ? [...REPORT_REASONS.slice(0, -1), ['线下不安全', '线下不安全'], REPORT_REASONS[REPORT_REASONS.length - 1]]
+    : REPORT_REASONS;
   const submit = async (reason: string) => {
     try {
-      const r = await api<any>(`/im/messages/${msgId}/report`, { method: 'POST', body: { reason } });
+      const r = await api<any>(groupId ? `/im/group/${groupId}/report` : `/im/messages/${msgId}/report`, { method: 'POST', body: { reason } });
       onDone(r?.duplicated ? t('msg.report.duplicated') : t('msg.report.done'));
     } catch (e: any) {
       onDone(e.message || t('msg.report.failed'));
@@ -220,9 +231,9 @@ export function ReportSheet({ msgId, onClose, onDone }: { msgId: string; onClose
   return (
     <div className="mask bottom" onClick={onClose}>
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
-        <div style={{ textAlign: 'center', fontWeight: 600, marginBottom: 10 }}>{t('msg.report.title')}</div>
+        <div style={{ textAlign: 'center', fontWeight: 600, marginBottom: 10 }}>{groupId ? '举报这个群' : t('msg.report.title')}</div>
         {!other ? (
-          REPORT_REASONS.map(([r, label]) => (
+          reasons.map(([r, label]) => (
             <div key={r} className="sheet-item" onClick={() => (r === '其他' ? setOther(true) : submit(r))}>{t(label)}</div>
           ))
         ) : (
@@ -239,6 +250,8 @@ export function ReportSheet({ msgId, onClose, onDone }: { msgId: string; onClose
 interface ConvLite {
   id: string;
   peer?: { id: string; nickname: string; avatar: string };
+  /** 群聊才有；只有我现在还在、群也正常的（state=ok）才能转发进去 */
+  group?: { id: string; name: string; avatar: string; kind: string; state?: string };
 }
 
 /** 转发：选会话（最多 10 个），按原消息顺序发过去 */
@@ -251,19 +264,18 @@ export function ForwardSheet({ fromConversationId, ids, onClose, onDone }: {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api<ConvLite[]>('/im/conversations').then((l) => setConvs(l.filter((c) => c.peer))).catch(() => {});
+    api<ConvLite[]>('/im/conversations').then((l) => setConvs(l.filter((c) => c.peer || c.group?.state === 'ok'))).catch(() => {});
   }, []);
 
-  const name = (c: ConvLite) => c.peer?.nickname ?? '';
+  const name = (c: ConvLite) => c.group?.name ?? c.peer?.nickname ?? '';
   const shown = convs.filter((c) => !q.trim() || name(c).toLowerCase().includes(q.trim().toLowerCase()));
   const toggle = (id: string) =>
     setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : p.length >= 10 ? p : [...p, id]));
 
   const send = async () => {
-    const targets = picked.map((id) => convs.find((c) => c.id === id)!).map((c) => ({
-      convType: 1,
-      targetId: c.peer!.id,
-    }));
+    const targets = picked.map((id) => convs.find((c) => c.id === id)!).map((c) => (
+      c.group ? { convType: 2, targetId: c.group.id } : { convType: 1, targetId: c.peer!.id }
+    ));
     setBusy(true);
     try {
       const r = await api<{ results: { ok: boolean; error?: string }[] }>('/im/messages/forward', {
@@ -285,7 +297,9 @@ export function ForwardSheet({ fromConversationId, ids, onClose, onDone }: {
         {shown.length === 0 && <div className="empty" style={{ padding: 20 }}>{t('msg.noChats')}</div>}
         {shown.map((c) => (
           <div key={c.id} className="row fwd-item" onClick={() => toggle(c.id)}>
-            <div className="avatar" style={{ width: 38, height: 38 }}>{c.peer?.avatar && <img src={c.peer.avatar} alt="" />}</div>
+            {c.group
+              ? <GroupAvatar g={c.group} size={38} />
+              : <div className="avatar" style={{ width: 38, height: 38 }}>{c.peer?.avatar && <img src={c.peer.avatar} alt="" />}</div>}
             <div className="grow ellipsis">{name(c)}</div>
             <span className={`sel-circle${picked.includes(c.id) ? ' on' : ''}`}>{picked.includes(c.id) ? '✓' : ''}</span>
           </div>

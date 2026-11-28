@@ -2,8 +2,8 @@
  * IM WebSocket JSON 协议
  *
  * 客户端 -> 服务端：
- *   { op: "send", tempId, convType: 1, targetId, msgType, content }
- *     convType 1=单聊(targetId=对方用户id)
+ *   { op: "send", tempId, convType: 1|2, targetId, msgType, content }
+ *     convType 1=单聊(targetId=对方用户id) 2=群聊(targetId=群id)
  *     msgType: text|image|video|audio|file|location
  *     file 的 content 为 {url,name,size,mime}，url 来自 POST /upload/file（见 im.service sanitizeFile）
  *   { op: "read", conversationId, msgId }
@@ -18,6 +18,14 @@
  *   { op: "msg_delete", data: { conversationId, msgId } }                  用户删除（为双方删除 / 自己其他设备上的「只删自己」）
  *   { op: "msg_reactions", data: { conversationId, msgId, reactions } }    表情回应变了（不发给操作人，操作人以接口返回为准）
  *   { op: "msg_pin", data: { conversationId, msgId, pinned } }             置顶 / 取消置顶
+ *   { op: "group", data: { event, groupId, conversationId, group, userId?, nickname? } }
+ *       群有变化（见 group.service.ts）：event = create / join / leave / kick / info / dissolved / closed / reopen；
+ *       group 是最新的群信息（名字、公告、人数、status…），userId 是这件事说的是谁（进群 / 退群 / 被移出的人）。
+ *       客户端拿它直接改页面，不用再去问服务器。
+ *   { op: "conv_refresh" }                                                 消息列表有变化，重新拉一次列表
+ *
+ * 群聊：msg 帧里 convType=2，带 groupId、groupName；type=sys 是群里中间那行灰色小字，content 是 {k, text}。
+ * 群用不了时 error 帧带 code：group_left（我不在群里了）/ group_dissolved / group_closed。
  *
  * send 帧可带 replyToId（回复同会话里的某条消息）。
  */
@@ -25,7 +33,7 @@
 export interface SendFrame {
   op: 'send';
   tempId?: string;
-  convType: 1;
+  convType: 1 | 2;
   targetId: string;
   msgType: string;
   content: string;
@@ -62,6 +70,9 @@ export interface MessagePayload {
   id: string;
   conversationId: string;
   convType: number;
+  /** 群聊才有 */
+  groupId?: string;
+  groupName?: string;
   senderId: string;
   senderNickname: string;
   senderAvatar: string;

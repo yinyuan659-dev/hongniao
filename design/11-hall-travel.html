@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>一线牵 · 大厅两个模块：领队带队旅行、同城相亲活动（规划样稿）</title>
+<!--
+  给用户确认用的规划样稿，不是产品代码。人是 AI 生成的假人，领队、线路、价格、数字都是示意；视频封面用色块代替。
+  双击用浏览器打开就能看。网址后面加 ?only=a / b / c / d / g / e / f 只显示其中一组（g 是后加的第 5 组）（截图用）。
+  观感沿用 07-hall.html、03-match.html（common.css / common.js）。
+  用户 2026-11-27 20:30 提的：
+    ① 平台旅游：18 位带队的旅游博主（领队）；通过谁的分享来的用户，旅游这块看到的就是谁的带队视频；没有来源的看平台指定的默认领队；
+       看线路 → 点「约单」→ 进一个群里聊细节；以后对接领队自己的收款，没有就用平台默认的；领队要有手机上就能操作的后台；
+       相亲推荐返佣默认 70%，领队 90%，在后台按人单独设。
+    ② 玩家自己发布的相亲活动（户外等，定时间）：推给同城的异性，设置里可以选多少公里内的推给我；点参与也是进一个群。
+  群聊照原项目（心之音）的做法搬回来。
+-->
+<link rel="stylesheet" href="common.css">
+<style>
+  .tt { display: flex; gap: 24px; padding: 6px 20px 6px; align-items: center; flex-shrink: 0; }
+  .tt span { color: var(--ink-2); font-size: 16px; position: relative; padding-bottom: 7px; }
+  .tt span.on { color: var(--ink); font-weight: 800; font-size: 20px; }
+  .tt span.on::after { content: ""; position: absolute; left: 50%; transform: translateX(-50%); bottom: 0; width: 22px; height: 4px; border-radius: 2px; background: var(--grad); }
+  .tt .city { margin-left: auto; font-size: 13px; padding-bottom: 0; }
+  .sub2 { display: flex; gap: 8px; padding: 6px 16px 10px; flex-shrink: 0; }
+  .sub2 span { font-size: 13px; padding: 5px 14px; border-radius: 15px; background: #fff; color: var(--ink-2); box-shadow: 0 2px 8px rgba(43, 28, 34, .05); }
+  .sub2 span.on { background: var(--grad); color: #fff; font-weight: 700; box-shadow: 0 4px 10px rgba(255, 61, 99, .28); }
+  .hall { background: #fff; }
+  .hd { padding: 6px 20px 2px; font-size: 26px; font-weight: 800; flex-shrink: 0; }
+  .lab { font-size: 13px; color: var(--ink-2); margin: 14px 20px 8px; flex-shrink: 0; }
+  .pad { padding: 0 16px; }
+  .cv { position: relative; overflow: hidden; color: #fff; }
+  .cv.a { background: linear-gradient(160deg, #3d6b8f 0%, #7fa7b8 38%, #d9c7a3 70%, #8a6a4a 100%); }
+  .cv.b { background: linear-gradient(170deg, #f2a65a 0%, #d9703c 40%, #7a3b2e 100%); }
+  .cv.c { background: linear-gradient(165deg, #2f5d50 0%, #6fa07a 45%, #cfe3b4 100%); }
+  .cv.d { background: linear-gradient(170deg, #5b6ee1 0%, #9aa7f0 45%, #f3d9c6 100%); }
+  .cv::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 45%, rgba(20, 12, 16, .78) 100%); }
+  .cv > * { position: relative; z-index: 2; }
+  .play { position: absolute !important; left: 50%; top: 42%; transform: translate(-50%, -50%); width: 52px; height: 52px; border-radius: 26px; background: rgba(255, 255, 255, .28); border: 1.5px solid rgba(255, 255, 255, .7); display: flex; align-items: center; justify-content: center; }
+  .play::before { content: ""; border-left: 15px solid #fff; border-top: 9px solid transparent; border-bottom: 9px solid transparent; margin-left: 4px; }
+  .dur { position: absolute !important; right: 10px; top: 10px; font-size: 11px; background: rgba(0, 0, 0, .45); border-radius: 9px; padding: 1px 7px; }
+  .tg { display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 11px; font-size: 11.5px; font-weight: 700; background: rgba(255, 255, 255, .24); border: 1px solid rgba(255, 255, 255, .45); }
+  .hcard { margin: 0 16px; border-radius: 22px; height: 176px; display: flex; flex-direction: column; justify-content: flex-end; padding: 16px; box-shadow: 0 12px 26px rgba(43, 28, 34, .16); }
+  .hcard b { font-size: 20px; display: block; }
+  .hcard span.s { font-size: 12.5px; opacity: .92; display: block; margin-top: 3px; padding-right: 92px; line-height: 1.5; }
+  .hcard .go { position: absolute !important; right: 14px; bottom: 16px; height: 32px; padding: 0 16px; border-radius: 16px; background: #fff; color: var(--ink); font-size: 13.5px; font-weight: 700; display: flex; align-items: center; }
+  .hcard .tg { position: absolute !important; left: 14px; top: 14px; }
+  .ldr { display: flex; align-items: center; gap: 12px; padding: 4px 16px 10px; flex-shrink: 0; }
+  .ldr .av { width: 54px; height: 54px; border-radius: 27px; flex-shrink: 0; border: 2px solid #fff; box-shadow: 0 3px 10px rgba(43, 28, 34, .14); }
+  .ldr .av.g { background: linear-gradient(135deg, #4a6b5d, #9fbf8f); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 800; font-size: 20px; }
+  .trip { margin: 0 16px 12px; border-radius: 20px; overflow: hidden; background: #fff; box-shadow: 0 8px 22px rgba(43, 28, 34, .08); }
+  .trip .cv { height: 150px; }
+  .trip .in { padding: 11px 14px 13px; }
+  .trip h4 { font-size: 15.5px; font-weight: 800; line-height: 1.4; }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+  .meta span { font-size: 11.5px; padding: 2px 8px; border-radius: 9px; background: #f6f1f2; color: var(--ink-2); }
+  .meta span.hot { background: var(--soft); color: var(--rose); font-weight: 600; }
+  .price { font-size: 17px; font-weight: 800; color: var(--rose); font-variant-numeric: tabular-nums; }
+  .price small { font-size: 11.5px; font-weight: 500; color: var(--ink-2); margin-left: 3px; }
+  .sbtn { height: 34px; padding: 0 18px; border-radius: 17px; background: var(--grad); color: #fff; font-size: 13.5px; font-weight: 700; display: inline-flex; align-items: center; box-shadow: 0 6px 14px rgba(255, 61, 99, .28); }
+  .sbtn.gh { background: #fff; color: var(--ink-2); box-shadow: 0 2px 8px rgba(43, 28, 34, .08); font-weight: 500; }
+  .box { margin: 10px 16px 0; background: #fff; border-radius: 18px; padding: 13px 15px; box-shadow: 0 4px 16px rgba(43, 28, 34, .05); }
+  .box h5 { font-size: 14px; font-weight: 800; margin-bottom: 5px; }
+  .box p, .box li { font-size: 13px; line-height: 1.7; color: #4b3d43; }
+  .box ul { padding-left: 18px; }
+  .dockb { position: absolute; left: 14px; right: 14px; bottom: 18px; z-index: 20; display: flex; gap: 10px; padding: 9px; border-radius: 30px; align-items: center; }
+  .gcard { margin: 0 14px 10px; border-radius: 16px; background: #fff; padding: 10px 12px; display: flex; gap: 10px; align-items: center; box-shadow: 0 4px 14px rgba(43, 28, 34, .07); flex-shrink: 0; }
+  .gcard .cv { width: 54px; height: 54px; border-radius: 12px; flex-shrink: 0; }
+  .nm { font-size: 11px; color: var(--ink-3); margin: 0 0 3px 47px; }
+  .who { font-size: 10px; color: #fff; background: var(--rose); border-radius: 7px; padding: 0 5px; margin-left: 5px; font-weight: 700; }
+  .sys { text-align: center; font-size: 11.5px; color: var(--ink-3); margin: 2px 0 12px; }
+  .stat3 { display: flex; gap: 8px; padding: 0 16px; flex-shrink: 0; }
+  .stat3 > div { flex: 1; background: #fff; border-radius: 16px; padding: 11px 8px; text-align: center; box-shadow: 0 4px 14px rgba(43, 28, 34, .05); }
+  .stat3 b { font-size: 20px; font-weight: 800; display: block; font-variant-numeric: tabular-nums; }
+  .stat3 span { font-size: 11px; color: var(--ink-2); }
+  .li { display: flex; align-items: center; gap: 11px; padding: 11px 14px; }
+  .li + .li { border-top: 1px solid var(--line); }
+  .li .cv { width: 46px; height: 46px; border-radius: 11px; flex-shrink: 0; }
+  .st { font-size: 11px; padding: 1px 8px; border-radius: 9px; font-weight: 600; flex-shrink: 0; }
+  .st.on { background: #e3f7ec; color: #12b76a; } .st.wait { background: #fff4d9; color: #b54708; } .st.off { background: #f1eeef; color: var(--ink-3); }
+  .fld { background: #fff; border-radius: 16px; padding: 0 14px; height: 48px; display: flex; align-items: center; font-size: 14px; box-shadow: 0 3px 12px rgba(43, 28, 34, .05); margin: 0 16px 9px; flex-shrink: 0; }
+  .fld span { color: var(--ink-2); width: 76px; flex-shrink: 0; }
+  .fld em { font-style: normal; color: var(--ink-3); }
+  .up { margin: 0 16px 9px; height: 96px; border-radius: 16px; border: 1.5px dashed rgba(255, 61, 99, .45); background: #fff7f8; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--rose); font-size: 13px; gap: 5px; flex-shrink: 0; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 16px 10px; flex-shrink: 0; }
+  .chips span { height: 32px; padding: 0 14px; border-radius: 16px; background: #fff; font-size: 13px; display: inline-flex; align-items: center; color: var(--ink-2); box-shadow: 0 2px 8px rgba(43, 28, 34, .05); }
+  .chips span.on { background: var(--grad); color: #fff; font-weight: 700; box-shadow: 0 5px 12px rgba(255, 61, 99, .28); }
+  .seg { display: flex; gap: 6px; padding: 4px; margin: 2px 16px 10px; border-radius: 20px; background: #f4eff0; flex-shrink: 0; }
+  .seg span { flex: 1; height: 32px; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 13.5px; color: var(--ink-2); }
+  .seg span.on { background: #fff; color: var(--ink); font-weight: 700; box-shadow: 0 2px 8px rgba(43, 28, 34, .08); }
+  .ev { margin: 0 16px 11px; border-radius: 20px; background: #fff; padding: 13px 14px; box-shadow: 0 8px 22px rgba(43, 28, 34, .07); flex-shrink: 0; }
+  .ev h4 { font-size: 15.5px; font-weight: 800; line-height: 1.4; }
+  .ev .row { margin-top: 9px; }
+  .ev .t2 { font-size: 12.5px; }
+  .bar { height: 6px; border-radius: 3px; background: #f1eeef; overflow: hidden; flex: 1; }
+  .bar i { display: block; height: 100%; background: var(--grad); border-radius: 3px; }
+  .fab { position: absolute; right: 16px; bottom: 84px; z-index: 20; height: 46px; padding: 0 20px; border-radius: 23px; background: var(--grad); color: #fff; font-weight: 700; font-size: 14.5px; display: flex; align-items: center; gap: 6px; box-shadow: 0 10px 22px rgba(255, 61, 99, .36); }
+  .km { display: flex; gap: 8px; padding: 0 16px; flex-shrink: 0; }
+  .km span { flex: 1; height: 44px; border-radius: 14px; background: #fff; display: flex; align-items: center; justify-content: center; font-size: 14px; color: var(--ink-2); box-shadow: 0 2px 8px rgba(43, 28, 34, .05); }
+  .km span.on { border: 1.5px solid var(--rose); color: var(--rose); font-weight: 700; background: #fff5f6; }
+  .switch.on { background: var(--rose); } .switch.on::after { left: 21px; }
+  .vmsg { width: 132px; height: 78px; border-radius: 18px 6px 18px 18px; flex-shrink: 0; box-shadow: 0 6px 16px rgba(43, 28, 34, .14); }
+  .pv { background: #fff; border-radius: 6px 20px 20px 20px; padding: 12px 14px; box-shadow: 0 10px 26px rgba(255, 90, 120, .16); width: 262px; border: 1.5px solid rgba(255, 61, 99, .22); }
+  .kv { display: flex; gap: 8px; font-size: 12.5px; line-height: 1.5; margin-top: 6px; color: var(--ink); }
+  .kv span { color: var(--ink-2); width: 30px; flex-shrink: 0; }
+  .swt { font-size: 13px; color: var(--rose); font-weight: 700; white-space: nowrap; min-width: 34px; text-align: right; }
+  .plan { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; width: 800px; }
+  .pc { background: #fff; border-radius: 22px; padding: 16px 18px; box-shadow: 0 12px 30px rgba(255, 90, 120, .1); font-size: 13.5px; line-height: 1.7; color: #4b3d43; }
+  .pc h3 { font-size: 16px; color: var(--ink); margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+  .pc h3 i { width: 26px; height: 26px; border-radius: 9px; background: var(--soft); color: var(--rose); display: inline-flex; align-items: center; justify-content: center; font-style: normal; font-weight: 800; font-size: 13px; }
+  .pc ul { padding-left: 18px; } .pc li { margin-bottom: 4px; } .pc b { color: var(--ink); }
+  .pc.warn { background: #fffaf0; box-shadow: 0 12px 30px rgba(240, 160, 60, .12); }
+  .pc.warn h3 i { background: #ffedd0; color: #b54708; }
+  .tbd { color: #b54708; background: #fff4e5; border: 1px dashed #f0b56a; border-radius: 5px; padding: 0 5px; font-weight: 600; white-space: nowrap; }
+  .mine { color: #b54708; background: #fff4e5; border-radius: 4px; padding: 0 4px; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="intro">
+  <h1>大厅两个模块：领队带队旅行、同城相亲活动（规划样稿）</h1>
+  <p><b>2026-11-27 20:42 改过一版</b>：大厅从「两张入口卡片」改成「顶上两个 tab、直接是列表」（你提的）。</p>
+  <p><b>21:23 再改</b>：表单留着做兜底（第 5 组）：默认显示和 AI 聊；自己想填、牵豆不够、AI 出错时用表单（你提的）。</p>
+  <p><b>20:56 又改一版</b>：「发布线路」「发起活动」默认改成和 AI 聊着发：一句话识别，差什么问什么；AI 的费用从发布人自己的牵豆里扣（你提的）。</p>
+  <p>这是规划图，先看整体对不对，细节之后再一屏一屏定。领队、线路、价格、人数都是示意；视频封面用色块代替。标了 <span class="mine">我定的</span> 的是你没说、我按理解先定的；标了 <span class="tbd">待定</span> 的要你给。</p>
+</div>
+
+<!-- ============ A：大厅 = 两个 tab，直接是列表 ============ -->
+<section data-s="a">
+  <h2><b>1</b>大厅顶上两个 tab，点哪个直接出列表</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">大厅 · 旅行 <small>默认停在这个 tab</small></div>
+      <div class="phone"><div class="island"></div><div class="screen" style="background:#fbf7f5">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="tt"><span class="on">旅行</span><span>相亲活动</span></div>
+        <div class="ldr" style="padding-top:8px">
+          <div class="av g">猫</div>
+          <div class="grow"><div style="font-size:17px;font-weight:800">老猫 <span class="tag" style="height:20px;font-size:11px;margin-left:4px">认证领队</span></div><div class="t2" style="margin-top:3px;font-size:12px">坦克 300 车队 · 带队 86 次 · 2,300 人同行</div></div>
+        </div>
+        <div class="trip">
+          <div class="cv a"><span class="play"></span><span class="dur">01:42</span></div>
+          <div class="in">
+            <h4>川西环线 7 天：稻城亚丁、新都桥、塔公草原</h4>
+            <div class="meta"><span class="hot">12 月 6 日出发</span><span>成都集合</span><span>还剩 6 位</span></div>
+            <div class="row" style="margin-top:10px"><span class="price">¥3,980<small>/ 人起</small></span><span class="grow"></span><span class="sbtn">约单</span></div>
+          </div>
+        </div>
+        <div class="trip" style="margin-bottom:0">
+          <div class="cv b" style="height:118px"><span class="play"></span><span class="dur">00:58</span></div>
+          <div class="in">
+            <h4>阿拉善穿沙 5 天：腾格里、月亮湖</h4>
+            <div class="meta"><span class="hot">12 月 20 日出发</span><span>银川集合</span><span>还剩 11 位</span></div>
+          </div>
+        </div>
+        <div class="tabbar"><div class="tab">广场</div><div class="tab on">大厅</div><div class="tab"><div class="plus"><i data-ic="plus" data-s="18"></i></div></div><div class="tab">消息</div><div class="tab">我的</div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>没有大标题、没有入口卡片了</b>：顶上就是两个 tab（和「广场」页顶上的「动态 / 遇见」一个样子），下面直接是列表。</div>
+        <div><b>「旅行」tab</b>：最上面一行是「我的领队」，下面一条一条是他的带队视频，一条视频一条线路。往下滑接着看。</div>
+        <div><b>谁看到谁</b>：通过领队 A 的分享注册的人，这里永远是 A；其他人看到你指定的默认领队。<b>列表里不出现别的领队</b>，这样领队才愿意往外推。</div>
+        <div>点视频 = 进线路详情；点「约单」= 直接进这条线路的群。</div>
+        <div>原来那行「前 10 对新人送旅行」这一版<b>先拿掉了</b> <span class="mine">我定的</span>。要留的话放在「旅行」列表最后一条，<span class="tbd">待定</span>。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">大厅 · 相亲活动</div>
+      <div class="phone"><div class="island"></div><div class="screen" style="background:#fbf7f5">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="tt"><span>旅行</span><span class="on">相亲活动</span><span class="city">成都 ▾</span></div>
+        <div class="sub2"><span class="on">附近的</span><span>我参加的</span><span>我发起的</span></div>
+        <div class="ev">
+          <div class="row" style="margin-top:0"><span class="tag" style="height:22px;font-size:11.5px">徒步</span><span class="t3">6.2 km</span><span class="grow"></span><span class="t3">周六 09:00</span></div>
+          <h4 style="margin-top:8px">龙泉山日出徒步，下山一起吃火锅</h4>
+          <div class="t2" style="margin-top:5px"><i data-ic="pin" data-s="12" style="vertical-align:-1px"></i> 龙泉驿 · 山泉铺地铁站集合</div>
+          <div class="row"><div class="me-av photo" style="width:28px;height:28px;background-image:url(img/f1.jpg);background-position:center 20%"></div><span class="t2">小林 发起 · 真人认证</span><span class="grow"></span><span class="t2">男 2/4 · 女 3/4</span></div>
+          <div class="row"><div class="bar"><i style="width:62%"></i></div><span class="sbtn" style="height:32px">参与</span></div>
+        </div>
+        <div class="ev">
+          <div class="row" style="margin-top:0"><span class="tag" style="height:22px;font-size:11.5px">露营</span><span class="t3">18 km</span><span class="grow"></span><span class="t3">周日 14:00</span></div>
+          <h4 style="margin-top:8px">三岔湖露营，带了天幕和卡式炉</h4>
+          <div class="t2" style="margin-top:5px"><i data-ic="pin" data-s="12" style="vertical-align:-1px"></i> 简阳 · 三岔湖北岸</div>
+          <div class="row"><div class="me-av photo" style="width:28px;height:28px;background-image:url(img/f1.jpg);background-position:center 20%"></div><span class="t2">阿雯 发起 · 真人认证</span><span class="grow"></span><span class="t2">男 1/3 · 女 2/3</span></div>
+          <div class="row"><div class="bar"><i style="width:50%"></i></div><span class="sbtn" style="height:32px">参与</span></div>
+        </div>
+        <div class="ev" style="margin-bottom:0">
+          <div class="row" style="margin-top:0"><span class="tag" style="height:22px;font-size:11.5px">飞盘</span><span class="t3">3.1 km</span><span class="grow"></span><span class="t3">下周三 19:30</span></div>
+          <h4 style="margin-top:8px">下班来一场飞盘，新手也能玩</h4>
+        </div>
+        <div class="fab"><i data-ic="plus" data-s="18"></i>发起活动</div>
+        <div class="tabbar"><div class="tab">广场</div><div class="tab on">大厅</div><div class="tab"><div class="plus"><i data-ic="plus" data-s="18"></i></div></div><div class="tab">消息</div><div class="tab">我的</div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>「相亲活动」tab</b>：直接是同城的活动列表。右上角换城市；下面一排小标签切「附近的 / 我参加的 / 我发起的」。</div>
+        <div>列表按离我多远、什么时候开始排。每张卡写：类型、距离、时间、地点、谁发起的、男女各报了几个。</div>
+        <div><b>推给谁</b>（你定的）：发布后只推送给同城、在对方设置的公里数以内的<b>异性</b>；同性在列表里也看得到、能报名。</div>
+        <div>点卡片 = 活动详情；点「参与」= 进这个活动的群。右下角「发起活动」。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ B：线路详情 + 群 ============ -->
+<section data-s="b">
+  <h2><b>2</b>看线路 → 约单 → 进群聊细节</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">线路详情</div>
+      <div class="phone"><div class="island"></div><div class="screen" style="background:#fbf7f5">
+        <div class="cv a" style="height:250px;flex-shrink:0"><span class="play" style="top:54%"></span><span class="dur" style="top:56px">01:42</span>
+          <div class="status w"><span>9:41</span><span>5G</span></div>
+          <div style="position:absolute;left:16px;top:52px"><span class="gbtn" style="width:36px;padding:0"><i data-ic="left"></i></span></div>
+        </div>
+        <div class="box" style="margin-top:-20px;position:relative;z-index:5">
+          <div style="font-size:17px;font-weight:800;line-height:1.4">川西环线 7 天：稻城亚丁、新都桥、塔公草原</div>
+          <div class="row" style="margin-top:8px"><span class="price">¥3,980<small>/ 人起</small></span><span class="grow"></span><span class="t2" style="font-size:12px">12 月 6 日出发 · 还剩 6 位</span></div>
+        </div>
+        <div class="box"><h5>行程</h5><ul><li>第 1 天 成都 → 康定 → 新都桥</li><li>第 2–3 天 理塘、稻城亚丁</li><li>第 4–7 天 塔公草原、丹巴，回成都</li></ul></div>
+        <div class="box"><h5>费用包含</h5><p>车辆和油费、住宿、领队全程；不含餐费、门票。</p></div>
+        <div class="box" style="margin-bottom:90px"><div class="row"><div class="ldr" style="padding:0;flex:1"><div class="av g" style="width:40px;height:40px;font-size:15px">猫</div><div class="grow"><b style="font-size:14px">老猫</b><div class="t3" style="margin-top:2px">认证领队 · 带队 86 次</div></div></div></div></div>
+        <div class="dockb glass"><div class="grow" style="padding-left:10px"><div class="t3">点了进群，和领队聊细节</div><b style="font-size:14px">还没付钱，随时可以退群</b></div><div class="btn" style="height:46px;padding:0 26px;font-size:15px">约单</div></div>
+      </div></div>
+      <div class="notes">
+        <div>线路的内容是领队在后台和 AI 聊出来的：视频、标题、出发日期、价格、名额、行程、费用说明。</div>
+        <div><b>约单 = 进群</b>，这一步不付钱。按钮上方写清楚 <span class="mine">我定的</span>。</div>
+        <div>线路上架前<b>平台先审，通过了才显示</b>（你定的）。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">线路的群 <small>群聊照原来心之音的搬回来</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">川西环线 12-06 团（8）</div><span class="ic-btn"><i data-ic="more"></i></span></div>
+        <div class="gcard"><div class="cv a"></div><div class="grow"><b style="font-size:13.5px">川西环线 7 天</b><div class="t3" style="margin-top:3px">12 月 6 日出发 · ¥3,980 / 人起</div></div><span class="sbtn" style="height:30px;padding:0 13px;font-size:12.5px">付定金</span></div>
+        <div class="body">
+          <div class="sys">你通过「约单」加入了群聊</div>
+          <div class="nm">老猫<span class="who">领队</span></div>
+          <div class="br"><div class="me-av" style="background:linear-gradient(135deg,#4a6b5d,#9fbf8f)"></div><div class="bb ai">欢迎，这趟 6 台车。你是自己开车还是坐车？</div></div>
+          <div class="br me"><div class="bb me">坐车，一个人。高反严重吗？</div><div class="me-av photo" style="background-image:url(img/p1.jpg)"></div></div>
+          <div class="nm">小林</div>
+          <div class="br"><div class="me-av photo" style="background-image:url(img/f1.jpg);background-position:center 20%"></div><div class="bb ai">我上次去第二天有点头疼，带点葡萄糖</div></div>
+          <div class="nm">老猫<span class="who">领队</span></div>
+          <div class="br"><div class="me-av" style="background:linear-gradient(135deg,#4a6b5d,#9fbf8f)"></div><div class="bb ai">车上有氧气瓶。定金 500，出发前 3 天付尾款</div></div>
+        </div>
+        <div class="dock"><div class="ibar" style="margin-top:0"><div class="box" style="margin:0;border-radius:23px;height:46px;display:flex;align-items:center;padding:0 18px;flex:1;color:var(--ink-3);font-size:14px">发消息…</div><div class="send"><i data-ic="up" data-s="20"></i></div></div></div>
+      </div></div>
+      <div class="notes">
+        <div>一条线路（一个出发日期）一个群，领队是群主，约单的人自动进来。顶上钉着这条线路。</div>
+        <div><b>「付定金」是第二期</b>：先接领队自己的收款，领队没有的走平台代收。第一期没有这个按钮，钱由领队在群里自己收。</div>
+        <div>群里要有举报、领队踢人、退群；平台能进群查看。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ C：领队后台 ============ -->
+<section data-s="c">
+  <h2><b>3</b>领队后台：就在 App「我的」里，手机上操作</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">领队后台 <small>「我的 → 领队后台」，只有领队看得到</small></div>
+      <div class="phone"><div class="island"></div><div class="screen" style="background:#fbf7f5">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">领队后台</div><span style="width:34px"></span></div>
+        <div class="stat3"><div><b>128</b><span>通过我注册</span></div><div><b>23</b><span>本月约单</span></div><div><b>90%</b><span>推荐奖励比例</span></div></div>
+        <div class="pad" style="margin-top:10px"><div class="row" style="background:#fff;border-radius:16px;padding:12px 14px;box-shadow:0 4px 14px rgba(43,28,34,.05)"><i data-ic="link" data-s="18" style="color:var(--rose)"></i><div class="grow"><b style="font-size:14px">我的分享链接和海报</b><div class="t3" style="margin-top:2px">别人从这里注册，旅行页就是你的主页</div></div><span class="sbtn" style="height:30px;padding:0 14px;font-size:12.5px">去分享</span></div></div>
+        <div class="lab" style="display:flex;align-items:center">我的线路<span class="grow"></span><span style="color:var(--rose);font-weight:700">＋ 发布线路</span></div>
+        <div class="pad"><div class="glass" style="overflow:hidden;background:#fff">
+          <div class="li"><div class="cv a"></div><div class="grow"><b style="font-size:14px">川西环线 7 天</b><div class="t3" style="margin-top:3px">12-06 出发 · 约单 8 · 剩 6 位</div></div><span class="st on">招募中</span></div>
+          <div class="li"><div class="cv b"></div><div class="grow"><b style="font-size:14px">阿拉善穿沙 5 天</b><div class="t3" style="margin-top:3px">12-20 出发 · 约单 3 · 剩 11 位</div></div><span class="st on">招募中</span></div>
+          <div class="li"><div class="cv d"></div><div class="grow"><b style="font-size:14px">独库公路 9 天</b><div class="t3" style="margin-top:3px">明年 6 月 · 平台审核中</div></div><span class="st wait">审核中</span></div>
+          <div class="li"><div class="cv c"></div><div class="grow"><b style="font-size:14px">赤水丹霞 3 天</b><div class="t3" style="margin-top:3px">11-15 已出发</div></div><span class="st off">已结束</span></div>
+        </div></div>
+        <div class="lab">收款</div>
+        <div class="pad"><div class="glass" style="background:#fff"><div class="li"><i data-ic="wallet" data-s="18" style="color:var(--rose)"></i><div class="grow"><b style="font-size:14px">收款方式</b><div class="t3" style="margin-top:2px">第二期开放</div></div><span class="t2" style="font-size:12.5px">平台代收 ›</span></div></div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>不另做一套后台</b> <span class="mine">我定的</span>：领队也是 App 的用户，你在后台把他标成「领队」，他的「我的」页就多出这一行。手机上发线路、看约单、拿分享链接。点「＋ 发布线路」进右边那一屏。</div>
+        <div><b>三个数</b>：通过他注册的人数、这个月的约单数、他的推荐奖励比例（你给他设的 90%）。</div>
+        <div>推荐奖励的钱（新人结婚谢媒后的分成）要等「结婚谢媒」那一块做出来才有，现在只显示比例。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">发布线路 <small>默认和 AI 聊着发</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">发布线路<span class="aib">人工智能</span></div><span class="swt">自己填</span></div>
+        <div class="body">
+          <div class="br me" style="margin-bottom:8px"><div class="vmsg cv a"><span class="play" style="width:34px;height:34px;top:50%"></span><span class="dur" style="top:6px;right:6px">01:42</span></div><div style="width:38px;flex-shrink:0"></div></div>
+          <div class="br me"><div class="bb me">川西环线 7 天，12 月 6 号成都出发，3980 起，收 14 个人</div><div class="me-av photo" style="background-image:url(img/p1.jpg)"></div></div>
+          <div class="br"><div class="orb"><i data-ic="heart" data-s="18"></i></div><div class="bb ai">收到。还差两样：每天大概去哪？费用包含什么、不含什么？</div></div>
+          <div class="br me"><div class="bb me">康定、稻城亚丁、塔公。含车和住宿，不含餐和门票</div><div class="me-av photo" style="background-image:url(img/p1.jpg)"></div></div>
+          <div class="br"><div class="orb"><i data-ic="heart" data-s="18"></i></div><div class="pv">
+            <div class="row" style="gap:9px"><div class="cv a" style="width:40px;height:40px;border-radius:10px;flex-shrink:0"></div><b style="font-size:14px;line-height:1.4">川西环线 7 天：稻城亚丁、新都桥、塔公草原</b></div>
+            <div class="kv"><span>出发</span>12 月 6 日 · 7 天 · 成都集合</div>
+            <div class="kv"><span>价格</span>¥3,980 / 人起 · 名额 14 人</div>
+            <div class="kv"><span>行程</span>康定、稻城亚丁、塔公，成都往返</div>
+            <div class="kv"><span>费用</span>含车辆、住宿；不含餐费、门票</div>
+            <div class="t3" style="margin-top:7px;line-height:1.5">都对就点「提交审核」。要改直接跟我说，比如「价格改成 4200」。</div>
+          </div></div>
+        </div>
+        <div class="dock">
+          <div class="row"><div class="btn ghost" style="flex:1;height:46px;font-size:15px">再改改</div><div class="btn" style="flex:1.5;height:46px;font-size:15px">提交审核</div></div>
+          <div class="cost">这次 AI 用了 <b>0.01 牵豆</b> · 还剩 <b>4.97</b> <i data-ic="right" data-s="12"></i></div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>默认和 AI 聊</b>（你定的）：点「发布线路」进来先是这一屏。右上角<b>「自己填」</b>切到表单（兜底，见第 5 组）。把带队视频发进来，再用一句话说线路；AI 认出标题、出发日期、天数、集合地、价格、名额，<b>差什么问什么</b>。</div>
+        <div>认完出一张线路卡给领队看。对了点「提交审核」；要改直接说。<b>提交前必须领队自己点一下</b> <span class="mine">我定的</span>，AI 可能把日期、价格认错。</div>
+        <div><b>AI 的费用从领队自己的牵豆里扣</b>（你定的），按实际用量，发一条估计不到 0.01 牵豆（我估的，没测）。牵豆不够时自动改成表单自己填，不用先充值。</div>
+        <div>审核通过后自动建好这条线路的群，领队是群主。平台这边：领队名单、比例、默认领队、审核线路，在<b>手机上能打开的网页后台</b>里操作（你定的）。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ D：相亲活动 发起 + 详情 ============ -->
+<section data-s="d">
+  <h2><b>4</b>相亲活动：发起，和活动详情</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">发起活动 <small>默认和 AI 聊着发</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">发起活动<span class="aib">人工智能</span></div><span class="swt">自己填</span></div>
+        <div class="body">
+          <div class="br"><div class="orb"><i data-ic="heart" data-s="18"></i></div><div class="bb ai">想组织什么活动？一句话告诉我就行。</div></div>
+          <div class="br me"><div class="bb me">周六早上 9 点龙泉山徒步，下山吃火锅，男女各 4 个，AA</div><div class="me-av photo" style="background-image:url(img/f1.jpg);background-position:center 20%"></div></div>
+          <div class="br"><div class="orb"><i data-ic="heart" data-s="18"></i></div><div class="bb ai">好的。在哪儿集合？</div></div>
+          <div class="br me"><div class="bb me">山泉铺地铁站 B 口</div><div class="me-av photo" style="background-image:url(img/f1.jpg);background-position:center 20%"></div></div>
+          <div class="br"><div class="orb"><i data-ic="heart" data-s="18"></i></div><div class="pv">
+            <div class="row" style="gap:8px;align-items:flex-start"><span class="tag" style="height:22px;font-size:11.5px;flex-shrink:0;white-space:nowrap">徒步</span><b style="font-size:14px;line-height:1.55">龙泉山徒步，下山一起吃火锅</b></div>
+            <div class="kv"><span>时间</span>周六 11 月 28 日 09:00</div>
+            <div class="kv"><span>集合</span>山泉铺地铁站 B 口</div>
+            <div class="kv"><span>人数</span>男 4 · 女 4</div>
+            <div class="kv"><span>费用</span>各付各的（AA）</div>
+            <div class="t3" style="margin-top:7px;line-height:1.5">都对就点「发布」。要改直接跟我说，比如「改成 8 点」。</div>
+          </div></div>
+        </div>
+        <div class="dock">
+          <div class="row"><div class="btn ghost" style="flex:1;height:46px;font-size:15px">再改改</div><div class="btn" style="flex:1.5;height:46px;font-size:15px">发布</div></div>
+          <div class="cost">这次 AI 用了 <b>0.01 牵豆</b> · 还剩 <b>4.97</b> <i data-ic="right" data-s="12"></i></div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>默认和 AI 聊</b>（你定的）：点「发起活动」进来先是这一屏。右上角<b>「自己填」</b>切到表单（兜底，见第 5 组）。一句话说完也行；AI 认出类型、时间、集合地点、男女人数、费用，<b>差什么问什么</b>。</div>
+        <div>认完出一张活动卡。对了点「发布」；要改直接说。<b>发布前必须自己点一下</b> <span class="mine">我定的</span>，AI 可能把时间、地点认错。</div>
+        <div><b>AI 的费用从发起人自己的牵豆里扣</b>（你定的），估计不到 0.01 牵豆一次（我估的，没测）；填了自己 Key 的不扣。</div>
+        <div><b>没有牵豆也能发</b>：牵豆不够（也没填自己的 Key）、或者 AI 出错时，自动改成表单自己填，不花钱。</div>
+        <div>其余不变：做过真人认证、填完基本情况才能发 <span class="mine">我定的</span>；费用只能是免费或 AA <span class="mine">我定的</span>，说了要收钱 AI 会拒绝；发布后直接显示，先发后审（你定的）。</div>
+        <div>集合地点要变成地图上的一个点才能算「离你几公里」，怎么变 <span class="tbd">待定</span>，到这一步的细样稿再定。</div>
+      </div>
+    </div>
+    <div class="col">
+      <div class="cap">活动详情</div>
+      <div class="phone"><div class="island"></div><div class="screen" style="background:#fbf7f5">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">活动</div><span class="ic-btn"><i data-ic="more"></i></span></div>
+        <div class="box" style="margin-top:2px">
+          <div class="row"><span class="tag" style="height:22px;font-size:11.5px">徒步</span><span class="t3">离你 6.2 km</span></div>
+          <div style="font-size:18px;font-weight:800;line-height:1.4;margin-top:8px">龙泉山日出徒步，下山一起吃火锅</div>
+          <div class="t2" style="margin-top:8px;line-height:1.9"><i data-ic="clock" data-s="13" style="vertical-align:-2px"></i> 周六 11 月 28 日 09:00<br><i data-ic="pin" data-s="13" style="vertical-align:-2px"></i> 龙泉驿 · 山泉铺地铁站 B 口集合<br><i data-ic="wallet" data-s="13" style="vertical-align:-2px"></i> 各付各的（AA）</div>
+        </div>
+        <div class="box"><h5>说明</h5><p>来回 8 公里，慢慢走，3 小时左右。穿运动鞋，带水。下山去山泉铺吃火锅。</p></div>
+        <div class="box"><h5>已报名 5 / 8</h5>
+          <div class="row" style="margin-top:6px"><span class="t2" style="width:30px">女</span><div class="me-av photo" style="width:32px;height:32px;background-image:url(img/f1.jpg);background-position:center 20%"></div><div class="me-av" style="width:32px;height:32px;background:#f3c6cf"></div><div class="me-av" style="width:32px;height:32px;background:#e9d5f5"></div><span class="t3">还差 1 位</span></div>
+          <div class="row" style="margin-top:8px"><span class="t2" style="width:30px">男</span><div class="me-av photo" style="width:32px;height:32px;background-image:url(img/p1.jpg)"></div><div class="me-av" style="width:32px;height:32px;background:#cfe0f5"></div><span class="t3">还差 2 位</span></div>
+        </div>
+        <div class="box" style="margin-bottom:90px"><div class="row"><div class="me-av photo" style="background-image:url(img/f1.jpg);background-position:center 20%"></div><div class="grow"><b style="font-size:14px">小林 发起</b><div class="t3" style="margin-top:2px">真人认证 · 点头像看她的相亲画像</div></div></div></div>
+        <div class="dockb glass"><div class="grow" style="padding-left:10px"><div class="t3">点了进群，大家自己约</div><b style="font-size:14px">男生还有 2 个名额</b></div><div class="btn" style="height:46px;padding:0 26px;font-size:15px">参与</div></div>
+      </div></div>
+      <div class="notes">
+        <div>报名的人只显示头像，点头像进相亲画像。</div>
+        <div>「参与」= 进群；名额满了按钮变灰。活动结束后群保留几天再解散 <span class="mine">我定的</span>。</div>
+        <div>右上角「···」：举报、（发起人）取消活动。</div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ============ G：兜底的表单 ============ -->
+<section data-s="g">
+  <h2><b>5</b>兜底：自己填的表单</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">发起活动 · 表单 <small>牵豆不够时自动到这里</small></div>
+      <div class="phone"><div class="island"></div><div class="screen" style="background:#fbf7f5">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">发起活动</div><span class="swt">AI 帮我填</span></div>
+        <div class="pad" style="margin-bottom:8px"><div style="background:#fff0f2;color:var(--rose);border-radius:14px;padding:9px 13px;font-size:12.5px;line-height:1.55;display:flex;align-items:center;gap:8px"><i data-ic="info" data-s="15"></i><span class="grow">牵豆不够了，这次先自己填，不花牵豆。</span><b style="white-space:nowrap">去充值 ›</b></div></div>
+        <div class="lab" style="margin-top:2px">类型</div>
+        <div class="chips"><span class="on">徒步</span><span>露营</span><span>骑行</span><span>飞盘</span><span>桌游</span><span>聚餐</span><span>其他</span></div>
+        <div class="fld"><span>标题</span>龙泉山徒步，下山吃火锅</div>
+        <div class="fld"><span>时间</span>周六 11-28 09:00</div>
+        <div class="fld"><span>集合地点</span><em>在哪儿集合</em></div>
+        <div class="fld"><span>人数</span>男 4 · 女 4</div>
+        <div class="fld"><span>费用</span>各付各的（AA）</div>
+        <div class="fld" style="height:58px;align-items:flex-start;padding-top:12px"><span>说明</span><em>路线、强度、要带什么</em></div>
+        <div class="pad"><div style="background:#fff4d9;color:#9a5b00;border-radius:14px;padding:9px 13px;font-size:12px;line-height:1.55">活动在公共场所、白天进行；不在 App 里收钱；有人借机推销、收费、骚扰，直接举报。</div></div>
+        <div class="pad" style="margin-top:10px"><div class="btn">发布</div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>默认不是这一屏</b>：进来先是和 AI 聊（第 4 组）。三种情况才到表单：① 右上角点了「自己填」；② 牵豆不够、也没填自己的 Key；③ AI 出错或者半天没反应。</div>
+        <div><b>AI 已经认出来的会带过来</b>：上面这张是「说了一句话以后牵豆不够了」的样子，标题、时间、人数、费用已经填好，只差集合地点。</div>
+        <div><b>用表单发不花牵豆</b>。右上角「AI 帮我填」随时切回去，填了一半的内容也带回去。</div>
+        <div>发出来的活动一模一样；规矩也一样（真人认证、只能免费或 AA、先发后审）。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">发布线路 · 表单 <small>领队自己点了「自己填」</small></div>
+      <div class="phone"><div class="island"></div><div class="screen" style="background:#fbf7f5">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">发布线路</div><span class="swt">AI 帮我填</span></div>
+        <div class="up"><i data-ic="video" data-s="24"></i>上传带队视频（3 分钟以内）</div>
+        <div class="fld"><span>标题</span>川西环线 7 天：稻城亚丁…</div>
+        <div class="fld"><span>出发日期</span>2026-12-06</div>
+        <div class="fld"><span>天数</span>7 天</div>
+        <div class="fld"><span>集合地</span>成都</div>
+        <div class="fld"><span>价格</span>¥3,980 / 人起</div>
+        <div class="fld"><span>名额</span>14 人</div>
+        <div class="fld" style="height:74px;align-items:flex-start;padding-top:12px"><span>行程和费用</span><em>每天去哪、包含什么、不含什么</em></div>
+        <div class="t3" style="padding:2px 22px 0;line-height:1.6">提交后平台审核，通过了才会出现在你的主页上。</div>
+        <div class="pad" style="margin-top:12px"><div class="btn">提交审核</div></div>
+      </div></div>
+      <div class="notes">
+        <div>领队的表单同理：默认和 AI 聊（第 3 组右边），这张是兜底。</div>
+        <div>两种发法提交上来的东西一样，都是先审后发；审核通过后自动建群。</div>
+        <div>以后要改一条已经发出去的线路 / 活动，也是这两种办法：跟 AI 说「价格改成 4200」，或者进表单直接改 <span class="mine">我定的</span>。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ E：设置 ============ -->
+<section data-s="e">
+  <h2><b>6</b>设置：多少公里内的活动推给我</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">设置 <small>「我的 → 设置 → 活动提醒」</small></div>
+      <div class="phone"><div class="island"></div><div class="screen" style="background:#fbf7f5">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">活动提醒</div><span style="width:34px"></span></div>
+        <div class="pad"><div class="glass" style="background:#fff"><div class="li"><div class="grow"><b style="font-size:15px">有新活动时提醒我</b><div class="t3" style="margin-top:3px">附近的异性发起了活动，给我发一条消息</div></div><span class="switch on"></span></div></div></div>
+        <div class="lab">多远以内的活动推给我</div>
+        <div class="km"><span>5 km</span><span class="on">10 km</span><span>30 km</span><span>全城</span></div>
+        <div class="t3" style="padding:10px 22px 0;line-height:1.7">按你上次打开 App 时的位置算。没有开定位的话，按你资料里填的城市，只推同城的。</div>
+        <div class="lab" style="margin-top:20px">我想参加的类型</div>
+        <div class="chips"><span class="on">徒步</span><span class="on">露营</span><span>骑行</span><span class="on">飞盘</span><span>桌游</span><span class="on">聚餐</span></div>
+        <div class="t3" style="padding:0 22px;line-height:1.7">不选就是都推。</div>
+      </div></div>
+      <div class="notes">
+        <div>公里数四档：5 / 10 / 30 / 全城，默认 10 <span class="mine">我定的</span>。</div>
+        <div>「按类型筛」是我加的 <span class="mine">我定的</span>，不要可以去掉。</div>
+        <div><b>提醒怎么到</b>：App 开着时在消息页多一条「活动」通知；App 关着时要靠手机推送，<b>推送现在还没做</b>，得另外接。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ F：规划 ============ -->
+<section data-s="f">
+  <h2><b>7</b>怎么规划（这不是界面）</h2>
+  <div class="plan">
+    <div class="pc">
+      <h3><i>1</i>领队和用户的关系</h3>
+      <ul>
+        <li>领队是 App 的普通用户，你在后台的用户列表里对他点<b>「设为领队」</b>（现在 18 位）。</li>
+        <li>领队的分享链接 / 海报带着他的码；别人从这里注册就<b>绑定</b>到他，只在注册时绑一次，之后不变。</li>
+        <li>绑定以后两件事跟着走：<b>旅行页显示他的主页</b>；<b>这个人以后结婚谢媒的推荐奖励归他</b>。</li>
+        <li>没有绑定的用户：旅行页显示你指定的默认领队；推荐奖励没有人拿。</li>
+      </ul>
+    </div>
+    <div class="pc">
+      <h3><i>2</i>推荐奖励比例</h3>
+      <ul>
+        <li>默认 <b>70%</b>（原来开发文档里就定的：新人结婚谢媒，实收的 70% 给他的推荐人）。</li>
+        <li><b>每个人都可以单独设比例，和是不是领队没有关系</b>（你定的）。没单独设过的人按默认 70%；领队你想给 90% 就给他设成 90%，随时能改。</li>
+        <li>在哪设：平台后台的<b>用户列表</b>，每个人后面的「操作」里有两项——<b>「设置返佣比例」</b>和<b>「设为领队 / 取消领队」</b>，两项互不影响。</li>
+        <li><b>只算一级</b>：只给直接推荐的人，推荐人的上家什么都没有；不按拉人数量加比例。这两条是原来就定的红线，不能动。</li>
+        <li>这笔钱现在还发不出来：结婚确认、谢媒、提现都还没做。这次先把「名单 + 比例 + 绑定」做好，钱等那一块上线再接。</li>
+      </ul>
+    </div>
+    <div class="pc">
+      <h3><i>3</i>旅行的钱怎么收</h3>
+      <ul>
+        <li><b>第一期</b>：约单只是进群，钱由领队在群里按他自己的方式收，App 不经手。</li>
+        <li><b>第二期</b>：群里加「付定金 / 付尾款」。<b>只对接企业收款</b>（你定的）：领队用他公司或个体工商户名下的微信 / 支付宝商户号，钱直接进他自己的对公账户，平台不经手。不接个人收款码。</li>
+        <li>没有商户号的领队：走平台自己的商户号收（你之前定的），怎么结算给他到第二期再定。</li>
+        <li>旅行是 App 外面消费的服务，苹果规定这种<b>不能</b>用内购，可以用微信 / 支付宝，这一点比牵豆好办。</li>
+        <li>平台要不要从旅行里抽成 <span class="tbd">待定</span>。</li>
+      </ul>
+    </div>
+    <div class="pc">
+      <h3><i>4</i>分几步做</h3>
+      <ul>
+        <li><b>第 1 步 群聊</b>：把原项目的群搬回来（建群、进群、退群、踢人、解散、举报）。两个模块都靠它。</li>
+        <li><b>第 2 步 领队旅行</b>：领队名单和比例、绑定、领队主页、线路详情、约单进群、领队后台、线路审核。</li>
+        <li><b>第 3 步 相亲活动</b>：发布、列表、详情、参与进群、公里数设置、站内提醒。</li>
+        <li><b>第 4 步</b>：手机推送；旅行收款；推荐奖励的钱（跟着结婚谢媒一起）。</li>
+        <li><b>数据更新全部走 WebSocket</b>（你定的）：线路、活动、报名人数、名额、群成员、审核结果有变化，服务器直接推到手机上，页面自己变，不定时去问服务器。</li>
+      </ul>
+    </div>
+    <div class="pc warn">
+      <h3><i>!</i>做之前要你知道的</h3>
+      <ul>
+        <li><b>领队的资质</b>：组团带人出游一般要有旅行社的经营许可。平台上架他们的线路，最好收一份资质（或者他挂靠的旅行社的），不然出了事平台跑不掉。这个我不是专业的，建议问一下懂的人。</li>
+        <li><b>平台代收旅行款</b>：用户的钱先进平台再转给领队，这种做法要用支付机构的「分账」产品，不能自己收了再转。第二期做之前要定。</li>
+        <li><b>线下活动的安全</b>：陌生人线下见面，平台要有底线——发起人必须真人认证、能举报、能下架、协议里写清楚平台不组织不担保。</li>
+        <li><b>群聊</b>是之前为了过审删掉的。搬回来没问题，但群里必须有举报和管理，协议要跟着改。</li>
+      </ul>
+    </div>
+    <div class="pc warn">
+      <h3><i>?</i>和苹果审核有关的</h3>
+      <ul>
+        <li>大厅里这两个模块<b>送审时就要是真的、能用的</b>：至少有一位领队的真实线路、活动能真的发出来。不能送审时是空的、上线后才有内容。</li>
+        <li>领队的视频、用户发的活动都是用户内容，苹果要求有举报、屏蔽、处理机制，这些要一起做。</li>
+        <li>推荐奖励在 iOS 上的写法原来就定过：不写「邀请得现金」，奖励只和结婚谢媒挂钩。领队后台里那个「90%」在 iOS 上怎么显示，到时候要小心。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<script src="common.js"></script>
+</body>
+</html>

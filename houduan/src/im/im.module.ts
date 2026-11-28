@@ -6,11 +6,12 @@ import { ImGateway } from './im.gateway';
 import { ImService } from './im.service';
 import { MessageService } from './message.service';
 import { UploadModule } from '../upload/upload.module';
+import { GroupService } from './group.service';
 
 @Module({
   imports: [AuthModule, UploadModule],
   controllers: [ImController],
-  providers: [ConnectionRegistry, ImService, ImGateway, MessageService],
-  exports: [ConnectionRegistry, ImService, MessageService],
+  providers: [ConnectionRegistry, GroupService, ImService, ImGateway, MessageService],
+  exports: [ConnectionRegistry, GroupService, ImService, MessageService],
 })
 export class ImModule {}

@@ -1,0 +1,779 @@
+{
+ "note": "deploy/group_app_fixture.py 从测试服务器取的真实返回，2026-11-27 22:06。重新生成：python deploy/group_app_fixture.py",
+ "memberId": "3",
+ "memberName": "测试·小林",
+ "ownerId": "4",
+ "ownerName": "测试·小周",
+ "frames": {
+  "create": {
+   "op": "group",
+   "data": {
+    "event": "create",
+    "groupId": "18",
+    "conversationId": "22",
+    "group": {
+     "id": "18",
+     "conversationId": "22",
+     "name": "样本群 220643",
+     "avatar": "",
+     "notice": "",
+     "ownerId": "4",
+     "kind": "test",
+     "refId": "0",
+     "status": 0,
+     "memberCount": 1,
+     "memberLimit": 200,
+     "endAt": "2026-11-27T14:06:43.616Z",
+     "expireAt": "2026-11-30T14:06:43.616Z"
+    }
+   }
+  },
+  "join": {
+   "op": "group",
+   "data": {
+    "event": "join",
+    "groupId": "18",
+    "conversationId": "22",
+    "group": {
+     "id": "18",
+     "conversationId": "22",
+     "name": "样本群 220643",
+     "avatar": "",
+     "notice": "",
+     "ownerId": "4",
+     "kind": "test",
+     "refId": "0",
+     "status": 0,
+     "memberCount": 2,
+     "memberLimit": 200,
+     "endAt": "2026-11-27T14:06:43.616Z",
+     "expireAt": "2026-11-30T14:06:43.616Z"
+    },
+    "userId": "3",
+    "nickname": "测试·小林"
+   }
+  },
+  "sysJoin": {
+   "op": "msg",
+   "data": {
+    "id": "128",
+    "conversationId": "22",
+    "convType": 2,
+    "groupId": "18",
+    "groupName": "样本群 220643",
+    "senderId": "3",
+    "senderNickname": "",
+    "senderAvatar": "",
+    "receiverId": null,
+    "type": "sys",
+    "content": "{\"k\":\"join\",\"text\":\"测试·小林 加入了群聊\"}",
+    "createdAt": "2026-11-27T14:06:43.644Z"
+   }
+  },
+  "ack": {
+   "op": "ack",
+   "tempId": "t_1795788404352_3",
+   "msgId": "129",
+   "conversationId": "22",
+   "createdAt": "2026-11-27T14:06:43.702Z"
+  },
+  "msg": {
+   "op": "msg",
+   "data": {
+    "groupId": "18",
+    "groupName": "样本群 220643",
+    "id": "129",
+    "conversationId": "22",
+    "convType": 2,
+    "senderId": "3",
+    "senderNickname": "测试·小林",
+    "senderAvatar": "/res/hongniang/image/2026-11-22/64ac410b-0b51-47ff-89fb-4143f88e2ab1.jpeg",
+    "receiverId": null,
+    "type": "text",
+    "content": "样本：成员在群里说话 220643",
+    "createdAt": "2026-11-27T14:06:43.702Z"
+   }
+  },
+  "msgReply": {
+   "op": "msg",
+   "data": {
+    "replyTo": {
+     "id": "129",
+     "senderId": "3",
+     "senderNickname": "测试·小林",
+     "type": "text",
+     "content": "样本：成员在群里说话 220643"
+    },
+    "groupId": "18",
+    "groupName": "样本群 220643",
+    "id": "130",
+    "conversationId": "22",
+    "convType": 2,
+    "senderId": "4",
+    "senderNickname": "测试·小周",
+    "senderAvatar": "/res/hongniang/image/2026-11-23/29cf3bae-08ee-41e6-9226-59a67fd0d9d1.jpeg",
+    "receiverId": null,
+    "type": "text",
+    "content": "样本：群主回复 220643",
+    "createdAt": "2026-11-27T14:06:43.814Z"
+   }
+  },
+  "info": {
+   "op": "group",
+   "data": {
+    "event": "info",
+    "groupId": "18",
+    "conversationId": "22",
+    "group": {
+     "id": "18",
+     "conversationId": "22",
+     "name": "样本群改名 220643",
+     "avatar": "",
+     "notice": "早上 7 点集合\n带身份证",
+     "ownerId": "4",
+     "kind": "test",
+     "refId": "0",
+     "status": 0,
+     "memberCount": 2,
+     "memberLimit": 200,
+     "endAt": "2026-11-27T14:06:43.616Z",
+     "expireAt": "2026-11-30T14:06:43.616Z"
+    }
+   }
+  },
+  "kick": {
+   "op": "group",
+   "data": {
+    "event": "kick",
+    "groupId": "18",
+    "conversationId": "22",
+    "group": {
+     "id": "18",
+     "conversationId": "22",
+     "name": "样本群改名 220643",
+     "avatar": "",
+     "notice": "早上 7 点集合\n带身份证",
+     "ownerId": "4",
+     "kind": "test",
+     "refId": "0",
+     "status": 0,
+     "memberCount": 1,
+     "memberLimit": 200,
+     "endAt": "2026-11-27T14:06:43.616Z",
+     "expireAt": "2026-11-30T14:06:43.616Z"
+    },
+    "userId": "3",
+    "nickname": "测试·小林"
+   }
+  },
+  "kickSeenByOwner": {
+   "op": "group",
+   "data": {
+    "event": "kick",
+    "groupId": "18",
+    "conversationId": "22",
+    "group": {
+     "id": "18",
+     "conversationId": "22",
+     "name": "样本群改名 220643",
+     "avatar": "",
+     "notice": "早上 7 点集合\n带身份证",
+     "ownerId": "4",
+     "kind": "test",
+     "refId": "0",
+     "status": 0,
+     "memberCount": 1,
+     "memberLimit": 200,
+     "endAt": "2026-11-27T14:06:43.616Z",
+     "expireAt": "2026-11-30T14:06:43.616Z"
+    },
+    "userId": "3",
+    "nickname": "测试·小林"
+   }
+  },
+  "errorLeft": {
+   "op": "error",
+   "tempId": "t_1795788406954_15",
+   "msg": "你已不在这个群里",
+   "code": "group_left"
+  },
+  "dissolved": {
+   "op": "group",
+   "data": {
+    "event": "dissolved",
+    "groupId": "18",
+    "conversationId": "22",
+    "group": {
+     "id": "18",
+     "conversationId": "22",
+     "name": "样本群改名 220643",
+     "avatar": "",
+     "notice": "早上 7 点集合\n带身份证",
+     "ownerId": "4",
+     "kind": "test",
+     "refId": "0",
+     "status": 1,
+     "memberCount": 1,
+     "memberLimit": 200,
+     "endAt": "2026-11-27T14:06:43.616Z",
+     "expireAt": "2026-11-30T14:06:43.616Z"
+    }
+   }
+  },
+  "errorDissolved": {
+   "op": "error",
+   "tempId": "t_1795788408115_21",
+   "msg": "这个群已解散",
+   "code": "group_dissolved"
+  }
+ },
+ "groupId": "18",
+ "conversationId": "22",
+ "convsMember": [
+  {
+   "id": "22",
+   "type": 2,
+   "group": {
+    "id": "18",
+    "name": "样本群 220643",
+    "avatar": "",
+    "kind": "test",
+    "refId": "0",
+    "ownerId": "4",
+    "status": 0,
+    "memberCount": 2,
+    "endAt": "2026-11-27T14:06:43.616Z",
+    "expireAt": "2026-11-30T14:06:43.616Z",
+    "state": "ok",
+    "role": "member"
+   },
+   "lastMsg": {
+    "id": "130",
+    "senderId": "4",
+    "type": "text",
+    "content": "样本：群主回复 220643",
+    "createdAt": "2026-11-27T14:06:43.814Z",
+    "senderNickname": "测试·小周"
+   },
+   "unread": 1,
+   "muted": false,
+   "lastMsgAt": "2026-11-27T14:06:43.814Z"
+  },
+  {
+   "id": "2",
+   "type": 1,
+   "peer": {
+    "id": "4",
+    "nickname": "测试·小周",
+    "avatar": "/res/hongniang/image/2026-11-23/29cf3bae-08ee-41e6-9226-59a67fd0d9d1.jpeg",
+    "gender": 1
+   },
+   "lastMsg": {
+    "id": "126",
+    "senderId": "3",
+    "type": "text",
+    "content": "【自测】网页单聊照常 21:45:13",
+    "createdAt": "2026-11-27T13:45:13.162Z"
+   },
+   "unread": 0,
+   "lastMsgAt": "2026-11-27T13:45:13.162Z",
+   "match": {
+    "at": "2026-11-23T04:46:23.765Z",
+    "fresh": false
+   },
+   "ended": false
+  }
+ ],
+ "convsOwner": [
+  {
+   "id": "22",
+   "type": 2,
+   "group": {
+    "id": "18",
+    "name": "样本群 220643",
+    "avatar": "",
+    "kind": "test",
+    "refId": "0",
+    "ownerId": "4",
+    "status": 0,
+    "memberCount": 2,
+    "endAt": "2026-11-27T14:06:43.616Z",
+    "expireAt": "2026-11-30T14:06:43.616Z",
+    "state": "ok",
+    "role": "owner"
+   },
+   "lastMsg": {
+    "id": "130",
+    "senderId": "4",
+    "type": "text",
+    "content": "样本：群主回复 220643",
+    "createdAt": "2026-11-27T14:06:43.814Z",
+    "senderNickname": "测试·小周"
+   },
+   "unread": 0,
+   "muted": false,
+   "lastMsgAt": "2026-11-27T14:06:43.814Z"
+  },
+  {
+   "id": "2",
+   "type": 1,
+   "peer": {
+    "id": "3",
+    "nickname": "测试·小林",
+    "avatar": "/res/hongniang/image/2026-11-22/64ac410b-0b51-47ff-89fb-4143f88e2ab1.jpeg",
+    "gender": 2
+   },
+   "lastMsg": {
+    "id": "126",
+    "senderId": "3",
+    "type": "text",
+    "content": "【自测】网页单聊照常 21:45:13",
+    "createdAt": "2026-11-27T13:45:13.162Z"
+   },
+   "unread": 3,
+   "lastMsgAt": "2026-11-27T13:45:13.162Z",
+   "match": {
+    "at": "2026-11-23T04:46:23.765Z",
+    "fresh": false
+   },
+   "ended": false
+  }
+ ],
+ "viewMember": {
+  "id": "18",
+  "conversationId": "22",
+  "name": "样本群 220643",
+  "avatar": "",
+  "notice": "",
+  "ownerId": "4",
+  "kind": "test",
+  "refId": "0",
+  "status": 0,
+  "memberCount": 2,
+  "memberLimit": 200,
+  "endAt": "2026-11-27T14:06:43.616Z",
+  "expireAt": "2026-11-30T14:06:43.616Z",
+  "state": "ok",
+  "role": "member",
+  "muted": false,
+  "members": [
+   {
+    "id": "4",
+    "nickname": "测试·小周",
+    "avatar": "/res/hongniang/image/2026-11-23/29cf3bae-08ee-41e6-9226-59a67fd0d9d1.jpeg",
+    "gender": 1,
+    "role": "owner",
+    "joinedAt": "2026-11-27T14:06:43.619Z"
+   },
+   {
+    "id": "3",
+    "nickname": "测试·小林",
+    "avatar": "/res/hongniang/image/2026-11-22/64ac410b-0b51-47ff-89fb-4143f88e2ab1.jpeg",
+    "gender": 2,
+    "role": "member",
+    "joinedAt": "2026-11-27T14:06:43.640Z"
+   }
+  ]
+ },
+ "viewOwner": {
+  "id": "18",
+  "conversationId": "22",
+  "name": "样本群 220643",
+  "avatar": "",
+  "notice": "",
+  "ownerId": "4",
+  "kind": "test",
+  "refId": "0",
+  "status": 0,
+  "memberCount": 2,
+  "memberLimit": 200,
+  "endAt": "2026-11-27T14:06:43.616Z",
+  "expireAt": "2026-11-30T14:06:43.616Z",
+  "state": "ok",
+  "role": "owner",
+  "muted": false,
+  "members": [
+   {
+    "id": "4",
+    "nickname": "测试·小周",
+    "avatar": "/res/hongniang/image/2026-11-23/29cf3bae-08ee-41e6-9226-59a67fd0d9d1.jpeg",
+    "gender": 1,
+    "role": "owner",
+    "joinedAt": "2026-11-27T14:06:43.619Z"
+   },
+   {
+    "id": "3",
+    "nickname": "测试·小林",
+    "avatar": "/res/hongniang/image/2026-11-22/64ac410b-0b51-47ff-89fb-4143f88e2ab1.jpeg",
+    "gender": 2,
+    "role": "member",
+    "joinedAt": "2026-11-27T14:06:43.640Z"
+   }
+  ]
+ },
+ "messagesMember": [
+  {
+   "id": "127",
+   "conversationId": "22",
+   "senderId": "4",
+   "senderNickname": "测试·小周",
+   "senderAvatar": "/res/hongniang/image/2026-11-23/29cf3bae-08ee-41e6-9226-59a67fd0d9d1.jpeg",
+   "receiverId": null,
+   "type": "sys",
+   "content": "{\"k\":\"create\",\"text\":\"群聊已建好\"}",
+   "isRead": false,
+   "readAt": null,
+   "createdAt": "2026-11-27T14:06:43.624Z",
+   "replyTo": null,
+   "fwdFrom": null,
+   "reactions": []
+  },
+  {
+   "id": "128",
+   "conversationId": "22",
+   "senderId": "3",
+   "senderNickname": "测试·小林",
+   "senderAvatar": "/res/hongniang/image/2026-11-22/64ac410b-0b51-47ff-89fb-4143f88e2ab1.jpeg",
+   "receiverId": null,
+   "type": "sys",
+   "content": "{\"k\":\"join\",\"text\":\"测试·小林 加入了群聊\"}",
+   "isRead": false,
+   "readAt": null,
+   "createdAt": "2026-11-27T14:06:43.644Z",
+   "replyTo": null,
+   "fwdFrom": null,
+   "reactions": []
+  },
+  {
+   "id": "129",
+   "conversationId": "22",
+   "senderId": "3",
+   "senderNickname": "测试·小林",
+   "senderAvatar": "/res/hongniang/image/2026-11-22/64ac410b-0b51-47ff-89fb-4143f88e2ab1.jpeg",
+   "receiverId": null,
+   "type": "text",
+   "content": "样本：成员在群里说话 220643",
+   "isRead": false,
+   "readAt": null,
+   "createdAt": "2026-11-27T14:06:43.702Z",
+   "replyTo": null,
+   "fwdFrom": null,
+   "reactions": []
+  },
+  {
+   "id": "130",
+   "conversationId": "22",
+   "senderId": "4",
+   "senderNickname": "测试·小周",
+   "senderAvatar": "/res/hongniang/image/2026-11-23/29cf3bae-08ee-41e6-9226-59a67fd0d9d1.jpeg",
+   "receiverId": null,
+   "type": "text",
+   "content": "样本：群主回复 220643",
+   "isRead": false,
+   "readAt": null,
+   "createdAt": "2026-11-27T14:06:43.814Z",
+   "replyTo": {
+    "id": "129",
+    "senderId": "3",
+    "senderNickname": "测试·小林",
+    "type": "text",
+    "content": "样本：成员在群里说话 220643"
+   },
+   "fwdFrom": null,
+   "reactions": [
+    {
+     "emoji": "❤️",
+     "count": 1,
+     "userIds": [
+      "3"
+     ]
+    }
+   ]
+  }
+ ],
+ "pins": [
+  {
+   "id": "129",
+   "senderId": "3",
+   "senderNickname": "测试·小林",
+   "type": "text",
+   "content": "样本：成员在群里说话 220643",
+   "pinnedAt": "2026-11-27T14:06:44.182Z"
+  }
+ ],
+ "search": {
+  "messages": [
+   {
+    "id": "130",
+    "conversationId": "22",
+    "convType": 2,
+    "targetId": "18",
+    "title": "样本群 220643",
+    "avatar": "",
+    "senderId": "4",
+    "senderNickname": "测试·小周",
+    "content": "样本：群主回复 220643",
+    "createdAt": "2026-11-27T14:06:43.814Z"
+   }
+  ],
+  "users": []
+ },
+ "update": {
+  "id": "18",
+  "conversationId": "22",
+  "name": "样本群改名 220643",
+  "avatar": "",
+  "notice": "早上 7 点集合\n带身份证",
+  "ownerId": "4",
+  "kind": "test",
+  "refId": "0",
+  "status": 0,
+  "memberCount": 2,
+  "memberLimit": 200,
+  "endAt": "2026-11-27T14:06:43.616Z",
+  "expireAt": "2026-11-30T14:06:43.616Z",
+  "state": "ok",
+  "role": "owner",
+  "muted": false,
+  "members": [
+   {
+    "id": "4",
+    "nickname": "测试·小周",
+    "avatar": "/res/hongniang/image/2026-11-23/29cf3bae-08ee-41e6-9226-59a67fd0d9d1.jpeg",
+    "gender": 1,
+    "role": "owner",
+    "joinedAt": "2026-11-27T14:06:43.619Z"
+   },
+   {
+    "id": "3",
+    "nickname": "测试·小林",
+    "avatar": "/res/hongniang/image/2026-11-22/64ac410b-0b51-47ff-89fb-4143f88e2ab1.jpeg",
+    "gender": 2,
+    "role": "member",
+    "joinedAt": "2026-11-27T14:06:43.640Z"
+   }
+  ]
+ },
+ "mute": {
+  "ok": true,
+  "muted": true
+ },
+ "convsMemberMuted": [
+  {
+   "id": "22",
+   "type": 2,
+   "group": {
+    "id": "18",
+    "name": "样本群改名 220643",
+    "avatar": "",
+    "kind": "test",
+    "refId": "0",
+    "ownerId": "4",
+    "status": 0,
+    "memberCount": 2,
+    "endAt": "2026-11-27T14:06:43.616Z",
+    "expireAt": "2026-11-30T14:06:43.616Z",
+    "state": "ok",
+    "role": "member"
+   },
+   "lastMsg": {
+    "id": "133",
+    "senderId": "4",
+    "type": "text",
+    "content": "样本：免打扰以后群主说的 220643",
+    "createdAt": "2026-11-27T14:06:45.770Z",
+    "senderNickname": "测试·小周"
+   },
+   "unread": 2,
+   "muted": true,
+   "lastMsgAt": "2026-11-27T14:06:45.770Z"
+  },
+  {
+   "id": "2",
+   "type": 1,
+   "peer": {
+    "id": "4",
+    "nickname": "测试·小周",
+    "avatar": "/res/hongniang/image/2026-11-23/29cf3bae-08ee-41e6-9226-59a67fd0d9d1.jpeg",
+    "gender": 1
+   },
+   "lastMsg": {
+    "id": "126",
+    "senderId": "3",
+    "type": "text",
+    "content": "【自测】网页单聊照常 21:45:13",
+    "createdAt": "2026-11-27T13:45:13.162Z"
+   },
+   "unread": 0,
+   "lastMsgAt": "2026-11-27T13:45:13.162Z",
+   "match": {
+    "at": "2026-11-23T04:46:23.765Z",
+    "fresh": false
+   },
+   "ended": false
+  }
+ ],
+ "http403": {
+  "code": 403,
+  "msg": "你已不在这个群里",
+  "data": null,
+  "reason": "group_left"
+ },
+ "convsKicked": [
+  {
+   "id": "22",
+   "type": 2,
+   "group": {
+    "id": "18",
+    "name": "样本群改名 220643",
+    "avatar": "",
+    "kind": "test",
+    "refId": "0",
+    "ownerId": "4",
+    "status": 0,
+    "memberCount": 1,
+    "endAt": "2026-11-27T14:06:43.616Z",
+    "expireAt": "2026-11-30T14:06:43.616Z",
+    "state": "kicked",
+    "role": "member"
+   },
+   "lastMsg": {
+    "id": "134",
+    "senderId": "4",
+    "type": "sys",
+    "content": "{\"k\":\"kick\",\"text\":\"测试·小林 被群主移出了群聊\"}",
+    "createdAt": "2026-11-27T14:06:46.139Z",
+    "senderNickname": ""
+   },
+   "unread": 0,
+   "muted": true,
+   "lastMsgAt": "2026-11-27T14:06:46.139Z"
+  },
+  {
+   "id": "2",
+   "type": 1,
+   "peer": {
+    "id": "4",
+    "nickname": "测试·小周",
+    "avatar": "/res/hongniang/image/2026-11-23/29cf3bae-08ee-41e6-9226-59a67fd0d9d1.jpeg",
+    "gender": 1
+   },
+   "lastMsg": {
+    "id": "126",
+    "senderId": "3",
+    "type": "text",
+    "content": "【自测】网页单聊照常 21:45:13",
+    "createdAt": "2026-11-27T13:45:13.162Z"
+   },
+   "unread": 0,
+   "lastMsgAt": "2026-11-27T13:45:13.162Z",
+   "match": {
+    "at": "2026-11-23T04:46:23.765Z",
+    "fresh": false
+   },
+   "ended": false
+  }
+ ],
+ "viewKicked": {
+  "id": "18",
+  "conversationId": "22",
+  "name": "样本群改名 220643",
+  "avatar": "",
+  "notice": "早上 7 点集合\n带身份证",
+  "ownerId": "4",
+  "kind": "test",
+  "refId": "0",
+  "status": 0,
+  "memberCount": 1,
+  "memberLimit": 200,
+  "endAt": "2026-11-27T14:06:43.616Z",
+  "expireAt": "2026-11-30T14:06:43.616Z",
+  "state": "kicked",
+  "role": "member",
+  "muted": true,
+  "members": []
+ },
+ "convsDissolved": [
+  {
+   "id": "22",
+   "type": 2,
+   "group": {
+    "id": "18",
+    "name": "样本群改名 220643",
+    "avatar": "",
+    "kind": "test",
+    "refId": "0",
+    "ownerId": "4",
+    "status": 1,
+    "memberCount": 1,
+    "endAt": "2026-11-27T14:06:43.616Z",
+    "expireAt": "2026-11-30T14:06:43.616Z",
+    "state": "dissolved",
+    "role": "owner"
+   },
+   "lastMsg": {
+    "id": "135",
+    "senderId": "4",
+    "type": "sys",
+    "content": "{\"k\":\"dissolve\",\"text\":\"群主解散了群聊\"}",
+    "createdAt": "2026-11-27T14:06:47.020Z",
+    "senderNickname": ""
+   },
+   "unread": 0,
+   "muted": false,
+   "lastMsgAt": "2026-11-27T14:06:47.020Z"
+  },
+  {
+   "id": "2",
+   "type": 1,
+   "peer": {
+    "id": "3",
+    "nickname": "测试·小林",
+    "avatar": "/res/hongniang/image/2026-11-22/64ac410b-0b51-47ff-89fb-4143f88e2ab1.jpeg",
+    "gender": 2
+   },
+   "lastMsg": {
+    "id": "126",
+    "senderId": "3",
+    "type": "text",
+    "content": "【自测】网页单聊照常 21:45:13",
+    "createdAt": "2026-11-27T13:45:13.162Z"
+   },
+   "unread": 3,
+   "lastMsgAt": "2026-11-27T13:45:13.162Z",
+   "match": {
+    "at": "2026-11-23T04:46:23.765Z",
+    "fresh": false
+   },
+   "ended": false
+  }
+ ],
+ "viewDissolved": {
+  "id": "18",
+  "conversationId": "22",
+  "name": "样本群改名 220643",
+  "avatar": "",
+  "notice": "早上 7 点集合\n带身份证",
+  "ownerId": "4",
+  "kind": "test",
+  "refId": "0",
+  "status": 1,
+  "memberCount": 1,
+  "memberLimit": 200,
+  "endAt": "2026-11-27T14:06:43.616Z",
+  "expireAt": "2026-11-30T14:06:43.616Z",
+  "state": "dissolved",
+  "role": "owner",
+  "muted": false,
+  "members": [
+   {
+    "id": "4",
+    "nickname": "测试·小周",
+    "avatar": "/res/hongniang/image/2026-11-23/29cf3bae-08ee-41e6-9226-59a67fd0d9d1.jpeg",
+    "gender": 1,
+    "role": "owner",
+    "joinedAt": "2026-11-27T14:06:43.619Z"
+   }
+  ]
+ }
+}

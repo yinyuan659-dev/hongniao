@@ -42,12 +42,15 @@ const icons = {
  */
 export function AttachSheet({
   canVideoCall,
+  noCall,
   onClose,
   onSend,
   onFiles,
   onAction,
 }: {
   canVideoCall: boolean;
+  /** 群聊：不显示语音 / 视频通话 */
+  noCall?: boolean;
   onClose: () => void;
   onSend: (files: File[], caption: string) => void;
   /** 胶囊里的「文件」：选的任意文件，每个发一条文件消息 */
@@ -117,8 +120,9 @@ export function AttachSheet({
     { key: 'album', label: t('attach.album'), icon: icons.photo },
     ...(onFiles ? [{ key: 'file', label: t('attach.file'), icon: icons.file }] : []),
     { key: 'location', label: t('attach.location'), icon: icons.pin, action: 'location' as const },
-    { key: 'voice', label: t('attach.voiceCall'), icon: icons.phone, action: 'voiceCall' as const },
-    ...(canVideoCall ? [{ key: 'video', label: t('attach.videoCall'), icon: icons.video, action: 'videoCall' as const }] : []),
+    // 群聊里没有语音 / 视频通话
+    ...(noCall ? [] : [{ key: 'voice', label: t('attach.voiceCall'), icon: icons.phone, action: 'voiceCall' as const }]),
+    ...(canVideoCall && !noCall ? [{ key: 'video', label: t('attach.videoCall'), icon: icons.video, action: 'videoCall' as const }] : []),
   ];
 
   return (

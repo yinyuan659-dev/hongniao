@@ -23,6 +23,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.ui.input.pointer.pointerInput
@@ -38,6 +39,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.focusRequester
@@ -74,14 +76,24 @@ import java.io.File
 data class PeerBrief(val id: String, val nickname: String, val avatar: String = "", val gender: Int = 0)
 
 @Serializable
-data class LastMsg(val id: String, val senderId: String, val type: String, val content: String = "", val createdAt: String)
+data class LastMsg(
+    val id: String, val senderId: String, val type: String, val content: String = "", val createdAt: String,
+    /** 群聊那一行才有：最后一条是谁发的（灰色小字没有） */
+    val senderNickname: String = "",
+)
 
 @Serializable
 data class ConversationItem(
     val id: String,
+    /** 1 单聊 2 群聊。单聊有 peer 没有 group，群聊反过来 */
+    val type: Int = 1,
     val peer: PeerBrief? = null,
+    /** 群聊才有：群的信息 + 我和这个群的关系（state）、我的身份（role） */
+    val group: GroupInfo? = null,
     val lastMsg: LastMsg? = null,
     val unread: Int = 0,
+    /** 免打扰（现在只有群有）：未读只显示灰点，不算进底部「消息」上的数字 */
+    val muted: Boolean = false,
     val lastMsgAt: String,
     /** 互相喜欢的才有：fresh = 刚配上还没说过话 */
     val match: ConvMatch? = null,
@@ -120,7 +132,7 @@ data class MsgItem(
 internal fun chatRowKey(row: List<MsgItem>): String =
     if (row.size > 1) "g_" + (parseImage(row[0].content).g ?: row[0].id) else row[0].upKey ?: row[0].id
 
-private fun parseIso(iso: String?): java.time.Instant? =
+internal fun parseIso(iso: String?): java.time.Instant? =
     if (iso.isNullOrEmpty()) null else runCatching { java.time.Instant.parse(iso) }.getOrNull()
 
 /** 今天显示 HH:mm，非今天显示 MM-dd HH:mm */
@@ -149,8 +161,61 @@ internal fun preview(msg: LastMsg?): String = when {
     msg.type == "audio" -> t("chat.preview.voice")
     msg.type == "file" -> fileSnippet(msg.content, t("chat.preview.file"))
     msg.type == "location" -> t("chat.preview.location")
+    msg.type == "sys" -> sysText(msg.content)
     msg.type.startsWith("call") -> t("chat.preview.call")
     else -> ""
+}
+
+/**
+ * 聊天页关掉时加一：消息列表、底部「消息」上的数字跟着重新取一次。
+ * 消息列表常驻在聊天页下面、不会重建；进聊天页时已经把「读到哪了」告诉了服务器，但服务器不会为这个再推送给我自己，
+ * 不重新取的话，看完返回以后那一行和底部的未读数还停在原来的数上（单聊、群聊都是）。
+ */
+object ChatEvents {
+    var version by mutableIntStateOf(0)
+}
+
+/** 群的预览是「谁：说了什么」；灰色小字（有人进群、退群…）本身就是一句完整的话，自己发的也不加名字 */
+internal fun groupPreview(msg: LastMsg?, myId: String): String {
+    val text = preview(msg)
+    if (msg == null || msg.type == "sys" || msg.senderNickname.isEmpty() || msg.senderId == myId) return text
+    return "${msg.senderNickname}：$text"
+}
+
+/** 群聊页的路由（单聊的还是各处自己拼的 chatroom/会话id?targetId=…&title=…）。focusMsgId：进去以后定位到这条消息 */
+fun groupChatRoute(convId: String, groupId: String, title: String, focusMsgId: String = ""): String =
+    "chatroom/$convId?groupId=$groupId&title=${Uri.encode(title)}" + if (focusMsgId.isEmpty()) "" else "&focusMsgId=$focusMsgId"
+
+/**
+ * 左滑露出「删除」（消息列表里已经用不了的群：解散了 / 被关闭 / 我不在了）。
+ * 松手时滑过一半就停在露出来的位置，否则弹回去；enabled = false 时就是普通的一行。
+ */
+@Composable
+private fun SwipeToDelete(enabled: Boolean, onDelete: () -> Unit, content: @Composable () -> Unit) {
+    if (!enabled) { content(); return }
+    val width = with(LocalDensity.current) { 76.dp.toPx() }
+    val dx = remember { androidx.compose.animation.core.Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    Box(Modifier.fillMaxWidth()) {
+        // 底下那一层：整行红色，右边 76dp 是「删除」；平时被上面的内容盖住
+        Box(Modifier.matchParentSize().background(Danger), contentAlignment = Alignment.CenterEnd) {
+            Box(
+                Modifier.width(76.dp).fillMaxHeight().clickable { scope.launch { dx.animateTo(0f) }; onDelete() },
+                contentAlignment = Alignment.Center,
+            ) { Text(t("common.delete"), color = Color.White, fontSize = 15.sp) }
+        }
+        Box(
+            Modifier.offset { IntOffset(dx.value.toInt(), 0) }.background(Bg).pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragEnd = { scope.launch { dx.animateTo(if (dx.value < -width / 2) -width else 0f) } },
+                    onDragCancel = { scope.launch { dx.animateTo(0f) } },
+                ) { change, drag ->
+                    change.consume()
+                    scope.launch { dx.snapTo((dx.value + drag).coerceIn(-width, 0f)) }
+                }
+            },
+        ) { content() }
+    }
 }
 
 /** 消息列表一行：左图标 54 + 标题 / 时间 + 预览 / 角标，分隔线和文字对齐 */
@@ -230,19 +295,30 @@ fun MessagesScreen(
     /** 顶上三个数字：喜欢我的 / 我喜欢的 / 互相喜欢 */
     var sum by remember { mutableStateOf<MatchSummary?>(null) }
     val scope = rememberCoroutineScope()
+    val ctx = LocalContext.current
+    /** 左滑点了「删除」的那个群（已经用不了的群才能删）：先问一句 */
+    var hideGroup by remember { mutableStateOf<GroupInfo?>(null) }
 
     fun loadConvs() { scope.launch { convs = runCatching { Api.getList<ConversationItem>("/im/conversations") }.getOrDefault(convs) } }
+    fun loadSum() { scope.launch { runCatching { Api.getObj<MatchSummary>("/match/summary") }.onSuccess { sum = it } } }
 
-    // 进来取一次；有人喜欢了我 / 互相喜欢了 / 对方结束了聊天、从喜欢列表（网页）回来，数字和列表都重新取
-    LaunchedEffect(MatchCenter.version, HnEvents.version) {
+    // 进来取一次；有人喜欢了我 / 互相喜欢了 / 对方结束了聊天、从喜欢列表（网页）回来、从聊天页回来（未读要清掉），数字和列表都重新取
+    LaunchedEffect(MatchCenter.version, HnEvents.version, ChatEvents.version) {
         loadConvs()
-        runCatching { Api.getObj<MatchSummary>("/match/summary") }.onSuccess { sum = it }
+        loadSum()
     }
     DisposableEffect(Unit) {
         val remove = WsClient.addListener { frame ->
             when (frame["op"]?.jsonPrimitive?.content) {
                 // conv_refresh：服务端通知会话列表有变
                 "msg", "conv_cleared", "conv_refresh" -> loadConvs()
+                // 群有变化（改名、有人进出、解散…）：推送里带着最新的群信息，这一行马上改；后面跟着的 conv_refresh 再把预览、未读对齐
+                "group" -> groupEventOf(frame)?.let { ev ->
+                    val myId = Session.uid
+                    convs = convs.map { c -> if (c.group != null && c.group.id == ev.groupId) c.copy(group = c.group.merged(ev, myId)) else c }
+                }
+                // 断线后重新连上：断线那段时间的变化没收到，补拉一次
+                "ws_reopen" -> { loadConvs(); loadSum() }
             }
         }
         onDispose { remove() }
@@ -257,8 +333,28 @@ fun MessagesScreen(
             onDismiss = { showSearch = false },
             onOpenChat = { id, target, title -> showSearch = false; onOpenChat(id, target, title) },
             onOpenMessage = { id, target, title, msgId -> showSearch = false; onOpenMessage(id, target, title, msgId) },
+            onOpenGroup = { id, groupId, title, msgId -> showSearch = false; onNav(groupChatRoute(id, groupId, title, msgId)) },
             onOpenUser = { id, name -> showSearch = false; onOpenUser(id, name) },
             onScan = { showSearch = false; onScan() },
+        )
+    }
+    hideGroup?.let { hg ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { hideGroup = null },
+            containerColor = Bg2,
+            title = { Text("从消息列表里删除？", color = TextMain) },
+            text = { Text("只是从你自己的消息列表里删掉，删了以后这个群的聊天记录就看不到了。", color = TextSub) },
+            confirmButton = {
+                Text(t("common.delete"), color = Danger, modifier = Modifier.noRippleClick {
+                    hideGroup = null
+                    scope.launch {
+                        runCatching { Api.request("/im/group/${hg.id}/hide", "POST") }
+                            .onSuccess { convs = convs.filterNot { it.group?.id == hg.id } }
+                            .onFailure { android.widget.Toast.makeText(ctx, it.message ?: t("common.failed"), android.widget.Toast.LENGTH_SHORT).show() }
+                    }
+                }.padding(8.dp))
+            },
+            dismissButton = { Text(t("common.cancel"), color = TextSub, modifier = Modifier.noRippleClick { hideGroup = null }.padding(8.dp)) },
         )
     }
 
@@ -297,6 +393,29 @@ fun MessagesScreen(
             // 喜欢我的 / 我喜欢的 / 互相喜欢
             item("likes") { LikeEntries(sum, onNav) }
             items(entries, key = { "c-${it.id}" }) { c ->
+                val g = c.group
+                if (g != null) {
+                    // 群：头像是方的，群名后面有「旅行 / 活动」小标签，预览是「谁：说了什么」；开了免打扰的只显示一个灰点。
+                    // 已经用不了的群（解散了 / 被关闭 / 我不在了）头像变淡，可以左滑删掉
+                    val gone = g.state != "ok"
+                    SwipeToDelete(enabled = gone, onDelete = { hideGroup = g }) {
+                        MsgListRow(
+                            onClick = { onNav(groupChatRoute(c.id, g.id, g.name)) },
+                            leading = { GroupAvatar(g.avatar, g.kind, 54, Modifier.alpha(if (gone) 0.55f else 1f)) },
+                            title = {
+                                Text(g.name, color = TextMain, fontSize = 16.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                                KindTag(g.kind, Modifier.padding(start = 6.dp))
+                            },
+                            end = fmtChatTime(c.lastMsgAt),
+                            sub = groupPreview(c.lastMsg, Session.uid),
+                            badge = {
+                                if (c.unread > 0 && c.muted) Box(Modifier.padding(start = 8.dp).size(9.dp).clip(CircleShape).background(TextDim))
+                                else com.wh.hongniang.ui.RoundBadge(c.unread, Modifier.padding(start = 8.dp))
+                            },
+                        )
+                    }
+                    return@items
+                }
                 val name = c.peer?.nickname ?: ""
                 val fresh = c.match?.fresh == true
                 MsgListRow(
@@ -325,7 +444,12 @@ fun MessagesScreen(
     }
 }
 
-/** 聊天页：文字/图片/语音/位置 */
+/**
+ * 聊天页：文字/图片/语音/位置。单聊、群聊共用这一页：groupId 有值就是群聊（这时 targetId 是空的）。
+ * 群聊和单聊不一样的地方（样稿 design/12-group.html，和网页端 ChatRoom.tsx 一致）：标题是「群名（人数）」，右上角「···」进群资料；
+ * 中间有灰色小字（消息类型 sys）；别人的昵称后面群主有「领队 / 发起人」小标，点头像进他的相亲画像；
+ * 没有已读、没有通话；置顶只有群主；群用不了以后（我不在了 / 解散了 / 被关闭）输入区换成一句话。
+ */
 @SuppressLint("MissingPermission")
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -336,6 +460,8 @@ fun ChatRoomScreen(
     onNav: (String) -> Unit = {},
     /** 先填进输入框的话（从互相喜欢的庆祝页点了一句开场白进来），可以改了再发 */
     draft: String = "",
+    /** 群聊：群 id；单聊是空的 */
+    groupId: String = "",
 ) {
     val handleScan = rememberScanHandler(onNav)
     var messages by remember { mutableStateOf<List<MsgItem>>(emptyList()) }
@@ -344,10 +470,38 @@ fun ChatRoomScreen(
     var rel by remember { mutableStateOf<MatchRelation?>(null) }
     var reportUser by remember { mutableStateOf(false) }
     var showEndConfirm by remember { mutableStateOf(false) }
+    /** 断线重连后加一，让下面这些「进来取一次」的再取一次 */
+    var reopen by remember { mutableIntStateOf(0) }
     // 进来取一次；互相喜欢了 / 对方结束了聊天、从对方的画像网页回来（在那里可能点了喜欢），都重新取
-    LaunchedEffect(targetId, MatchCenter.version, HnEvents.version) {
+    LaunchedEffect(targetId, MatchCenter.version, HnEvents.version, reopen) {
         if (targetId.isNotEmpty()) runCatching { Api.getObj<MatchRelation>("/match/relation/$targetId") }.onSuccess { rel = it }
     }
+
+    // 离开聊天页：让消息列表和底部「消息」上的数字重新取一次（见 ChatEvents）
+    DisposableEffect(convId) { onDispose { ChatEvents.version++ } }
+
+    // ---------- 群聊 ----------
+    val isGroup = groupId.isNotEmpty()
+    /** 群资料 + 我和这个群的关系。进来取一次，之后的变化靠推送（op: "group"）直接改，不轮询 */
+    var g by remember { mutableStateOf<GroupInfo?>(null) }
+    LaunchedEffect(groupId, reopen) {
+        if (isGroup) runCatching { Api.getObj<GroupInfo>("/im/group/$groupId") }.onSuccess { g = it }
+    }
+    /** 群里现在不能发的原因（left / kicked / dissolved / closed）；能发是 null */
+    val groupGone = g?.state?.takeIf { it != "ok" }
+    // 「N 天后自动解散」那句要跟着时间变：到了结束时间出现（到了解散时间服务器会推送）。只在结束的那一刻重画一次，不是轮询
+    var endTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(g?.endAt, g?.state) {
+        val end = parseIso(g?.endAt)?.toEpochMilli() ?: return@LaunchedEffect
+        val wait = end - System.currentTimeMillis()
+        if (g?.state != "ok" || wait <= 0) return@LaunchedEffect
+        kotlinx.coroutines.delay(wait + 500)
+        endTick++
+    }
+    val groupTip = remember(g, endTick) { g?.let { expireTip(it) } }
+    /** 发到哪：群聊是群 id，单聊是对方的用户 id */
+    fun wsSend(type: String, content: String, replyId: String?) =
+        WsClient.send(if (isGroup) groupId else targetId, type, content, replyId, if (isGroup) 2 else 1)
     var fullImage by remember { mutableStateOf<String?>(null) }
     var recording by remember { mutableStateOf(false) }
     var voiceMode by remember { mutableStateOf(false) }
@@ -404,7 +558,7 @@ fun ChatRoomScreen(
     fun sendMsg(type: String, content: String) {
         val r = replyTo
         replyTo = null
-        val tempId = WsClient.send(targetId, type, content, r?.id)
+        val tempId = wsSend(type, content, r?.id)
         val preview = r?.let { ReplyPreview(it.id, it.senderId, it.senderNickname, it.type, if (it.type == "text") it.content.take(100) else if (it.type == "image") it.content else "") }
         messages = messages + MsgItem(tempId, convId, myUserId, myNickname, myAvatar, null, type, content, java.time.Instant.now().toString(), replyTo = preview)
     }
@@ -453,6 +607,29 @@ fun ChatRoomScreen(
                     removeMsgs(listOf(id))
                     pins = pins.filterNot { it.id == id }
                 }
+                "group" -> {
+                    // 群有变化：推送里带着最新的群信息，标题上的人数、群名、能不能发马上跟着改
+                    val ev = groupEventOf(frame) ?: return@addListener
+                    if (!isGroup || ev.groupId != groupId) return@addListener
+                    g = g?.merged(ev, myUserId)
+                    // 我自己重新进群了：成员名单、我的身份要重新拿
+                    if (ev.event == "join" && ev.userId == myUserId) reopen++
+                }
+                "ws_reopen" -> {
+                    // 断线后重新连上：断线那段时间的消息和群的变化没收到，补拉一次（已有的留着，新的补进来，还没发出去的排最后）
+                    scope.launch {
+                        runCatching { Api.getList<MsgItem>("/im/messages?conversationId=$convId") }.onSuccess { list ->
+                            val byId = LinkedHashMap<String, MsgItem>()
+                            messages.filterNot { it.pending }.forEach { byId[it.id] = it }
+                            // 本地刚发出去的图带着本地预览和上传 key（这一行的 key 靠它），补拉回来的同一条不要把这两样盖掉
+                            list.forEach { m -> byId[m.id] = byId[m.id]?.let { old -> m.copy(local = old.local, upKey = old.upKey) } ?: m }
+                            messages = byId.values.sortedBy { it.id.toLongOrNull() ?: Long.MAX_VALUE } + messages.filter { it.pending }
+                            list.lastOrNull()?.let { WsClient.markRead(convId, it.id) }
+                        }
+                        loadPins()
+                    }
+                    reopen++
+                }
                 "ack" -> {
                     val tid = frame["tempId"]?.jsonPrimitive?.content ?: return@addListener
                     val mid = frame["msgId"]?.jsonPrimitive?.content ?: return@addListener
@@ -488,6 +665,10 @@ fun ChatRoomScreen(
                         android.widget.Toast.makeText(ctx, msg, android.widget.Toast.LENGTH_SHORT).show()
                         // 对方已结束聊天：重新取一次关系，输入区换成说明
                         if (code == "chat_ended") MatchCenter.version++
+                        // 群用不了了（我不在群里了 / 解散了 / 被关闭）：输入区马上换成那句话
+                        groupReasonState(code)?.let { gone ->
+                            g = g?.let { it.copy(state = if (it.state == "kicked" && gone == "left") "kicked" else gone) }
+                        }
                     }
                     val tid = frame["tempId"]?.jsonPrimitive?.content
                     (if (tid != null) messages.firstOrNull { it.id == tid } else messages.lastOrNull { it.id.startsWith("t_") })?.let { last -> messages = messages - last }
@@ -582,7 +763,8 @@ fun ChatRoomScreen(
         onCopy = if (m.type == "text") ({ copyToClipboard(ctx, m.content) }) else null,
         onSave = if (m.type == "image" || m.type == "video") ({ scope.launch { saveMediaToGallery(ctx, if (m.type == "image") imageUrl(m.content) else m.content, m.type) } })
             else if (m.type == "file" && parseChatFile(m.content).url != null) ({ downloadChatFile(ctx, parseChatFile(m.content)) }) else null,
-        onPin = { togglePin(m.id, pins.none { it.id == m.id }) },
+        // 群聊里只有群主能置顶；群用不了以后（解散了 / 被关闭）也不给
+        onPin = if (!isGroup || (g?.role == "owner" && groupGone == null)) ({ togglePin(m.id, pins.none { it.id == m.id }) }) else null,
         onForward = if (m.type in FORWARDABLE) ({ forwardIds = listOf(m.id) }) else null,
         onReport = if (m.senderId != myUserId) ({ reportId = m.id }) else null,
         onDelete = { deleteIds = listOf(m.id) },
@@ -617,7 +799,7 @@ fun ChatRoomScreen(
         val m = messages.firstOrNull { it.upKey == key } ?: return null
         val meta = parseImage(m.content)
         val content = imageContent(url, meta.g, meta.w, meta.h)
-        val tempId = WsClient.send(targetId, "image", content, m.replyTo?.id)
+        val tempId = wsSend("image", content, m.replyTo?.id)
         messages = messages.map { if (it.upKey == key) it.copy(id = tempId, content = content) else it }
         upUris.remove(key)
         return tempId
@@ -673,7 +855,7 @@ fun ChatRoomScreen(
 
     fun sendPicked(key: String, content: String): String? {
         val m = messages.firstOrNull { it.upKey == key } ?: return null
-        val tempId = WsClient.send(targetId, m.type, content, m.replyTo?.id)
+        val tempId = wsSend(m.type, content, m.replyTo?.id)
         messages = messages.map { if (it.upKey == key) it.copy(id = tempId, content = content) else it }
         upPicked.remove(key)
         return tempId
@@ -759,11 +941,15 @@ fun ChatRoomScreen(
         Row(modifier = Modifier.fillMaxWidth().padding(8.dp, 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(modifier = Modifier.size(40.dp).noRippleClick(onBack), contentAlignment = Alignment.Center) { BackIcon(TextMain, 24.dp) }
             Row(Modifier.weight(1f), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                Text(title, color = TextMain, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                // 群聊的标题是「群名（人数）」；群用不了以后（我不在了 / 解散了 / 被关闭）不显示人数
+                val gi = g
+                val shownTitle = if (!isGroup) title else (gi?.name ?: title) + if (gi != null && gi.state == "ok") "（${gi.memberCount}）" else ""
+                Text(shownTitle, color = TextMain, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
             }
             var menu by remember { mutableStateOf(false) }
             Box {
-                Box(Modifier.size(40.dp).noRippleClick { menu = true }, contentAlignment = Alignment.Center) {
+                // 群聊：右上角「···」直接进群资料，没有下拉菜单（群聊不能清空）
+                Box(Modifier.size(40.dp).noRippleClick { if (isGroup) onNav("group/$groupId") else menu = true }, contentAlignment = Alignment.Center) {
                     Text("···", color = TextMain, fontSize = 18.sp, fontWeight = FontWeight.Bold)
                 }
                 androidx.compose.material3.DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = Bg2) {
@@ -810,11 +996,13 @@ fun ChatRoomScreen(
             )
         }
 
+        // 样稿里群聊页顶上还钉着这个群对应的线路 / 活动卡片：线路、活动是第 2、3 步才做的，到时候加在这里
         if (pins.isNotEmpty()) {
             PinBar(
                 pins, pinIdx,
                 onJump = { jumpTo(pins[pinIdx % pins.size].id); pinIdx = (pinIdx + 1) % pins.size },
-                onUnpin = { togglePin(pins[pinIdx % pins.size].id, false) },
+                // 群聊里只有群主能取消置顶：别人没有那个 ×
+                onUnpin = if (!isGroup || (g?.role == "owner" && groupGone == null)) ({ togglePin(pins[pinIdx % pins.size].id, false) }) else null,
             )
         }
 
@@ -850,6 +1038,17 @@ fun ChatRoomScreen(
         LazyColumn(state = listState, modifier = Modifier.weight(1f).padding(horizontal = 12.dp).noRippleClick { showEmoji = false; focus.clearFocus(); keyboard?.hide() }) {
             items(chatRows, key = { chatRowKey(it.first) }) { (row, idx) ->
                 val m = row[0]
+                // 群里中间那行灰色小字（有人进群、退群、被移出、改群名、解散…）：不是气泡，不能长按、不能选
+                if (m.type == "sys") {
+                    Text(
+                        sysText(m.content), color = TextDim, fontSize = 11.5.sp, lineHeight = 17.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 5.dp, bottom = 9.dp),
+                    )
+                    return@items
+                }
+                // 群聊：群主的昵称后面有小标（领队 / 发起人），点别人的头像进他的相亲画像
+                val ownerKind = if (isGroup && m.senderId == g?.ownerId) g?.kind else null
+                val onAvatar: (() -> Unit)? = if (isGroup) ({ onNav("u/${m.senderId}") }) else null
                 val album = if (row.size > 1) row else null
                 val rowIds = row.map { it.id }
                 // 微信式时间分隔条：与上一条间隔超 5 分钟显示
@@ -880,7 +1079,7 @@ fun ChatRoomScreen(
                             SelectCircle(rowSelected)
                             Spacer(Modifier.width(10.dp))
                             Box(Modifier.weight(1f)) {
-                                Bubble(m, m.senderId == myUserId, myUserId, onImage = {}, onMenu = {}, onReact = {}, onJump = {}, album = album, uploads = uploads)
+                                Bubble(m, m.senderId == myUserId, myUserId, onImage = {}, onMenu = {}, onReact = {}, onJump = {}, album = album, uploads = uploads, ownerKind = ownerKind)
                                 // 多选时盖一层，点哪都是勾选
                                 Box(Modifier.matchParentSize().noRippleClick(toggle))
                             }
@@ -897,6 +1096,8 @@ fun ChatRoomScreen(
                             onItemMenu = { it2 -> if (!it2.pending) { focus.clearFocus(); keyboard?.hide(); menuMsg = it2 } },
                             onItemReact = { it2, e -> react(it2.id, e) },
                             onRetry = { retryUpload(it) },
+                            ownerKind = ownerKind,
+                            onAvatar = onAvatar,
                         )
                     }
                 }
@@ -923,12 +1124,17 @@ fun ChatRoomScreen(
                 Spacer(Modifier.width(18.dp))
                 Text(t("common.delete"), color = if (on) Danger else TextDim, fontSize = 15.sp, modifier = Modifier.noRippleClick { if (on) deleteIds = chosen.map { it.id } })
             }
+        } else if (groupGone != null) {
+            // 群用不了了（我退出了 / 被移出了 / 群解散了 / 被平台关闭）：输入区换成一句话，没有别的按钮；之前的聊天记录照常能看
+            GroupEndBar(groupGone)
         } else if (rel?.state == "ended") {
             // 有一方点了「不再联系」：输入区换成一句说明，聊天记录照常能看。其余情况一律能发
             ChatBlockedBar(rel!!)
         } else
         // 微信式底部区（随键盘上移）：左语音切换 / 输入框 / +面板 / 发送
         Column(modifier = Modifier.background(Bg2).imePadding().navigationBarsPadding()) {
+            // 活动 / 行程已经结束、群还没解散的那几天：输入框上面一条提示，照常能发
+            groupTip?.let { GroupExpireTip(it) }
             replyTo?.let { r -> ReplyBar(r.senderNickname, msgSnippet(r.type, r.content)) { replyTo = null } }
             Row(modifier = Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.Bottom) {
                 Box(
@@ -996,6 +1202,8 @@ fun ChatRoomScreen(
         AttachSheet(
             // 视频通话仅男方可发起（女方只能接听）
             canVideoCall = true,
+            // 群聊里没有语音 / 视频通话
+            noCall = isGroup,
             onDismiss = { showAttach = false },
             onSend = { uris, caption -> sendImages(uris, caption) },
             onFiles = { sendFiles(it) },
@@ -1015,13 +1223,15 @@ fun ChatRoomScreen(
             myReaction = m.reactions.firstOrNull { myUserId in it.userIds }?.emoji,
             pinned = pins.any { it.id == m.id },
             actions = menuActions(m),
+            // 群里没有「已读」
+            showRead = !isGroup,
         ) { menuMsg = null }
     }
     deleteIds?.let { ids ->
         DeleteMsgDialog(
             count = ids.size,
             canForAll = messages.filter { it.id in ids }.all { canDeleteForAll(it) },
-            peerName = title,
+            peerName = if (isGroup) "群里所有人" else title,
             onConfirm = { forAll -> deleteIds = null; doDelete(ids, forAll) },
         ) { deleteIds = null }
     }
@@ -1032,7 +1242,8 @@ fun ChatRoomScreen(
         }) { forwardIds = null }
     }
     reportId?.let { id ->
-        ReportMsgDialog(id, onDone = { tip -> reportId = null; toast(tip) }) { reportId = null }
+        // 群里的举报多一项「线下不安全」
+        ReportMsgDialog(id, inGroup = isGroup, onDone = { tip -> reportId = null; toast(tip) }) { reportId = null }
     }
     fullImage?.let { u ->
         androidx.compose.ui.window.Dialog(onDismissRequest = { fullImage = null }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
@@ -1054,6 +1265,10 @@ private fun Bubble(
     onItemMenu: (MsgItem) -> Unit = {},
     onItemReact: (MsgItem, String) -> Unit = { _, _ -> },
     onRetry: (MsgItem) -> Unit = {},
+    /** 群聊里发这条消息的人是群主：群的类型（昵称后面的小标按它写「领队 / 发起人 / 群主」）；不是群主、或者是单聊，传 null */
+    ownerKind: String? = null,
+    /** 点别人的头像（群聊里进他的相亲画像）；单聊不传 */
+    onAvatar: (() -> Unit)? = null,
 ) {
     val menu by rememberUpdatedState(onMenu)
     // 微信式：对方左侧灰气泡，自己右侧主题气泡，头像顶部对齐、贴边尾角
@@ -1063,7 +1278,10 @@ private fun Bubble(
     val fg = TextMain
 
     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start, verticalAlignment = Alignment.Top) {
-        if (!mine) { Avatar(m.senderAvatar, 38); Spacer(Modifier.width(8.dp)) }
+        if (!mine) {
+            Box(if (onAvatar != null) Modifier.noRippleClick(onAvatar) else Modifier) { Avatar(m.senderAvatar, 38) }
+            Spacer(Modifier.width(8.dp))
+        }
         // 点 / 长按气泡弹消息菜单；图片、语音、链接各自的点击优先
         Column(
             horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
@@ -1071,6 +1289,7 @@ private fun Bubble(
         ) {
             if (!mine) Row(Modifier.padding(bottom = 2.dp, start = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(m.senderNickname, color = TextSub, fontSize = 11.sp)
+                if (ownerKind != null) OwnerBadge(ownerKind, Modifier.padding(start = 5.dp))
             }
             if (m.fwdFrom != null) Text(t("chat.forwardedFrom", "name" to m.fwdFrom), color = LinkBlue, fontSize = 11.sp, modifier = Modifier.padding(bottom = 2.dp, start = 4.dp, end = 4.dp))
             m.replyTo?.let { r -> ReplyQuote(r) { onJump(r.id) } }

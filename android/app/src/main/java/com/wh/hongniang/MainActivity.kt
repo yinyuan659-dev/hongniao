@@ -287,8 +287,9 @@ fun AppRoot() {
                 // 空占位：主页由底层常驻渲染
                 Box(Modifier.size(0.dp))
             }
+            // 聊天页，单聊、群聊共用：单聊带 targetId（对方的用户 id），群聊带 groupId（路由用 groupChatRoute 拼）
             page(
-                "chatroom/{convId}?targetId={targetId}&title={title}&focusMsgId={focusMsgId}&draft={draft}",
+                "chatroom/{convId}?targetId={targetId}&title={title}&focusMsgId={focusMsgId}&draft={draft}&groupId={groupId}",
                 arguments = listOf(
                     navArgument("convId") { type = NavType.StringType },
                     navArgument("targetId") { type = NavType.StringType; defaultValue = "" },
@@ -296,6 +297,7 @@ fun AppRoot() {
                     navArgument("focusMsgId") { type = NavType.StringType; defaultValue = "" },
                     // 先填进输入框的话（互相喜欢的庆祝页里点的开场白）
                     navArgument("draft") { type = NavType.StringType; defaultValue = "" },
+                    navArgument("groupId") { type = NavType.StringType; defaultValue = "" },
                 ),
             ) { entry ->
                 val a = entry.arguments!!
@@ -313,6 +315,17 @@ fun AppRoot() {
                     onCall = { type -> startCall(type) },
                     onNav = { nav.navigate(it) },
                     draft = a.getString("draft").orEmpty(),
+                    groupId = a.getString("groupId").orEmpty().filter { it.isDigit() },
+                )
+            }
+            // 群资料（群聊页右上角「···」进来）。退出了 / 从列表里删掉了这个群：回到主页（消息列表）
+            page("group/{id}", listOf(navArgument("id") { type = NavType.StringType })) { entry ->
+                GroupInfoScreen(
+                    groupId = entry.arguments!!.getString("id")!!.filter { it.isDigit() },
+                    myUserId = user?.id ?: "",
+                    onBack = { nav.popBackStack() },
+                    onNav = { nav.navigate(it) },
+                    onExit = { nav.popBackStack("main", false) },
                 )
             }
             // AI 红娘资料收集（「编辑资料」和没完成资料时的提示框都进这里）

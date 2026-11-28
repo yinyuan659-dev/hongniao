@@ -7,8 +7,9 @@ import { IntimacyService } from '../intimacy/intimacy.service';
 import { MessagePayload, ReactionView, ReplyPreview, SendFrame } from './im.types';
 import { resolveInviteUser } from '../invite/invite.service';
 import { FILE_MAX_SIZE } from '../upload/upload.service';
+import { GroupService } from './group.service';
 
-/** 客户端能发的消息类型（通话记录只由服务端写入） */
+/** 客户端能发的消息类型（通话记录、群里的灰色小字 sys 只由服务端写入） */
 const SEND_TYPES = new Set(['text', 'image', 'video', 'audio', 'file', 'location']);
 
 const CHAT_FILE_RE = /^\/res\/[\w.-]+\/file\/\d{4}-\d{2}-\d{2}\/[0-9a-f-]{36}\.[a-z0-9]{1,8}$/;
@@ -43,18 +44,56 @@ export class ImService {
     private readonly crypto: CryptoService,
     private readonly registry: ConnectionRegistry,
     private readonly intimacy: IntimacyService,
+    private readonly groups: GroupService,
   ) {}
 
   // ---------- 发送 ----------
 
   async sendMessage(senderId: bigint, frame: SendFrame): Promise<MessagePayload> {
-    if (Number(frame.convType) !== 1) throw new BadRequestException('参数不正确');
+    const convType = Number(frame.convType);
+    if (convType !== 1 && convType !== 2) throw new BadRequestException('参数不正确');
+    if (!/^\d{1,19}$/.test(String(frame.targetId ?? ''))) throw new BadRequestException('参数不正确');
     if (!SEND_TYPES.has(frame.msgType)) throw new BadRequestException('这种消息不能直接发送');
     const sender = await this.prisma.user.findUnique({ where: { id: senderId } });
     if (!sender || sender.status !== 0) throw new ForbiddenException('账号异常');
     if (frame.msgType === 'file') frame = { ...frame, content: sanitizeFile(frame.content) };
 
-    return this.sendSingle(sender, BigInt(frame.targetId), frame);
+    return convType === 2 ? this.sendGroup(sender, BigInt(frame.targetId), frame) : this.sendSingle(sender, BigInt(frame.targetId), frame);
+  }
+
+  /**
+   * 群消息：必须还在群里、群是正常的（退了 / 被移出 / 解散 / 被关闭都抛 GroupGateException）。
+   * 群里不看「不再联系」：那一条只管两个人的单聊（样稿 design/12-group.html 第 4 组）。
+   */
+  private async sendGroup(sender: any, groupId: bigint, frame: SendFrame): Promise<MessagePayload> {
+    const { group } = await this.groups.access(sender.id, groupId, true);
+    const conv = await this.prisma.conversation.findUnique({ where: { groupId } });
+    if (!conv) throw new NotFoundException('群会话不存在');
+
+    const key = this.crypto.unwrapKey(conv.wrappedKey);
+    const reply = await this.resolveReply(conv.id, key, frame.replyToId);
+    const msg = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.message.create({
+        data: {
+          conversationId: conv.id,
+          senderId: sender.id,
+          receiverId: null,
+          type: frame.msgType,
+          cipherContent: this.crypto.encrypt(key, frame.content),
+          replyToId: reply ? BigInt(reply.id) : null,
+          fwdFrom: frame.fwdFrom || null,
+        },
+      });
+      await tx.conversation.update({ where: { id: conv.id }, data: { lastMsgAt: created.createdAt } });
+      // 自己发的算自己读过
+      await tx.groupMember.update({ where: { groupId_userId: { groupId, userId: sender.id } }, data: { lastReadMsgId: created.id } });
+      return created;
+    });
+
+    const payload = this.toPayload(msg, conv, sender, frame.content, reply, group);
+    const targets = (await this.groups.activeIds(groupId)).filter((id) => id !== sender.id);
+    await this.registry.deliver(targets, { op: 'msg', data: payload });
+    return payload;
   }
 
   private async sendSingle(sender: any, peerId: bigint, frame: SendFrame): Promise<MessagePayload> {
@@ -143,6 +182,15 @@ export class ImService {
   async markRead(userId: bigint, conversationId: bigint, msgId: bigint) {
     const conv = await this.prisma.conversation.findUnique({ where: { id: conversationId } });
     if (!conv) return;
+    if (conv.groupId) {
+      // 群里不显示「已读」，只记我读到哪了（算未读数用）；不通知别人
+      const m = await this.groups.member(conv.groupId, userId);
+      if (!m || m.status !== 0 || msgId <= m.lastReadMsgId) return;
+      const last = await this.prisma.message.findFirst({ where: { conversationId, id: { lte: msgId } }, orderBy: { id: 'desc' }, select: { id: true } });
+      if (!last || last.id <= m.lastReadMsgId) return;
+      await this.prisma.groupMember.update({ where: { groupId_userId: { groupId: conv.groupId, userId } }, data: { lastReadMsgId: last.id } });
+      return;
+    }
     if (conv.userAId !== userId && conv.userBId !== userId) return;
     await this.prisma.message.updateMany({
       where: { conversationId, receiverId: userId, isRead: false, id: { lte: msgId } },
@@ -215,7 +263,61 @@ export class ImService {
         ended: theirs.get(pid)?.kind === 'end',
       });
     }
-    return result;
+
+    // 群：和单聊混在同一个列表里，按最后一条消息的时间排
+    const groupRows = await this.groupConversations(userId, hidden);
+    if (!groupRows.length) return result;
+    return [...result, ...groupRows].sort((a, b) => new Date(b.lastMsgAt).getTime() - new Date(a.lastMsgAt).getTime());
+  }
+
+  /**
+   * 我进过的群（没从列表里删掉的）。已经不在群里的（退了 / 被移出）只看得到离开之前的最后一条，未读算 0。
+   * 每一行：{ id, type: 2, group: {..., state, role}, lastMsg: {..., senderNickname}, unread, muted, lastMsgAt }
+   */
+  private async groupConversations(userId: bigint, hidden: Set<string>) {
+    const mine = await this.groups.myGroups(userId);
+    if (!mine.length) return [];
+    const convs = await this.prisma.conversation.findMany({ where: { groupId: { in: mine.map((m) => m.group.id) } } });
+    const convMap = new Map(convs.map((c) => [c.groupId!.toString(), c]));
+    const rows = [] as any[];
+    for (const { group, member, state, memberCount } of mine) {
+      const conv = convMap.get(group.id.toString());
+      if (!conv) continue;
+      const out = member.status !== 0;
+      const bound = out && member.leftAt ? { createdAt: { lte: member.leftAt } } : {};
+      const key = this.crypto.unwrapKey(conv.wrappedKey);
+      const recent = await this.prisma.message.findMany({
+        where: { conversationId: conv.id, ...bound },
+        orderBy: { id: 'desc' },
+        take: hidden.size ? 10 : 1,
+      });
+      const lastMsg = recent.find((m) => !hidden.has(m.id.toString())) ?? null;
+      const sender = lastMsg && lastMsg.type !== 'sys'
+        ? await this.prisma.user.findUnique({ where: { id: lastMsg.senderId }, select: { nickname: true } })
+        : null;
+      const unread = out
+        ? 0
+        : await this.prisma.message.count({
+            where: { conversationId: conv.id, id: { gt: member.lastReadMsgId }, senderId: { not: userId }, type: { not: 'sys' } },
+          });
+      rows.push({
+        id: conv.id,
+        type: 2,
+        group: {
+          id: group.id, name: group.name, avatar: group.avatar, kind: group.kind, refId: group.refId, ownerId: group.ownerId,
+          status: group.status, memberCount, endAt: group.endAt, expireAt: group.expireAt,
+          /** 我和这个群的关系：ok / left / kicked / dissolved / closed */
+          state,
+          role: member.role,
+        },
+        lastMsg: lastMsg && { ...this.preview(lastMsg, key), senderNickname: sender?.nickname ?? '' },
+        unread,
+        /** 免打扰：未读只显示灰点，不计入总未读 */
+        muted: member.muted,
+        lastMsgAt: lastMsg?.createdAt ?? (out && member.leftAt ? member.leftAt : conv.lastMsgAt),
+      });
+    }
+    return rows;
   }
 
   /**
@@ -231,9 +333,12 @@ export class ImService {
     const me = await this.prisma.user.findUnique({ where: { id: userId }, select: { gender: true } });
     if (!me) return { messages: [], users: [] };
 
+    // 群只搜我现在还在的
+    const myGroups = (await this.groups.myGroups(userId)).filter((g) => g.member.status === 0);
+    const groupById = new Map(myGroups.map((g) => [g.group.id.toString(), g.group]));
     const convs = await this.prisma.conversation.findMany({
-      where: { OR: [{ userAId: userId }, { userBId: userId }] },
-      select: { id: true, type: true, userAId: true, userBId: true, wrappedKey: true },
+      where: { OR: [{ userAId: userId }, { userBId: userId }, ...(myGroups.length ? [{ groupId: { in: myGroups.map((g) => g.group.id) } }] : [])] },
+      select: { id: true, type: true, userAId: true, userBId: true, groupId: true, wrappedKey: true },
     });
     const convMap = new Map(convs.map((c) => [c.id.toString(), c]));
 
@@ -273,7 +378,7 @@ export class ImService {
     for (const h of hits) {
       userIds.add(h.row.senderId.toString());
       const c = convMap.get(h.row.conversationId.toString())!;
-      userIds.add((c.userAId === userId ? c.userBId! : c.userAId!).toString());
+      if (!c.groupId) userIds.add((c.userAId === userId ? c.userBId! : c.userAId!).toString());
     }
     const people = userIds.size
       ? await this.prisma.user.findMany({
@@ -285,10 +390,11 @@ export class ImService {
 
     const messages = hits.map(({ row, content, idx }) => {
       const c = convMap.get(row.conversationId.toString())!;
-      const targetId = (c.userAId === userId ? c.userBId! : c.userAId!).toString();
-      const peer = personMap.get(targetId);
-      const title = peer?.nickname ?? '';
-      const avatar = peer?.avatar ?? '';
+      const g = c.groupId ? groupById.get(c.groupId.toString()) : undefined;
+      const targetId = c.groupId ? c.groupId.toString() : (c.userAId === userId ? c.userBId! : c.userAId!).toString();
+      const peer = c.groupId ? undefined : personMap.get(targetId);
+      const title = g ? g.name : peer?.nickname ?? '';
+      const avatar = g ? g.avatar : peer?.avatar ?? '';
       const start = Math.max(0, idx - 16);
       const snippet = (start > 0 ? '…' : '') + content.slice(start, start + 120).replace(/\s+/g, ' ');
       const sender = personMap.get(row.senderId.toString());
@@ -326,6 +432,8 @@ export class ImService {
   async clearMessages(userId: bigint, conversationId: bigint) {
     const conv = await this.prisma.conversation.findUnique({ where: { id: conversationId } });
     if (!conv) throw new NotFoundException('会话不存在');
+    // 群聊不能清空：那是所有人的记录
+    if (conv.groupId) throw new ForbiddenException('群聊不能清空聊天记录');
     await this.assertMember(userId, conv);
 
     await this.prisma.messagePin.deleteMany({ where: { conversationId } });
@@ -343,11 +451,15 @@ export class ImService {
   async listMessages(userId: bigint, conversationId: bigint, beforeId?: bigint, limit = 30, aroundId?: bigint) {
     const conv = await this.prisma.conversation.findUnique({ where: { id: conversationId } });
     if (!conv) throw new NotFoundException('会话不存在');
-    await this.assertMember(userId, conv);
+    const access = await this.assertMember(userId, conv);
 
     const key = this.crypto.unwrapKey(conv.wrappedKey);
     const hiddenRows = await this.prisma.messageHide.findMany({ where: { userId, conversationId }, select: { messageId: true } });
-    const notHidden = hiddenRows.length ? { id: { notIn: hiddenRows.map((h) => h.messageId) } } : {};
+    const notHidden = {
+      ...(hiddenRows.length ? { id: { notIn: hiddenRows.map((h) => h.messageId) } } : {}),
+      // 已经不在群里的人：只看得到离开之前的消息
+      ...(access?.member.status !== 0 && access?.member.leftAt ? { createdAt: { lte: access.member.leftAt } } : {}),
+    };
     let messages;
     if (aroundId) {
       const [older, newer] = await Promise.all([
@@ -466,8 +578,14 @@ export class ImService {
     return map;
   }
 
-  async assertMember(userId: bigint, conv: { userAId: bigint | null; userBId: bigint | null }) {
+  /**
+   * 我在不在这个会话里。单聊：是两个人之一；群聊：进过这个群（write=true 时还要现在在群里、群是正常的）。
+   * 群聊返回 {group, member, state}，单聊返回 null。
+   */
+  async assertMember(userId: bigint, conv: { userAId: bigint | null; userBId: bigint | null; groupId?: bigint | null }, write = false) {
+    if (conv.groupId) return this.groups.access(userId, conv.groupId, write);
     if (conv.userAId !== userId && conv.userBId !== userId) throw new ForbiddenException('无权访问该会话');
+    return null;
   }
 
   private preview(msg: any, key: Buffer) {
@@ -480,10 +598,11 @@ export class ImService {
     return { id: msg.id, senderId: msg.senderId, type: msg.type, content, createdAt: msg.createdAt };
   }
 
-  private toPayload(msg: any, conv: any, sender: any, plainContent: string, reply?: ReplyPreview | null): MessagePayload {
+  private toPayload(msg: any, conv: any, sender: any, plainContent: string, reply?: ReplyPreview | null, group?: { id: bigint; name: string }): MessagePayload {
     return {
       ...(reply ? { replyTo: reply } : {}),
       ...(msg.fwdFrom ? { fwdFrom: msg.fwdFrom } : {}),
+      ...(group ? { groupId: group.id.toString(), groupName: group.name } : {}),
       id: msg.id.toString(),
       conversationId: conv.id.toString(),
       convType: conv.type,

@@ -4,6 +4,11 @@ import { lang } from './i18n';
 export interface MessagePayload {
   id: string;
   conversationId: string;
+  /** 1 单聊 2 群聊 */
+  convType?: number;
+  /** 群聊才有 */
+  groupId?: string;
+  groupName?: string;
   senderId: string;
   senderNickname: string;
   senderAvatar: string;
@@ -41,6 +46,8 @@ class WsManager {
   private reconnectTimer: number | null = null;
   private manualClose = false;
   private queue: string[] = [];
+  /** 连上过没有：断线后重新连上时，告诉各页面补拉一次（平时的变化都靠推送，断线那段时间的会漏） */
+  private everOpen = false;
 
   connect() {
     const token = getToken();
@@ -54,6 +61,9 @@ class WsManager {
       const pending = this.queue;
       this.queue = [];
       pending.forEach((f) => this.ws?.send(f));
+      // 不是服务器发来的帧：断线后重新连上了。页面收到它就把自己的数据重新拉一次
+      if (this.everOpen) this.handlers.forEach((h) => h({ op: 'ws_reopen' }));
+      this.everOpen = true;
     };
     this.ws.onmessage = (e) => {
       try {
@@ -105,10 +115,10 @@ class WsManager {
     return () => this.handlers.delete(handler);
   }
 
-  /** 发送单聊消息，返回 tempId */
-  send(targetId: string, msgType: string, content: string, replyToId?: string): string {
+  /** 发消息，返回 tempId。convType 1 = 单聊（targetId 是对方的用户 id），2 = 群聊（targetId 是群 id） */
+  send(targetId: string, msgType: string, content: string, replyToId?: string, convType: 1 | 2 = 1): string {
     const tempId = `t_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    this.raw({ op: 'send', tempId, convType: 1, targetId, msgType, content, ...(replyToId ? { replyToId } : {}) });
+    this.raw({ op: 'send', tempId, convType, targetId, msgType, content, ...(replyToId ? { replyToId } : {}) });
     return tempId;
   }
 

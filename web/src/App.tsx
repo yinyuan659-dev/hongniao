@@ -10,6 +10,7 @@ import { PlazaPage } from './pages/Plaza';
 import { HallPage, TripPage } from './pages/Hall';
 import { ChatListPage } from './pages/ChatList';
 import { ChatRoomPage } from './pages/ChatRoom';
+import { GroupInfoPage } from './pages/GroupInfo';
 import { InterviewPage } from './pages/Interview';
 import { MePage } from './pages/Me';
 import { PublishPage } from './pages/Publish';
@@ -50,7 +51,8 @@ function Shell() {
       ]).then(([msgs, likes]) => setUnread(msgs + likes)).catch(() => {});
     load();
     return wsManager.on((frame) => {
-      if (frame.op === 'msg' || frame.op === 'match') load();
+      // conv_refresh：会话列表有变化（群里进出、免打扰、解散…）；ws_reopen：断线后重新连上，补拉一次
+      if (frame.op === 'msg' || frame.op === 'match' || frame.op === 'conv_refresh' || frame.op === 'ws_reopen') load();
       // 动态被评论 / 评论被回复：顶部弹一条提示
       if (frame.op === 'notify') {
         const d = frame.data ?? {};
@@ -202,6 +204,8 @@ export function App() {
         <Route path="/my-moments" element={<MyMomentsPage />} />
         <Route path="/moment/:id" element={<MomentDetailPage />} />
         <Route path="/chatroom/:id" element={<ChatRoomPage />} />
+        {/* 群资料（样稿 design/12-group.html 第 2 组）：从群聊页右上角「···」进 */}
+        <Route path="/group/:id" element={<GroupInfoPage />} />
         <Route path="/interview" element={<InterviewPage />} />
         <Route path="/people/:mode" element={<PeoplePage />} />
         <Route path="/realname" element={<RealnamePage />} />

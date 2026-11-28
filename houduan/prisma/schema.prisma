@@ -363,13 +363,15 @@ model UserAlbum {
 /// 单聊会话
 model Conversation {
   id          BigInt   @id @default(autoincrement())
-  /// 1=单聊
+  /// 1=单聊 2=群聊
   type        Int      @default(1) @db.TinyInt
-  /// 单聊唯一键：{minUserId}_{maxUserId}
+  /// 单聊唯一键：{minUserId}_{maxUserId}；群聊是 g_{groupId}
   pairKey     String   @unique @map("pair_key") @db.VarChar(50)
   userAId     BigInt?  @map("user_a_id")
   userBId     BigInt?  @map("user_b_id")
-  /// 会话 AES-256-GCM 密钥（每会话一把），经服务端主密钥包裹后存储
+  /// 群聊才有：对应 chat_group.id（2026-11-27 加的列）
+  groupId     BigInt?  @unique @map("group_id")
+  /// 会话 AES-256-GCM 密钥（单聊每会话一把、群聊每群一把），经服务端主密钥包裹后存储
   wrappedKey  String   @map("wrapped_key") @db.VarChar(200)
   lastMsgAt   DateTime @default(now()) @map("last_msg_at")
   createdAt   DateTime @default(now()) @map("created_at")
@@ -377,6 +379,63 @@ model Conversation {
   @@index([userAId, lastMsgAt])
   @@index([userBId, lastMsgAt])
   @@map("conversation")
+}
+
+/// 群（2026-11-27 加的表，样稿 design/12-group.html）。只有两种来源：旅行线路的群、相亲活动的群，由系统建；用户不能自己建群。
+model ChatGroup {
+  id          BigInt    @id @default(autoincrement())
+  name        String    @db.VarChar(50)
+  /// 群头像：线路的封面 / 活动的类型图；空 = 客户端按 kind 画默认的
+  avatar      String    @default("") @db.VarChar(255)
+  /// 群公告：只有群主能写
+  notice      String    @default("") @db.VarChar(500)
+  /// 群主：线路群是领队，活动群是发起人。不能转让
+  ownerId     BigInt    @map("owner_id")
+  memberLimit Int       @default(200) @map("member_limit")
+  /// trip=旅行线路的群 event=相亲活动的群 test=后台建的测试群
+  kind        String    @default("trip") @db.VarChar(10)
+  /// 对应的线路 / 活动 id（没有就是 0）
+  refId       BigInt    @default(0) @map("ref_id")
+  /// 0=正常 1=已解散 2=被平台关闭
+  status      Int       @default(0) @db.TinyInt
+  /// 活动开始 / 行程结束的时间：过了以后群里提示「N 天后自动解散」
+  endAt       DateTime? @map("end_at")
+  /// 到这个时间自动解散（活动群 = 活动开始后 3 天，线路群 = 行程结束后 7 天）
+  expireAt    DateTime? @map("expire_at")
+  closedAt    DateTime? @map("closed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  members GroupMember[]
+
+  @@index([ownerId])
+  @@index([kind, refId])
+  @@index([status, expireAt])
+  @@map("chat_group")
+}
+
+/// 群成员（2026-11-27 加的表）。退群、被移出不删行，只改 status：这样之前的聊天记录还能看，被移出的人也进不回来。
+model GroupMember {
+  id            BigInt    @id @default(autoincrement())
+  groupId       BigInt    @map("group_id")
+  userId        BigInt    @map("user_id")
+  /// owner|member（不设管理员）
+  role          String    @default("member") @db.VarChar(10)
+  /// 0=在群里 1=自己退出 2=被群主移出 3=被平台移出
+  status        Int       @default(0) @db.TinyInt
+  lastReadMsgId BigInt    @default(0) @map("last_read_msg_id")
+  /// 消息免打扰：未读只显示灰点，不计入总未读
+  muted         Boolean   @default(false)
+  /// 已经解散 / 已经不在的群，从自己的消息列表里删掉
+  hidden        Boolean   @default(false)
+  joinedAt      DateTime  @default(now()) @map("joined_at")
+  /// 退出 / 被移出的时间：这之后的群消息看不到
+  leftAt        DateTime? @map("left_at")
+
+  group ChatGroup @relation(fields: [groupId], references: [id])
+
+  @@unique([groupId, userId])
+  @@index([userId, status])
+  @@map("group_member")
 }
 
 model Message {
@@ -815,7 +874,7 @@ model Report {
   id         BigInt   @id @default(autoincrement())
   reporterId BigInt   @map("reporter_id")
   targetUserId BigInt @map("target_user_id")
-  /// user|moment|message
+  /// user|moment|message|group（group：举报整个群，targetId = 群 id，targetUserId = 群主）
   targetType String   @map("target_type") @db.VarChar(10)
   targetId   BigInt   @default(0) @map("target_id")
   reason     String   @db.VarChar(500)
