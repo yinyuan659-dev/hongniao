@@ -138,6 +138,15 @@ export function CardPage() {
                   <Ic n="shield" s={13} />真人认证
                 </span>
               )}
+              {/* 自己的画像、还没做真人认证：原来这里什么都没有，找不到去认证的地方（2026-11-28 用户反馈）。点了去认证，认证完回到这一页 */}
+              {c.self && !c.realname && (
+                <span
+                  role="button" data-act="go-kyc" onClick={() => nav(`/kyc?next=${encodeURIComponent('/card/me')}`)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, height: 24, padding: '0 10px', borderRadius: 12, fontSize: 11.5, fontWeight: 700, color: '#fff', background: 'rgba(255,255,255,.22)', border: '1px solid rgba(255,255,255,.55)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', alignSelf: 'center', whiteSpace: 'nowrap', flexShrink: 0, cursor: 'pointer' }}
+                >
+                  <Ic n="shield" s={13} />去真人认证 ›
+                </span>
+              )}
               {/* 改昵称：只留一个铅笔图标，窄屏上能和昵称、年龄、标排在同一行 */}
               {edit && <span className="hn-gbtn" role="button" aria-label="改昵称" title="改昵称" style={{ height: 28, width: 28, minWidth: 0, padding: 0, marginLeft: 'auto', alignSelf: 'center', flexShrink: 0 }} onClick={() => goEdit()}><Ic n="pencil" s={13} /></span>}
             </div>

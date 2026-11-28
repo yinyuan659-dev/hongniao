@@ -192,6 +192,13 @@ def main():
                 F.wait_for_timeout(1500)
                 ok(F.evaluate("document.querySelector('video.tp-video').currentTime") > 0.3, '点了能播（播放位置在往前走）')
                 F.evaluate("document.querySelector('video.tp-video').pause()")
+                # 视频上不能压着我们自己的东西（返回键、下面的白卡片）：播放器自带的按钮在视频的四个角上，压住了就点不到 / 叠在一起
+                over = F.evaluate("""() => {
+                    const v = document.querySelector('video.tp-video').getBoundingClientRect();
+                    const hit = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.left < v.right && r.right > v.left && r.top < v.bottom && r.bottom > v.top; };
+                    return [...document.querySelectorAll('.hn-nav, .hn-nav *, .tp-gbtn, .tp-box, .tp-dockb')].filter(hit).map(e => e.className || e.tagName);
+                }""")
+                ok(over == [] and F.locator('.hn-nav .hn-icbtn').count() == 1, '返回键在视频上面的顶栏里；视频上没有压着返回键、卡片', over)
                 shot(F, 'trip-web-8-detail.png')
 
                 print('【6 约单 = 进群】')

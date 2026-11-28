@@ -321,6 +321,7 @@ fun AppRoot() {
                     onNav = { nav.navigate(it) },
                     draft = a.getString("draft").orEmpty(),
                     groupId = a.getString("groupId").orEmpty().filter { it.isDigit() },
+                    myIsLeader = user?.isLeader == true,
                 )
             }
             // 群资料（群聊页右上角「···」进来）。退出了 / 从列表里删掉了这个群：回到主页（消息列表）

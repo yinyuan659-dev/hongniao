@@ -129,6 +129,12 @@ export function MePage() {
   const choice = langChoice();
   const langName = choice === SYSTEM ? t('lang.system') : languages.find((l) => l.code === choice)?.name ?? choice;
   const needKyc = !!kyc?.required && !kyc.realname;
+  /**
+   * 还没做真人认证：「账号与安全」里一直有「真人认证」这一行（2026-11-28 改的）。
+   * 原来只有后台打开「必须先认证」时才有；开关关着的时候没认证的人找不到去认证的地方，而约旅行线路、刷脸找回账号都要认证过。
+   * 后台要求的写「未完成」带橙点，不要求的写「未认证」。
+   */
+  const unverified = !!kyc && !kyc.realname;
   const real = kyc?.realname ?? me.realname;
   // 「女 27 · 成都」；没选城市就不写城市
   const about = `${me.gender === 1 ? t('me.male') : t('me.female')} ${me.age}${me.cityName ? ` · ${me.cityName}` : ''}`;
@@ -230,13 +236,13 @@ export function MePage() {
         <Cell icon="wallet" color="#34c759" title="我的牵豆" onClick={() => nav('/ai-fee')}><Val value={balance === null ? undefined : `${balance}`} /></Cell>
       </div>
 
-      {/* 账号与安全：真人认证（后台要求且还没做时才出现）、能登录这个账号的设备（换手机刷脸找回后会多出来，可以移除） */}
+      {/* 账号与安全：真人认证（还没做的人一直有这一行）、能登录这个账号的设备（换手机刷脸找回后会多出来，可以移除） */}
       <div className="me-gh">账号与安全</div>
       <div className="me-card">
-        {needKyc && <Cell icon="shield" color="#ff9500" title="真人认证" onClick={() => nav('/kyc?next=/me')}><Val value="未完成" dot /></Cell>}
+        {unverified && <Cell icon="shield" color="#ff9500" title="真人认证" onClick={() => nav('/kyc?next=/me')}><Val value={needKyc ? '未完成' : '未认证'} dot={needKyc} /></Cell>}
         <Cell icon="lock" color="#007aff" title="登录设备" onClick={() => nav('/devices')}><Val value={deviceCount === null ? undefined : `${deviceCount} 台`} /></Cell>
       </div>
-      {needKyc && <div className="me-gf">做过真人认证才能发动态、评论、视频见面。认证一次 1 牵豆。</div>}
+      {unverified && <div className="me-gf">{needKyc ? '做过真人认证才能发动态、评论、视频见面。' : '约旅行线路、换手机后刷脸找回账号，都要先做真人认证。'}认证一次 1 牵豆。</div>}
 
       <div className="me-gh">{t('me.group.tools')}</div>
       <div className="me-card">

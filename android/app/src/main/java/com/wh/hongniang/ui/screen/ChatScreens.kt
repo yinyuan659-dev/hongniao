@@ -462,6 +462,8 @@ fun ChatRoomScreen(
     draft: String = "",
     /** 群聊：群 id；单聊是空的 */
     groupId: String = "",
+    /** 我自己是不是领队（领队和约单的人聊天，也不是相亲，见下面的 leaderChat） */
+    myIsLeader: Boolean = false,
 ) {
     val handleScan = rememberScanHandler(onNav)
     var messages by remember { mutableStateOf<List<MsgItem>>(emptyList()) }
@@ -476,6 +478,15 @@ fun ChatRoomScreen(
     LaunchedEffect(targetId, MatchCenter.version, HnEvents.version, reopen) {
         if (targetId.isNotEmpty()) runCatching { Api.getObj<MatchRelation>("/match/relation/$targetId") }.onSuccess { rel = it }
     }
+
+    // 对方是不是领队（单聊才问；null = 还没问到）。问的是领队页那个接口：不是领队回 404。
+    // 和领队聊天（问线路、问集合）不是相亲：只要有一边是领队、两个人又没有互相喜欢（leaderChat），
+    // 顶上那句「你们还没有互相喜欢…」不显示，右上角没有「视频见面」，「看 TA 的画像」换成「看 TA 的领队页」（2026-11-28 用户要的）
+    var peerLeader by remember(targetId) { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(targetId) {
+        if (targetId.isNotEmpty()) peerLeader = runCatching { Api.request("/trip/leader/$targetId") }.isSuccess
+    }
+    val leaderChat = targetId.isNotEmpty() && (peerLeader == true || myIsLeader) && rel?.state != "mutual"
 
     // 离开聊天页：让消息列表和底部「消息」上的数字重新取一次（见 ChatEvents）
     DisposableEffect(convId) { onDispose { ChatEvents.version++ } }
@@ -954,10 +965,14 @@ fun ChatRoomScreen(
                 }
                 androidx.compose.material3.DropdownMenu(expanded = menu, onDismissRequest = { menu = false }, containerColor = Bg2) {
                     if (targetId.isNotEmpty()) {
-                        androidx.compose.material3.DropdownMenuItem(text = { Text("看 TA 的画像", fontSize = 14.sp, color = TextMain) }, onClick = { menu = false; onNav("u/$targetId") })
-                        // 视频见面：按钮一直在（结束了联系的除外）。要互相喜欢、两个人都打开了视频见面才打得通；
+                        if (leaderChat && peerLeader == true) {
+                            androidx.compose.material3.DropdownMenuItem(text = { Text("看 TA 的领队页", fontSize = 14.sp, color = TextMain) }, onClick = { menu = false; onNav(hnH5("/trip/leader/$targetId")) })
+                        } else {
+                            androidx.compose.material3.DropdownMenuItem(text = { Text("看 TA 的画像", fontSize = 14.sp, color = TextMain) }, onClick = { menu = false; onNav("u/$targetId") })
+                        }
+                        // 视频见面：按钮一直在（结束了联系的、和领队的聊天除外）。要互相喜欢、两个人都打开了视频见面才打得通；
                         // 能不能打由服务器决定：没互相喜欢会弹说明（VideoNeedLikeDialog），别的原因给一句提示
-                        if (rel?.state != "ended") {
+                        if (rel?.state != "ended" && !leaderChat) {
                             androidx.compose.material3.DropdownMenuItem(text = { Text("视频见面", fontSize = 14.sp, color = TextMain) }, onClick = { menu = false; onCall(2) })
                         }
                         androidx.compose.material3.DropdownMenuItem(text = { Text("举报", fontSize = 14.sp, color = TextMain) }, onClick = { menu = false; reportUser = true })
@@ -971,8 +986,8 @@ fun ChatRoomScreen(
                 }
             }
         }
-        // 顶上一条提示：哪天配上的 + 防骗提醒
-        ChatMatchBanner(rel)
+        // 顶上一条提示：哪天配上的 + 防骗提醒。和领队的聊天不显示；还没问到对方是不是领队时先不显示，免得闪一下又消失
+        if (peerLeader != null && !leaderChat) ChatMatchBanner(rel)
         if (reportUser) {
             ReportUserDialog(targetId, onDone = { tip -> reportUser = false; toast(tip) }) { reportUser = false }
         }

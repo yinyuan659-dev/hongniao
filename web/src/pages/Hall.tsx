@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { PullToRefresh } from '../components/PullToRefresh';
 import { Ic, Nav } from '../hn';
 import { t } from '../i18n';
 import { TravelTab } from './Trip';
@@ -40,15 +41,30 @@ export function HallPage() {
     try { sessionStorage.setItem(TAB_KEY, v); } catch { /* 存不了就算了 */ }
   };
 
+  /** 现在这个 tab 怎么重新取一次（旅行 tab 把自己的取数函数放进来；相亲活动还没有内容，没有可取的） */
+  const reloadRef = useRef<(() => Promise<unknown>) | null>(null);
+  /**
+   * 手动刷新（2026-11-28 用户要的）：往下拉，或者再点一下已经选中的 tab。
+   * 平时列表靠服务器推送自己更新，但 App 里大厅这一页是一直开着的，推送万一漏了（断网、切到后台很久）得有个办法自己刷。
+   * 至少转 0.4 秒，不然取得太快，「刷新中…」一闪就没了，像没反应。
+   */
+  const refresh = () => Promise.all([
+    tab === 'trip' ? reloadRef.current?.() : undefined,
+    new Promise((r) => setTimeout(r, 400)),
+  ]);
+  const pick = (v: 'trip' | 'event') => (v === tab ? void refresh() : setTab(v));
+
   return (
     <div className="tp-hall">
-      <div className="tp-tt">
-        <span className={tab === 'trip' ? 'on' : ''} data-tab="trip" onClick={() => setTab('trip')}>旅行</span>
-        <span className={tab === 'event' ? 'on' : ''} data-tab="event" onClick={() => setTab('event')}>相亲活动</span>
-      </div>
-      {tab === 'trip' ? <TravelTab /> : (
-        <div className="tp-empty">相亲活动即将开放。{'\n'}到时候可以在这里发起同城的户外活动，或者参加别人发起的。</div>
-      )}
+      <PullToRefresh onRefresh={refresh}>
+        <div className="tp-tt">
+          <span className={tab === 'trip' ? 'on' : ''} data-tab="trip" onClick={() => pick('trip')}>旅行</span>
+          <span className={tab === 'event' ? 'on' : ''} data-tab="event" onClick={() => pick('event')}>相亲活动</span>
+        </div>
+        {tab === 'trip' ? <TravelTab reloadRef={reloadRef} /> : (
+          <div className="tp-empty">相亲活动即将开放。{'\n'}到时候可以在这里发起同城的户外活动，或者参加别人发起的。</div>
+        )}
+      </PullToRefresh>
     </div>
   );
 }

@@ -235,6 +235,9 @@ struct TripPinInfo: Codable {
     var price: Int? = nil
 }
 
+/// 只用来问「这个人是不是领队」：GET /trip/leader/:id 是领队就有回的东西（里面的内容用不着），不是领队回 404
+struct TripLeaderProbe: Codable {}
+
 /// 「12 月 6 日」；不是今年的带上年份。日期不是 YYYY-MM-DD 的样子就原样返回
 func tripDateText(_ day: String, thisYear: Int = Calendar(identifier: .gregorian).component(.year, from: Date())) -> String {
     let parts = day.split(separator: "-", omittingEmptySubsequences: false).map { Int($0) }

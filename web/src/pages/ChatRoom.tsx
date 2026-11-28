@@ -353,6 +353,21 @@ export function ChatRoomPage() {
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(loadRel, [state.targetId]);
+  /**
+   * 对方是不是领队（单聊才问）。问的是领队页那个接口：不是领队回 404。
+   * 和领队聊天（问线路、问集合）不是相亲：只要有一边是领队、两个人又没有互相喜欢，
+   * 顶上那句「你们还没有互相喜欢…」不显示，右上角「看 TA 的画像」换成「看 TA 的领队页」（2026-11-28 用户要的）。
+   */
+  // null = 还没问到（这时候那句提示先不显示，免得闪一下又消失）
+  const [peerLeader, setPeerLeader] = useState<boolean | null>(null);
+  useEffect(() => {
+    setPeerLeader(null);
+    if (!state.targetId) return;
+    let alive = true;
+    api(`/trip/leader/${state.targetId}`).then(() => alive && setPeerLeader(true)).catch(() => alive && setPeerLeader(false));
+    return () => { alive = false; };
+  }, [state.targetId]);
+  const leaderChat = !!state.targetId && (peerLeader === true || !!me?.isLeader) && rel?.state !== 'mutual';
   const [showDownload, setShowDownload] = useState(false);
   const [navMenu, setNavMenu] = useState(false);
   const [showAttach, setShowAttach] = useState(false);
@@ -854,7 +869,9 @@ export function ChatRoomPage() {
             <>
               <div className="nav-menu-mask" onClick={() => setNavMenu(false)} />
               <div className="nav-menu">
-                {state.targetId && <div onClick={() => { setNavMenu(false); nav(`/u/${state.targetId}`); }}>看 TA 的画像</div>}
+                {state.targetId && (leaderChat && peerLeader === true
+                  ? <div data-act="peer-leader" onClick={() => { setNavMenu(false); nav(`/trip/leader/${state.targetId}`); }}>看 TA 的领队页</div>
+                  : <div data-act="peer-card" onClick={() => { setNavMenu(false); nav(`/u/${state.targetId}`); }}>看 TA 的画像</div>)}
                 {state.targetId && <div onClick={() => { setNavMenu(false); setReporting(true); }}>举报</div>}
                 {/* 任何时候都能点（2026-11-27 起谁都能先发消息，这是不想被打扰时唯一的办法）；自己已经点过的不再显示 */}
                 {state.targetId && rel && rel.endedBy !== 'me' && (
@@ -913,7 +930,7 @@ export function ChatRoomPage() {
             {rel.matchedAt ? `你们在 ${matchDay(rel.matchedAt)}互相喜欢了。` : '你们互相喜欢了。'}<br />线下见面前不要转账，遇到借钱、投资的请直接举报。
           </div>
         )}
-        {rel && rel.state !== 'mutual' && rel.state !== 'ended' && (
+        {rel && rel.state !== 'mutual' && rel.state !== 'ended' && peerLeader !== null && !leaderChat && (
           <div className="hn-tip" style={{ margin: '6px 0 14px', background: 'rgba(0,0,0,0.04)' }}>
             你们还没有互相喜欢，可以先聊聊。<br />线下见面前不要转账，遇到借钱、投资的请直接举报。
           </div>

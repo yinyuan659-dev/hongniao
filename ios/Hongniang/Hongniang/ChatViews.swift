@@ -557,6 +557,8 @@ struct ChatRoomView: View {
     // 和单聊不一样的地方：标题是「群名（人数）」，右上角「···」进群资料；中间有灰色小字（消息类型 sys）；
     // 群主的昵称后面有「领队 / 发起人」小标，点别人头像进他的相亲画像；没有已读、没有通话；置顶只有群主；
     // 群用不了以后（我不在了 / 解散了 / 被关闭）输入区换成一句话。
+    /// 对方是不是领队（单聊才问；nil = 还没问到）
+    @State private var peerLeader: Bool?
     /// 群资料 + 我和这个群的关系。进来取一次，之后的变化靠推送（op: "group"）直接改，不轮询
     @State private var g: GroupInfo?
     /// 到了活动 / 行程的结束时间加一，让「N 天后自动解散」那句提示出现
@@ -623,8 +625,8 @@ struct ChatRoomView: View {
                 TripPinCard(tripId: tripId, reloadKey: g?.state ?? "") { pushRoute = .web("/trip/\(tripId)?from=group") }
             }
             pinBarView
-            // 顶上一条提示：哪天配上的 + 防骗提醒
-            ChatMatchBanner(rel: rel)
+            // 顶上一条提示：哪天配上的 + 防骗提醒。和领队的聊天不显示；还没问到对方是不是领队时先不显示，免得闪一下又消失
+            if peerLeader != nil && !leaderChat { ChatMatchBanner(rel: rel) }
             ScrollViewReader { proxy in messageScroll(proxy) }
             bottomArea
         }
@@ -635,6 +637,17 @@ struct ChatRoomView: View {
         // 群聊里 targetId 是群 id，没有「我和对方的关系」这回事
         guard convType == 1, !targetId.isEmpty else { return }
         if let r: MatchRelation = try? await Api.request("/match/relation/\(targetId)") { rel = r }
+        // 对方是不是领队：只问一次。问的是领队页那个接口，不是领队回 404
+        if peerLeader == nil {
+            let hit: TripLeaderProbe? = try? await Api.request("/trip/leader/\(targetId)")
+            peerLeader = hit != nil
+        }
+    }
+
+    /// 和领队聊天（问线路、问集合）不是相亲：只要有一边是领队、两个人又没有互相喜欢，
+    /// 顶上那句「你们还没有互相喜欢…」不显示，右上角没有「视频见面」，「看 TA 的画像」换成「看 TA 的领队页」（2026-11-28 用户要的）
+    private var leaderChat: Bool {
+        convType == 1 && !targetId.isEmpty && (peerLeader == true || state.user?.isLeader == true) && rel?.state != "mutual"
     }
 
     /// 喜欢相关的几样：关系刷新、举报、不合适不再联系
@@ -849,10 +862,14 @@ struct ChatRoomView: View {
     private var singleMenu: some View {
             Menu {
                 if !targetId.isEmpty {
-                    Button { pushRoute = .userHome(targetId) } label: { Label("看 TA 的画像", systemImage: "person.crop.rectangle") }
-                    // 视频见面：按钮一直在（结束了联系的除外）。要互相喜欢、两个人都打开了视频见面才打得通；
+                    if leaderChat && peerLeader == true {
+                        Button { pushRoute = .web("/trip/leader/\(targetId)") } label: { Label("看 TA 的领队页", systemImage: "car") }
+                    } else {
+                        Button { pushRoute = .userHome(targetId) } label: { Label("看 TA 的画像", systemImage: "person.crop.rectangle") }
+                    }
+                    // 视频见面：按钮一直在（结束了联系的、和领队的聊天除外）。要互相喜欢、两个人都打开了视频见面才打得通；
                     // 能不能打由服务器决定：没互相喜欢会弹说明，别的原因给一句提示
-                    if rel?.state != "ended" {
+                    if rel?.state != "ended" && !leaderChat {
                         Button {
                             let peerAvatar = messages.first(where: { $0.senderId == targetId })?.senderAvatar ?? ""
                             startCallWithPermissions(calleeId: targetId, type: 2, name: title, avatar: peerAvatar)

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { MutableRefObject, useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, reasonOf } from '../api';
 import { hnNative, openNativeChat, openNativeH5 } from '../bridge';
@@ -24,19 +24,26 @@ interface HomeData {
   leaders: number;
 }
 
-/** 大厅「旅行」tab */
-export function TravelTab() {
+/** 大厅「旅行」tab。reloadRef：把「重新取一次」的函数交给外面（大厅的下拉刷新、再点一下 tab 用） */
+export function TravelTab({ reloadRef }: { reloadRef?: MutableRefObject<(() => Promise<unknown>) | null> }) {
   const nav = useNavigate();
   const [d, setD] = useState<HomeData | null>(null);
   const [err, setErr] = useState('');
   const load = () => api<HomeData>('/trip/home').then((v) => { setD(v); setErr(''); }).catch((e: any) => setErr(e.message || '加载失败'));
   useEffect(() => { void load(); }, []);
   useTripLive(load);
+  useEffect(() => {
+    if (!reloadRef) return;
+    reloadRef.current = load;
+    return () => { reloadRef.current = null; };
+  });
 
   if (!d) return <div className="tp-empty">{err || '加载中…'}</div>;
   const l = d.leader;
   return (
     <>
+      {/* 已经有内容、这次没刷新成（断网了）：内容留着，上面说一句 */}
+      {err && <div className="hn-t3" data-info="refresh-failed" style={{ textAlign: 'center', padding: '2px 20px 8px', color: '#d92d20' }}>没刷新成功：{err}</div>}
       {l && (
         <div className="tp-ldr" data-act="my-leader" onClick={() => nav(`/trip/leader/${l.id}`)}>
           <LeaderAvatar u={l} size={52} />
@@ -238,16 +245,19 @@ export function TripDetailPage() {
   return (
     <div className="hn-page" style={{ background: '#fbf7f5' }}>
       {toast}
+      {/*
+        返回键在视频上面单独一条顶栏里，视频上不压任何我们自己的东西（2026-11-28 用户反馈：返回键和播放器自带的按钮叠在一起了）。
+        样稿里返回键是浮在视频左上角、下面那张白卡片还往上压住视频一条边的；可是播放器的按钮画在哪由手机决定
+        （iPhone 在视频顶上两个角各有一组：全屏 / 画中画、静音；进度条贴着底边），浮在上面的东西迟早会和它们撞上。
+      */}
+      <Nav title="线路" onBack={back} />
       <div className="hn-scroll" style={{ paddingBottom: 96 }}>
-        <div style={{ position: 'relative' }}>
-          {/* 安卓 App 的内嵌网页不支持视频全屏（点了没反应），所以在那里不显示全屏按钮；下载按钮哪里都不要 */}
-          <video
-            className="tp-video" src={d.videoUrl} poster={d.coverUrl || undefined} controls playsInline preload="metadata"
-            controlsList={(window as any).PeiwanNative ? 'nodownload nofullscreen' : 'nodownload'}
-          />
-          <span className="tp-gbtn" style={{ position: 'absolute', left: 14, top: 10, zIndex: 3 }} onClick={back}><Ic n="left" /></span>
-        </div>
-        <div className="tp-box" style={{ marginTop: -18, position: 'relative', zIndex: 5 }}>
+        {/* 安卓 App 的内嵌网页不支持视频全屏（点了没反应），所以在那里不显示全屏按钮；下载按钮哪里都不要 */}
+        <video
+          className="tp-video" src={d.videoUrl} poster={d.coverUrl || undefined} controls playsInline preload="metadata"
+          controlsList={(window as any).PeiwanNative ? 'nodownload nofullscreen' : 'nodownload'}
+        />
+        <div className="tp-box">
           <div style={{ fontSize: 17, fontWeight: 800, lineHeight: 1.4 }}>{d.title}</div>
           <div className="hn-row" style={{ marginTop: 8 }}>
             <span className="tp-price">{yuan(d.price)}<small>/ 人起</small></span>
