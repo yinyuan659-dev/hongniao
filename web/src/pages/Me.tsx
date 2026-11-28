@@ -2,6 +2,7 @@ import { CSSProperties, ReactNode, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, UserProfile } from '../api';
 import { useApp } from '../store';
+import { wsManager } from '../ws';
 import { ScanFlow } from './ChatList';
 import { ScanIcon } from '../components/QrScanner';
 import { SYSTEM, langChoice, languages, setLang, t } from '../i18n';
@@ -101,6 +102,14 @@ export function MePage() {
       const f = sessionStorage.getItem(FLASH_KEY);
       if (f) { setFlash(f); sessionStorage.removeItem(FLASH_KEY); }
     } catch { /* 提示出不来不影响 */ }
+    // 平台把我设成领队 / 取消领队：服务器推过来，「领队后台」那一行当场出现 / 消失
+    wsManager.connect();
+    return wsManager.on((frame) => {
+      if (frame.op === 'trip' && frame.data?.event === 'leader') {
+        const on = !!frame.data.on;
+        setMe((m) => (m ? { ...m, isLeader: on } : m));
+      }
+    });
   }, []);
 
   const toggleVideo = async () => {
@@ -231,6 +240,8 @@ export function MePage() {
 
       <div className="me-gh">{t('me.group.tools')}</div>
       <div className="me-card">
+        {/* 领队后台：只有平台设成领队的人有这一行（发布线路、看约单、改名额） */}
+        {me.isLeader && <Cell icon="car" color="#ff3d63" title="领队后台" onClick={() => nav('/leader')}><Val /></Cell>}
         <Cell icon="link" color="#af52de" title={t('me.inviteCard')} onClick={() => nav('/invite-card')}><Val /></Cell>
       </div>
 

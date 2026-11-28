@@ -8,6 +8,8 @@ import { EnterPage } from './pages/Enter';
 import { RegisterPage } from './pages/Register';
 import { PlazaPage } from './pages/Plaza';
 import { HallPage, TripPage } from './pages/Hall';
+import { LeaderboardPage, LeaderPage, TripDetailPage } from './pages/Trip';
+import { LeaderHomePage, LeaderOrdersPage, LeaderPublishPage, LeaderTripPage } from './pages/Leader';
 import { ChatListPage } from './pages/ChatList';
 import { ChatRoomPage } from './pages/ChatRoom';
 import { GroupInfoPage } from './pages/GroupInfo';
@@ -200,6 +202,14 @@ export function App() {
         </Route>
         {/* 大厅里的活动页「新婚旅行礼」（现在是占位版） */}
         <Route path="/activity/trip" element={<TripPage />} />
+        {/* 领队旅行（样稿 design/13-travel.html）：排行榜、领队页、线路详情；领队后台、管一条线路、约单的人、发布 / 修改线路 */}
+        <Route path="/trip/leaders" element={<LeaderboardPage />} />
+        <Route path="/trip/leader/:id" element={<LeaderPage />} />
+        <Route path="/trip/:id" element={<TripDetailPage />} />
+        <Route path="/leader" element={<LeaderHomePage />} />
+        <Route path="/leader/publish" element={<LeaderPublishPage />} />
+        <Route path="/leader/trip/:id" element={<LeaderTripPage />} />
+        <Route path="/leader/trip/:id/orders" element={<LeaderOrdersPage />} />
         <Route path="/publish" element={<PublishPage />} />
         <Route path="/my-moments" element={<MyMomentsPage />} />
         <Route path="/moment/:id" element={<MomentDetailPage />} />

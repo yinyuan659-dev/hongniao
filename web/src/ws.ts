@@ -142,6 +142,14 @@ class WsManager {
     this.raw({ op: 'read', conversationId, msgId });
   }
 
+  /**
+   * 告诉服务器「我正停在这一类页面上」（现在只有 trip：旅行首页、排行榜、领队页、线路详情），离开时取消。
+   * 服务器只把这一类的变化推给登记着的人。连接断了登记就没了，重连后（ws_reopen）要重新发一次。
+   */
+  watch(topic: string, on: boolean) {
+    this.raw({ op: 'watch', topic, on });
+  }
+
   /** 没连上时 send / read 先排队，连上后补发（刚打开页面就发消息不会丢） */
   private raw(frame: { op: string; [k: string]: unknown }) {
     if (this.ws?.readyState === WebSocket.OPEN) {

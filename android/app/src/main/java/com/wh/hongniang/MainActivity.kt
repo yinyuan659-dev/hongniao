@@ -28,6 +28,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.wh.hongniang.i18n.t
@@ -254,6 +255,9 @@ fun AppRoot() {
         }
     }
 
+    // 现在最上面是哪一页（"main" = 主页自己，没有被别的页面盖住）
+    val topRoute = nav.currentBackStackEntryAsState().value?.destination?.route
+
     // clearFocusOnTap：全 App 点击空白处收起键盘（Dialog/BottomSheet 是独立窗口，需各自再挂一次）
     Box(Modifier.fillMaxSize().clearFocusOnTap()) {
       Box(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -266,6 +270,7 @@ fun AppRoot() {
                 },
                 onOpenChatWithUser = ::openChatWithUser,
                 onNav = { nav.navigate(it) },
+                covered = topRoute != null && topRoute != "main",
             )
         }
         NavHost(navController = nav, startDestination = "boot") {

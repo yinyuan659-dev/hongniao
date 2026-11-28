@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>一线牵 · 平台网页后台（手机上能打开）样稿</title>
+<!--
+  给用户确认用的样稿，不是产品代码。人是 AI 生成的假人，名字、数字、聊天内容都是示意。
+  双击用浏览器打开就能看。网址后面加 ?only=a / b / c / d / e / f 只显示其中一组（截图用）。
+
+  用户定过的（AI进度文档.md §8.10～§8.18）：
+    平台这边的操作直接做一个手机上能打开的网页后台，他自己操作；
+    用户列表每个人后面的「操作」里：设返佣比例（每人单独设，默认 70%，和是不是领队无关）、设为领队（独立开关）；
+    2026-11-28：用户列表加一个开关「是否显示在广场」，不分角色；领队是他自己在后台设；
+    线路先审后发；用户的活动先发后审、靠举报下架；被举报的群平台可以查看聊天记录、关群、移出、封号。
+  现状：后台只有接口、没有任何页面。这一份是第一版后台的样子。后台是给平台自己用的，观感从简（白底灰字），不用 App 那套渐变。
+-->
+<link rel="stylesheet" href="common.css">
+<style>
+  .adm { background: #f3f4f7 !important; color: #1d2129; font-size: 14px; }
+  .abar { height: 46px; flex-shrink: 0; display: flex; align-items: center; padding: 0 14px; gap: 8px; background: #fff; border-bottom: 1px solid #e8eaef; font-size: 16px; font-weight: 700; }
+  .abar .sub { font-size: 11px; font-weight: 500; color: #86909c; background: #f2f3f5; border-radius: 4px; padding: 1px 6px; }
+  .abar .r { margin-left: auto; font-size: 13px; font-weight: 500; color: #4e5969; display: flex; align-items: center; gap: 4px; }
+  .anav { margin-top: auto; flex-shrink: 0; display: flex; background: #fff; border-top: 1px solid #e8eaef; padding: 7px 0 20px; }
+  .anav div { flex: 1; text-align: center; font-size: 11px; color: #86909c; display: flex; flex-direction: column; align-items: center; gap: 3px; position: relative; }
+  .anav div.on { color: #165dff; font-weight: 700; }
+  .anav em { position: absolute; top: -3px; left: 50%; margin-left: 6px; font-style: normal; min-width: 16px; height: 16px; border-radius: 8px; background: #f53f3f; color: #fff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; padding: 0 4px; }
+  .srch { margin: 10px 12px 0; height: 38px; border-radius: 8px; background: #fff; border: 1px solid #e5e6eb; display: flex; align-items: center; gap: 7px; padding: 0 11px; color: #a9aeb8; font-size: 13.5px; flex-shrink: 0; }
+  .fch { display: flex; gap: 7px; padding: 10px 12px 8px; flex-shrink: 0; flex-wrap: nowrap; overflow: hidden; }
+  .fch span { height: 28px; padding: 0 10px; border-radius: 6px; background: #fff; border: 1px solid #e5e6eb; font-size: 12.5px; color: #4e5969; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; flex-shrink: 0; }
+  .fch span b { font-weight: 600; color: #86909c; font-variant-numeric: tabular-nums; }
+  .fch span.on { background: #e8f3ff; border-color: #165dff; color: #165dff; font-weight: 700; } .fch span.on b { color: #165dff; }
+  .lst { margin: 0 12px; background: #fff; border-radius: 10px; border: 1px solid #e8eaef; overflow: hidden; flex-shrink: 0; }
+  .ur { display: flex; align-items: center; gap: 10px; padding: 10px 11px; }
+  .ur + .ur { border-top: 1px solid #f0f1f4; }
+  .ur .ph { width: 40px; height: 40px; border-radius: 20px; flex-shrink: 0; background-size: cover; background-position: center 20%; background-color: #dfe3ea; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 15px; }
+  .ur .ph.sq { border-radius: 10px; }
+  .ur b { font-size: 14px; }
+  .ur .s { font-size: 11.5px; color: #86909c; margin-top: 2px; }
+  .ur .op { margin-left: auto; font-size: 12.5px; color: #165dff; flex-shrink: 0; display: flex; align-items: center; gap: 2px; white-space: nowrap; }
+  .tg { display: inline-flex; align-items: center; height: 17px; padding: 0 5px; border-radius: 3px; font-size: 10.5px; font-weight: 600; margin-left: 4px; white-space: nowrap; vertical-align: 1px; }
+  .tg.ld { background: #fff0f3; color: #f5325c; } .tg.hd { background: #f2f3f5; color: #86909c; } .tg.rt { background: #fff7e8; color: #d25f00; }
+  .tg.bn { background: #ffece8; color: #cb2634; } .tg.df { background: #e8f3ff; color: #165dff; } .tg.ok { background: #e8ffea; color: #009a29; }
+  .tg.tr { background: #e6f0f7; color: #2f6690; } .tg.ev { background: #e5f4e8; color: #2f7d4a; }
+  .ash { position: absolute; left: 0; right: 0; bottom: 0; z-index: 46; background: #fff; border-radius: 16px 16px 0 0; padding: 0 0 18px; }
+  .ash .gr { width: 36px; height: 4px; border-radius: 2px; background: #e5e6eb; margin: 8px auto 6px; }
+  .ash .who { display: flex; align-items: center; gap: 10px; padding: 6px 16px 12px; border-bottom: 1px solid #f0f1f4; }
+  .orow { display: flex; align-items: center; gap: 10px; padding: 11px 16px; }
+  .orow + .orow { border-top: 1px solid #f0f1f4; }
+  .orow b { font-size: 14.5px; font-weight: 600; }
+  .orow .d { font-size: 11.5px; color: #86909c; margin-top: 2px; line-height: 1.5; }
+  .orow .v { margin-left: auto; font-size: 13.5px; color: #4e5969; display: flex; align-items: center; gap: 3px; flex-shrink: 0; white-space: nowrap; }
+  .sw { width: 42px; height: 24px; border-radius: 12px; background: #c9cdd4; position: relative; flex-shrink: 0; margin-left: auto; }
+  .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 10px; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .2); }
+  .sw.on { background: #165dff; } .sw.on::after { left: 20px; }
+  .abtn { height: 42px; border-radius: 8px; background: #165dff; color: #fff; font-size: 15px; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+  .abtn.gh { background: #f2f3f5; color: #4e5969; } .abtn.rd { background: #fff; color: #f53f3f; border: 1px solid #fbaca3; } .abtn.gn { background: #00b42a; }
+  .ain { height: 44px; border-radius: 8px; border: 1px solid #e5e6eb; background: #fff; display: flex; align-items: center; padding: 0 12px; font-size: 15px; }
+  .ain em { font-style: normal; color: #a9aeb8; }
+  .ain.fc { border-color: #165dff; box-shadow: 0 0 0 3px rgba(22, 93, 255, .12); }
+  .qk { display: flex; gap: 8px; margin-top: 10px; }
+  .qk span { flex: 1; height: 34px; border-radius: 6px; border: 1px solid #e5e6eb; display: flex; align-items: center; justify-content: center; font-size: 13.5px; color: #4e5969; }
+  .qk span.on { border-color: #165dff; color: #165dff; background: #e8f3ff; font-weight: 700; }
+  .sec { font-size: 12px; color: #86909c; margin: 12px 16px 6px; flex-shrink: 0; }
+  .cvx { border-radius: 8px; flex-shrink: 0; position: relative; overflow: hidden; }
+  .cvx.a { background: linear-gradient(160deg, #3d6b8f 0%, #7fa7b8 38%, #d9c7a3 70%, #8a6a4a 100%); }
+  .cvx.b { background: linear-gradient(170deg, #f2a65a 0%, #d9703c 40%, #7a3b2e 100%); }
+  .cvx.d { background: linear-gradient(170deg, #5b6ee1 0%, #9aa7f0 45%, #f3d9c6 100%); }
+  .cvx.e { background: linear-gradient(165deg, #1f3a5f 0%, #4f7cac 50%, #c0d6df 100%); }
+  .cvx.g { background: linear-gradient(160deg, #6b6f8f 0%, #a9adc8 100%); }
+  .cvx.v { background: linear-gradient(165deg, #2f5d50 0%, #6fa07a 55%, #cfe3b4 100%); }
+  .pl { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 40px; height: 40px; border-radius: 20px; background: rgba(255, 255, 255, .3); border: 1.5px solid rgba(255, 255, 255, .75); display: flex; align-items: center; justify-content: center; }
+  .pl::before { content: ""; border-left: 12px solid #fff; border-top: 7px solid transparent; border-bottom: 7px solid transparent; margin-left: 3px; }
+  .kvs { margin: 0 12px; background: #fff; border-radius: 10px; border: 1px solid #e8eaef; padding: 4px 12px; flex-shrink: 0; }
+  .kvs div { display: flex; gap: 10px; padding: 7px 0; font-size: 13px; line-height: 1.55; }
+  .kvs div + div { border-top: 1px solid #f0f1f4; }
+  .kvs div > span:first-child { width: 50px; color: #86909c; flex-shrink: 0; }
+  .kvs a { color: #165dff; white-space: nowrap; }
+  .why { display: flex; flex-wrap: wrap; gap: 7px; }
+  .why span { height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid #e5e6eb; font-size: 12.5px; color: #4e5969; display: inline-flex; align-items: center; }
+  .why span.on { border-color: #f53f3f; color: #f53f3f; background: #fff3f1; font-weight: 600; }
+  .act2 { display: flex; gap: 9px; padding: 10px 12px 18px; background: #fff; border-top: 1px solid #e8eaef; margin-top: auto; flex-shrink: 0; }
+  .act2 .abtn { flex: 1; }
+  .msgs { margin: 0 12px; background: #fff; border-radius: 10px; border: 1px solid #e8eaef; padding: 3px 11px; flex-shrink: 0; }
+  .mg { padding: 7px 0; font-size: 13px; line-height: 1.5; display: flex; gap: 8px; }
+  .mg + .mg { border-top: 1px solid #f0f1f4; }
+  .mg i { color: #86909c; font-size: 11px; flex-shrink: 0; width: 34px; padding-top: 2px; font-variant-numeric: tabular-nums; }
+  .mg b { color: #4e5969; font-weight: 600; margin-right: 4px; }
+  .mg.hit { background: #fff3f1; margin: 0 -11px; padding: 7px 11px; border-left: 3px solid #f53f3f; }
+  .mg.sy { color: #a9aeb8; font-size: 12px; }
+  .logo { width: 64px; height: 64px; border-radius: 18px; background: linear-gradient(135deg, #ff3d63, #ff8469); color: #fff; display: flex; align-items: center; justify-content: center; margin: 0 auto; }
+  .plan { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; width: 800px; }
+  .pc { background: #fff; border-radius: 22px; padding: 16px 18px; box-shadow: 0 12px 30px rgba(255, 90, 120, .1); font-size: 13.5px; line-height: 1.7; color: #4b3d43; }
+  .pc h3 { font-size: 16px; color: var(--ink); margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+  .pc h3 i { width: 26px; height: 26px; border-radius: 9px; background: var(--soft); color: var(--rose); display: inline-flex; align-items: center; justify-content: center; font-style: normal; font-weight: 800; font-size: 13px; }
+  .pc ul { padding-left: 18px; } .pc li { margin-bottom: 4px; } .pc b { color: var(--ink); }
+  .pc.warn { background: #fffaf0; box-shadow: 0 12px 30px rgba(240, 160, 60, .12); }
+  .pc.warn h3 i { background: #ffedd0; color: #b54708; }
+  .tbd { color: #b54708; background: #fff4e5; border: 1px dashed #f0b56a; border-radius: 5px; padding: 0 5px; font-weight: 600; white-space: nowrap; }
+  .mine { color: #b54708; background: #fff4e5; border-radius: 4px; padding: 0 4px; font-weight: 600; white-space: nowrap; }
+  .have { color: #009a29; background: #e8ffea; border-radius: 4px; padding: 0 4px; font-weight: 600; white-space: nowrap; }
+  .todo { color: #165dff; background: #e8f3ff; border-radius: 4px; padding: 0 4px; font-weight: 600; white-space: nowrap; }
+</style>
+</head>
+<body>
+
+<div class="intro">
+  <h1>平台网页后台（手机上能打开）</h1>
+  <p>你自己用的后台：用手机浏览器打开一个网址，登录以后操作。<b>过关了我再写代码。</b>名字、数字、聊天内容都是示意。</p>
+  <p>后台是给你一个人用的，所以<b>样子从简</b>（白底、蓝色按钮），不用 App 那套粉色渐变，免得和 App 弄混 <span class="mine">我定的</span>。</p>
+  <p>五块：用户（显示在广场、设为领队、返佣比例）、线路审核、群、举报、设置。标了 <span class="mine">我定的</span> 的是我按理解先定的；<span class="tbd">待定</span> 的要你给。第 6 组是说明（不是界面）。</p>
+</div>
+
+<!-- ============ A：登录 + 用户列表 ============ -->
+<section data-s="a">
+  <h2><b>1</b>登录，和用户列表</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">登录 <small>手机浏览器打开后台的网址</small></div>
+      <div class="phone"><div class="island"></div><div class="screen adm">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div style="padding:70px 26px 0">
+          <div class="logo"><i data-ic="heart" data-s="30"></i></div>
+          <div style="text-align:center;font-size:20px;font-weight:800;margin-top:14px">一线牵 · 管理后台</div>
+          <div style="text-align:center;font-size:12.5px;color:#86909c;margin-top:5px">只给平台自己用，不要把网址和密码发给别人</div>
+          <div class="ain" style="margin-top:34px">admin</div>
+          <div class="ain fc" style="margin-top:12px;letter-spacing:3px">••••••••••<span style="margin-left:auto;color:#a9aeb8;letter-spacing:0"><i data-ic="eye" data-s="16"></i></span></div>
+          <div class="abtn" style="margin-top:20px;height:46px">登录</div>
+          <div style="font-size:12px;color:#86909c;margin-top:14px;line-height:1.7;text-align:center">连续输错 10 次，5 分钟内不能再试。<br>登录以后 7 天内这台手机不用再输密码。</div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>网址</b> <span class="mine">我定的</span>：<code>https://gphnai.com/admin/</code>。App 里没有任何入口指向它。</div>
+        <div><b>账号密码</b>：就是现在后台接口用的那个管理员账号（密码在服务器上）。「输错 10 次锁 5 分钟」是现在已经有的规矩。</div>
+        <div><b>只有账号 + 密码这一道</b>。这个后台能封号、能看被举报的群的聊天记录，<span class="tbd">待定</span>：要不要再加一道（比如每次登录给你手机发验证码，或者只允许你常用的那台手机）。我建议上线前加，第一版先这样。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">用户 <small>登录后先到这一页</small></div>
+      <div class="phone"><div class="island"></div><div class="screen adm">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="abar">用户<span class="sub">共 248 人</span></div>
+        <div class="srch"><i data-ic="users" data-s="15"></i>搜昵称，或者 6 位 ID</div>
+        <div class="fch"><span class="on">全部 <b>248</b></span><span>领队 <b>18</b></span><span>不在广场 <b>19</b></span><span>已封禁 <b>2</b></span></div>
+        <div class="lst">
+          <div class="ur"><div class="ph" style="background:linear-gradient(135deg,#4a6b5d,#9fbf8f)">猫</div><div class="grow"><b>老猫</b><span class="tg ld">领队</span><span class="tg df">默认领队</span><div class="s">男 38 · 成都 · ID 305518 · 比例 <span style="color:#d25f00;font-weight:600">90%</span></div></div><span class="op">操作 <i data-ic="right" data-s="13"></i></span></div>
+          <div class="ur"><div class="ph" style="background-image:url(img/f1.jpg)"></div><div class="grow"><b>小林</b><span class="tg ok">真人认证</span><div class="s">女 27 · 成都 · ID 997353 · 比例 70%</div></div><span class="op">操作 <i data-ic="right" data-s="13"></i></span></div>
+          <div class="ur"><div class="ph" style="background:linear-gradient(135deg,#b5651d,#f2a65a)">峰</div><div class="grow"><b>阿峰</b><span class="tg ld">领队</span><span class="tg hd">不在广场</span><div class="s">男 41 · 西宁 · ID 620147 · 比例 <span style="color:#d25f00;font-weight:600">90%</span></div></div><span class="op">操作 <i data-ic="right" data-s="13"></i></span></div>
+          <div class="ur"><div class="ph" style="background-image:url(img/p1.jpg)"></div><div class="grow"><b>小周</b><span class="tg ok">真人认证</span><div class="s">男 29 · 成都 · ID 711405 · 比例 70%</div></div><span class="op">操作 <i data-ic="right" data-s="13"></i></span></div>
+          <div class="ur"><div class="ph" style="background-image:url(img/f2.jpg)"></div><div class="grow"><b>阿雯</b><span class="tg rt">比例 80%</span><div class="s">女 30 · 重庆 · ID 418260 · 推荐了 12 人</div></div><span class="op">操作 <i data-ic="right" data-s="13"></i></span></div>
+          <div class="ur"><div class="ph" style="background-image:url(img/p2.jpg)"></div><div class="grow"><b>大刘</b><span class="tg bn">已封禁</span><div class="s">男 33 · 成都 · ID 552903 · 比例 70%</div></div><span class="op">操作 <i data-ic="right" data-s="13"></i></span></div>
+          <div class="ur"><div class="ph" style="background-image:url(img/f3.jpg)"></div><div class="grow"><b>书岚</b><div class="s">女 26 · 西安 · ID 830071 · 比例 70%</div></div><span class="op">操作 <i data-ic="right" data-s="13"></i></span></div>
+        </div>
+        <div class="anav"><div class="on"><i data-ic="users" data-s="20"></i>用户</div><div><i data-ic="car" data-s="20"></i>线路<em>3</em></div><div><i data-ic="chat" data-s="20"></i>群</div><div><i data-ic="flag" data-s="20"></i>举报<em>2</em></div><div><i data-ic="list" data-s="20"></i>设置</div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>用户列表</b>：一行一个人——头像、昵称、性别年龄、城市、6 位 ID、返佣比例。名字后面的小标：<b>领队</b>、<b>默认领队</b>、<b>不在广场</b>、<b>已封禁</b>、真人认证。</div>
+        <div><b>顶上能筛</b>：全部 / 领队 / 不在广场 / 已封禁。搜索框搜昵称或 6 位 ID。往下滑接着加载。</div>
+        <div><b>比例不是默认 70% 的会标成橙色</b>，一眼看得出给谁单独设过（比例每个人单独设、和是不是领队无关——你定的）。</div>
+        <div>每一行右边的<b>「操作」</b>点了弹出第 2 组那一层。底下五个入口；「线路」「举报」上的红数字是等你处理的条数。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ B：用户的操作 ============ -->
+<section data-s="b">
+  <h2><b>2</b>用户的「操作」：显示在广场、设为领队、返佣比例</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">点「操作」 <small>从底下弹上来</small></div>
+      <div class="phone"><div class="island"></div><div class="screen adm">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="abar">用户<span class="sub">共 248 人</span></div>
+        <div class="srch"><i data-ic="users" data-s="15"></i>搜昵称，或者 6 位 ID</div>
+        <div class="dim" style="background:rgba(0,0,0,.45)"></div>
+        <div class="ash">
+          <div class="gr"></div>
+          <div class="who"><div class="ur" style="padding:0;flex:1"><div class="ph" style="background:linear-gradient(135deg,#b5651d,#f2a65a);width:44px;height:44px">峰</div><div class="grow"><b style="font-size:15.5px">阿峰</b><span class="tg ld">领队</span><div class="s">男 41 · 西宁 · ID 620147</div></div></div><span style="font-size:12.5px;color:#165dff;white-space:nowrap">看画像 ›</span></div>
+          <div class="orow"><div class="grow"><b>显示在广场</b><div class="d">关掉以后：广场的遇见、动态、每日推荐、搜索里都没有他。他自己照常能用，已有的聊天不受影响。</div></div><span class="sw"></span></div>
+          <div class="orow"><div class="grow"><b>设为领队</b><div class="d">打开以后：他的「我的」页多出「领队后台」，能发线路；有线路就会上排行榜。</div></div><span class="sw on"></span></div>
+          <div class="orow"><div class="grow"><b>设为默认领队</b><div class="d">没有推荐人的用户，「旅行」首页显示他。同一时间只有一位。</div></div><span class="sw"></span></div>
+          <div class="orow"><div class="grow"><b>返佣比例</b><div class="d">他推荐的人结婚谢媒后，他拿这么多。默认 70%。</div></div><span class="v"><b style="color:#d25f00">90%</b> <i data-ic="right" data-s="14"></i></span></div>
+          <div class="orow"><div class="grow"><b>他推荐的人</b></div><span class="v">128 人 <i data-ic="right" data-s="14"></i></span></div>
+          <div class="orow"><div class="grow"><b style="color:#f53f3f">封禁账号</b><div class="d">封了以后不能登录，所有地方都不再出现。</div></div><span class="sw"></span></div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>三个开关 + 一个数</b>，互相独立（你定的）：<b>显示在广场</b>、<b>设为领队</b>、<b>设为默认领队</b>、<b>返佣比例</b>。想让领队不出现在广场，就把这个人的「显示在广场」关掉。</div>
+        <div><b>「显示在广场」这个开关后端已经有了</b>，11 月 28 日用两个测试号实测过：关掉以后遇见、动态、每日推荐、搜索（昵称和 6 位 ID）里都没有他，他自己不受影响。</div>
+        <div><b>点开关马上生效</b>，不用再点保存；App 那边不用重新打开（比如「领队后台」那一行当场出现）。封禁、取消领队这两个会先问一句。</div>
+        <div><b>「设为默认领队」只有领队才有这一行</b>。打开一位，原来那位自动关掉 <span class="mine">我定的</span>。</div>
+        <div><b>取消领队时</b> <span class="mine">我定的</span>：他招募中的线路全部下架、线路群解散（会先告诉你有几条线路、几个群）。已经绑定到他的推荐关系不变，比例也不变。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">改返佣比例 <small>点「返佣比例」那一行</small></div>
+      <div class="phone"><div class="island"></div><div class="screen adm">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="abar">用户<span class="sub">共 248 人</span></div>
+        <div class="dim" style="background:rgba(0,0,0,.45)"></div>
+        <div class="ash" style="padding:0 16px 18px">
+          <div class="gr"></div>
+          <div style="font-size:17px;font-weight:700;padding-top:4px">阿峰的返佣比例</div>
+          <div style="font-size:12.5px;color:#86909c;margin-top:5px;line-height:1.6">他推荐来的人结婚、付了谢媒以后，实收的这么多归他。只算他直接推荐的人。</div>
+          <div class="ain fc" style="margin-top:14px;height:50px;font-size:22px;font-weight:700">90<span style="margin-left:auto;color:#86909c;font-size:16px;font-weight:500">%</span></div>
+          <div class="qk"><span>70% 默认</span><span>80%</span><span class="on">90%</span></div>
+          <div style="font-size:12px;color:#86909c;margin-top:12px;line-height:1.7">可以填 0～100 的整数。改了以后，<b style="color:#4e5969">只对之后付的谢媒起作用</b>，以前已经算好的不重算。</div>
+          <div style="display:flex;gap:9px;margin-top:16px"><div class="abtn gh" style="flex:1">取消</div><div class="abtn" style="flex:1.6">保存</div></div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>每个人单独一个数</b>，没设过就是默认的 70%；和是不是领队没关系（你定的）。下面三个快捷键：70% 默认、80%、90%。</div>
+        <div><b>改了只管以后</b> <span class="mine">我定的</span>：已经付过的谢媒按当时的比例，不重算。每次改都记下谁在什么时候从多少改成多少，可以在「设置 → 操作记录」里查。</div>
+        <div><b>现在改了没有实际效果</b>：推荐奖励的钱要等「结婚确认、谢媒、提现」做出来才会算（开发文档里的第 4 步之后）。这里先把数存好。</div>
+        <div>开发文档里原来写的是「只有签约推荐人可以单独定比例」，现在按你 11 月 27 日说的改成<b>谁都可以单独设</b>。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ C：线路审核 ============ -->
+<section data-s="c">
+  <h2><b>3</b>线路审核：领队发的线路先审，通过了才显示</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">线路 <small>等你审的排在最前面</small></div>
+      <div class="phone"><div class="island"></div><div class="screen adm">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="abar">线路</div>
+        <div class="fch"><span class="on">待审核 <b>3</b></span><span>招募中 <b>31</b></span><span>没通过 <b>2</b></span><span>已结束 / 下架</span></div>
+        <div class="lst">
+          <div class="ur"><div class="ph sq cvx d" style="width:50px;height:50px"></div><div class="grow"><b>独库公路 9 天：那拉提、巴音布鲁克</b><div class="s">骆驼 · 明年 6 月 8 日出发 · ¥6,800 起</div><div class="s" style="color:#d25f00">新发布 · 11-27 21:40 提交</div></div><span class="op">去审 <i data-ic="right" data-s="13"></i></span></div>
+          <div class="ur"><div class="ph sq cvx a" style="width:50px;height:50px"></div><div class="grow"><b>川西环线 7 天：稻城亚丁、新都桥…</b><div class="s">老猫 · 12 月 6 日出发 · ¥4,200 起</div><div class="s" style="color:#d25f00">改了价格（原来 ¥3,980）· 11-28 提交</div></div><span class="op">去审 <i data-ic="right" data-s="13"></i></span></div>
+          <div class="ur"><div class="ph" style="background:linear-gradient(135deg,#b5651d,#f2a65a);width:50px;height:50px;border-radius:25px">峰</div><div class="grow"><b>阿峰 改了领队介绍</b><div class="s" style="line-height:1.5">「西北大环线跑了 9 年，越野车队自驾。带过的人里成了 3 对。」</div><div class="s" style="color:#d25f00">11-28 10:05 提交</div></div><span class="op">去审 <i data-ic="right" data-s="13"></i></span></div>
+        </div>
+        <div class="sec">最近审过的</div>
+        <div class="lst">
+          <div class="ur"><div class="ph sq cvx b" style="width:42px;height:42px"></div><div class="grow"><b>阿拉善穿沙 5 天</b><span class="tg ok">通过</span><div class="s">老猫 · 11-27 18:30 审的</div></div></div>
+          <div class="ur"><div class="ph sq cvx e" style="width:42px;height:42px"></div><div class="grow"><b>若尔盖草原 4 天</b><span class="tg bn">没通过</span><div class="s">老猫 · 没写费用包含什么</div></div></div>
+        </div>
+        <div class="anav"><div><i data-ic="users" data-s="20"></i>用户</div><div class="on"><i data-ic="car" data-s="20"></i>线路<em>3</em></div><div><i data-ic="chat" data-s="20"></i>群</div><div><i data-ic="flag" data-s="20"></i>举报<em>2</em></div><div><i data-ic="list" data-s="20"></i>设置</div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>三种东西要审</b>：新发布的线路、改过内容的线路（写明改了什么）、领队改的一句话介绍。都在「待审核」里，早提交的在前。</div>
+        <div>有新的要审时，<b>停在后台的话这里的数字当场加一</b>；没开着后台的话 <span class="tbd">待定</span>：要不要给你发个提醒（短信 / 微信）。第一版先不发，你进来看。</div>
+        <div>别的小标签：招募中（能看、能下架）、没通过、已结束 / 下架。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">审一条线路 <small>点「去审」</small></div>
+      <div class="phone"><div class="island"></div><div class="screen adm">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="abar"><i data-ic="left" data-s="20"></i>审核线路<span class="r">1 / 3</span></div>
+        <div class="cvx d" style="height:128px;margin:10px 12px 0;border-radius:10px"><span class="pl"></span><span style="position:absolute;right:8px;top:8px;font-size:11px;color:#fff;background:rgba(0,0,0,.45);border-radius:9px;padding:1px 7px">02:36</span><span style="position:absolute;left:10px;bottom:8px;font-size:12px;color:#fff">点了播放带队视频</span></div>
+        <div class="sec">领队填的</div>
+        <div class="kvs">
+          <div><span>标题</span><b>独库公路 9 天：那拉提、巴音布鲁克</b></div>
+          <div><span>领队</span><div style="display:block;padding:0;border:0">骆驼（ID 771902）· 已有 2 条线路　<a>看他 ›</a></div></div>
+          <div><span>出发</span>明年 6 月 8 日 · 9 天 · 乌鲁木齐集合</div>
+          <div><span>价格</span>¥6,800 / 人起 · 名额 12 人</div>
+          <div><span>行程</span>乌鲁木齐 → 独山子 → 那拉提 → 巴音布鲁克 → 库车，原路或走南疆回</div>
+          <div><span>费用</span>含车辆、油费、住宿；不含餐费、门票、往返乌鲁木齐的交通</div>
+        </div>
+        <div class="sec">不通过的话，原因是（领队会看到）</div>
+        <div style="padding:0 12px" class="why"><span>视频和线路对不上</span><span>价格写得不清楚</span><span>没写费用含什么</span><span>有联系方式 / 外链</span><span>其他…</span></div>
+        <div class="act2"><div class="abtn rd">不通过</div><div class="abtn gn" style="flex:1.6">通过，上架</div></div>
+      </div></div>
+      <div class="notes">
+        <div>把领队填的东西原样摆出来，视频能点开看。看完点<b>「通过，上架」</b>或者<b>「不通过」</b>（先选一个原因，领队在他的后台看得到）。右上角「1 / 3」是还有几条，审完自动到下一条。</div>
+        <div><b>通过的那一刻</b>：线路出现在领队页上，自动建好这条线路的群，领队收到「审核通过」。</div>
+        <div><b>改过的线路</b>：这一屏会把改了的那几项标出来（原来是什么、现在是什么）。通过之前用户看到的还是原来那一版。</div>
+        <div>已经上架的线路，在「招募中」里点进去能<b>下架</b>（违规时用）。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ D：群 ============ -->
+<section data-s="d">
+  <h2><b>4</b>群：看有哪些群，关群、移出成员</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">群</div>
+      <div class="phone"><div class="island"></div><div class="screen adm">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="abar">群<span class="sub">共 46 个</span></div>
+        <div class="srch"><i data-ic="chat" data-s="15"></i>搜群名、群主的 6 位 ID</div>
+        <div class="fch"><span class="on">正常 <b>38</b></span><span>被举报 <b>1</b></span><span>已解散 <b>7</b></span><span>被关闭 <b>1</b></span></div>
+        <div class="lst">
+          <div class="ur"><div class="ph sq cvx v"></div><div class="grow"><b>龙泉山日出徒步</b><span class="tg ev">活动</span><span class="tg bn">1 条举报</span><div class="s">发起人 小林 · 6 人 · 最后说话 10 分钟前</div></div><span class="op">看 <i data-ic="right" data-s="13"></i></span></div>
+          <div class="ur"><div class="ph sq cvx a"></div><div class="grow"><b>川西环线 12-06 团</b><span class="tg tr">旅行</span><div class="s">领队 老猫 · 9 人 · 最后说话 1 小时前</div></div><span class="op">看 <i data-ic="right" data-s="13"></i></span></div>
+          <div class="ur"><div class="ph sq cvx e"></div><div class="grow"><b>青甘大环线 12-12 团</b><span class="tg tr">旅行</span><div class="s">领队 阿峰 · 22 人 · 最后说话 3 小时前</div></div><span class="op">看 <i data-ic="right" data-s="13"></i></span></div>
+          <div class="ur"><div class="ph sq cvx v"></div><div class="grow"><b>三岔湖露营</b><span class="tg ev">活动</span><div class="s">发起人 阿雯 · 4 人 · 周日 14:00 开始</div></div><span class="op">看 <i data-ic="right" data-s="13"></i></span></div>
+          <div class="ur"><div class="ph sq cvx b"></div><div class="grow"><b>阿拉善穿沙 12-20 团</b><span class="tg tr">旅行</span><div class="s">领队 老猫 · 4 人 · 最后说话 昨天</div></div><span class="op">看 <i data-ic="right" data-s="13"></i></span></div>
+          <div class="ur"><div class="ph sq cvx g"></div><div class="grow"><b>下班飞盘局</b><span class="tg ev">活动</span><div class="s">发起人 书岚 · 7 人 · 下周三 19:30 开始</div></div><span class="op">看 <i data-ic="right" data-s="13"></i></span></div>
+        </div>
+        <div class="anav"><div><i data-ic="users" data-s="20"></i>用户</div><div><i data-ic="car" data-s="20"></i>线路<em>3</em></div><div class="on"><i data-ic="chat" data-s="20"></i>群</div><div><i data-ic="flag" data-s="20"></i>举报<em>2</em></div><div><i data-ic="list" data-s="20"></i>设置</div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>群列表</b>：群名、是旅行群还是活动群、群主是谁、几个人、最后说话的时间；有没处理的举报会标出来、排在最前面。</div>
+        <div>能筛：正常 / 被举报 / 已解散 / 被关闭。能搜群名或群主的 6 位 ID。</div>
+        <div><b>这一页的接口第 1 步已经做好了</b>（群列表、成员、消息、关闭 / 恢复、移出），这里只是配上页面。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">一个群 <small>点「看」</small></div>
+      <div class="phone"><div class="island"></div><div class="screen adm">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="abar"><i data-ic="left" data-s="20"></i>龙泉山日出徒步<span class="tg ev">活动</span></div>
+        <div class="kvs" style="margin-top:10px">
+          <div><span>发起人</span><div style="display:block;padding:0;border:0">小林（ID 997353）　<a>看她 ›</a></div></div>
+          <div><span>时间</span>周六 09:00 开始 · 开始后 3 天自动解散</div>
+          <div><span>举报</span><div style="display:block;padding:0;border:0"><b style="color:#cb2634">1 条没处理</b>　<a>去处理 ›</a></div></div>
+        </div>
+        <div class="sec">成员 6 人（点一个人可以把他移出）</div>
+        <div style="display:flex;gap:9px;padding:0 14px;flex-shrink:0">
+          <div class="ur" style="padding:0"><div class="ph" style="background-image:url(img/f1.jpg)"></div></div><div class="ur" style="padding:0"><div class="ph" style="background-image:url(img/p1.jpg)"></div></div><div class="ur" style="padding:0"><div class="ph" style="background-image:url(img/f2.jpg)"></div></div><div class="ur" style="padding:0"><div class="ph" style="background-image:url(img/p2.jpg)"></div></div><div class="ur" style="padding:0"><div class="ph" style="background-image:url(img/f3.jpg)"></div></div><div class="ur" style="padding:0"><div class="ph" style="background:#c9cdd4">杰</div></div>
+        </div>
+        <div class="sec">聊天记录（新的在下面，往上滑看更早的）</div>
+        <div class="msgs">
+          <div class="mg sy"><i>08:02</i><span>阿杰 加入了群聊</span></div>
+          <div class="mg"><i>08:10</i><span><b>小林</b>周六 9 点 B 口见，我穿红色外套</span></div>
+          <div class="mg"><i>08:14</i><span><b>小周</b>好的，我带两瓶水</span></div>
+          <div class="mg hit"><i>08:21</i><span><b>阿杰</b>加我微信，我这边有个稳赚的项目<span class="tg bn">被举报</span></span></div>
+          <div class="mg"><i>08:22</i><span><b>阿雯</b>这是来相亲的还是来拉人的…</span></div>
+          <div class="mg"><i>08:30</i><span><b>小林</b>已经举报了</span></div>
+        </div>
+        <div class="act2"><div class="abtn rd">关闭这个群</div><div class="abtn gh">删掉标红的消息</div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>群的情况</b>：谁发起的、什么时候开始、什么时候自动解散、有几条举报没处理。</div>
+        <div><b>成员</b>：点一个头像可以看他、把他移出这个群（被平台移出的人进不回来——第 1 步的规矩）。</div>
+        <div><b>聊天记录</b>：平台能看群里说了什么，被举报的那条标红。<b>只有群能这样看，两个人的单聊不能在这里翻</b>（单聊只能看被举报的那一条和它前后几条）<span class="mine">我定的</span>。</div>
+        <div><b>关闭这个群</b>：所有人不能再发消息，群里显示「这个群因违规已被平台关闭」；关错了可以恢复。<b>这件事要写进用户协议</b>（平台可以查看被举报的群的聊天记录、可以关群），协议还没改。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ E：举报 ============ -->
+<section data-s="e">
+  <h2><b>5</b>举报：一条一条处理</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">举报 <small>没处理的在前</small></div>
+      <div class="phone"><div class="island"></div><div class="screen adm">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="abar">举报</div>
+        <div class="fch"><span class="on">待处理 <b>2</b></span><span>已处理 <b>17</b></span></div>
+        <div class="lst">
+          <div class="ur" style="align-items:flex-start"><div class="ph" style="background:#c9cdd4">杰</div><div class="grow"><b>群里的一条消息</b><span class="tg bn">诈骗</span><div class="s" style="line-height:1.55;color:#4e5969">「加我微信，我这边有个稳赚的项目」</div><div class="s">阿杰 说的 · 在「龙泉山日出徒步」· 小林 举报 · 08:23</div></div><span class="op">处理 <i data-ic="right" data-s="13"></i></span></div>
+          <div class="ur" style="align-items:flex-start"><div class="ph" style="background-image:url(img/p2.jpg)"></div><div class="grow"><b>一个人</b><span class="tg bn">借钱、投资、要转账</span><div class="s">大刘（ID 552903）· 阿雯 举报 · 昨天 22:10</div><div class="s">这个人已经被 3 个人举报过</div></div><span class="op">处理 <i data-ic="right" data-s="13"></i></span></div>
+        </div>
+        <div class="sec">最近处理过的</div>
+        <div class="lst">
+          <div class="ur"><div class="ph sq cvx g"></div><div class="grow"><b>一个群</b><span class="tg hd">线下不安全</span><div class="s">「夜爬青城山」· 已关闭这个群 · 11-27</div></div></div>
+          <div class="ur"><div class="ph" style="background-image:url(img/f3.jpg)"></div><div class="grow"><b>单聊里的一条消息</b><span class="tg hd">辱骂骚扰</span><div class="s">不处理（看了前后文，是玩笑）· 11-27</div></div></div>
+          <div class="ur"><div class="ph" style="background-image:url(img/p3.jpg)"></div><div class="grow"><b>一条动态</b><span class="tg hd">垃圾广告</span><div class="s">已删掉这条动态 · 11-26</div></div></div>
+        </div>
+        <div class="anav"><div><i data-ic="users" data-s="20"></i>用户</div><div><i data-ic="car" data-s="20"></i>线路<em>3</em></div><div><i data-ic="chat" data-s="20"></i>群</div><div class="on"><i data-ic="flag" data-s="20"></i>举报<em>2</em></div><div><i data-ic="list" data-s="20"></i>设置</div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>举报的四种对象</b>：一条消息（单聊或群里）、一个群、一个人、（以后）一条线路 / 一个活动。每条写：举报的是什么、原因、谁举报的、什么时候。</div>
+        <div>同一个人被举报过几次会写出来，方便你判断。</div>
+        <div>处理完的挪到「已处理」，写着当时怎么处理的。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">处理一条举报 <small>点「处理」</small></div>
+      <div class="phone"><div class="island"></div><div class="screen adm">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="abar"><i data-ic="left" data-s="20"></i>处理举报<span class="r">1 / 2</span></div>
+        <div class="kvs" style="margin-top:10px">
+          <div><span>原因</span><b style="color:#cb2634">诈骗</b></div>
+          <div><span>被举报</span><div style="display:block;padding:0;border:0">阿杰（ID 660318）　<a>看他 ›</a><br>11-25 注册 · 没做真人认证</div></div>
+          <div><span>举报人</span>小林（ID 997353）· 08:23</div>
+          <div><span>在哪</span><div style="display:block;padding:0;border:0">群「龙泉山日出徒步」　<a>看这个群 ›</a></div></div>
+        </div>
+        <div class="sec">这条消息和它前后说的话</div>
+        <div class="msgs">
+          <div class="mg"><i>08:14</i><span><b>小周</b>好的，我带两瓶水</span></div>
+          <div class="mg hit"><i>08:21</i><span><b>阿杰</b>加我微信，我这边有个稳赚的项目</span></div>
+          <div class="mg"><i>08:22</i><span><b>阿雯</b>这是来相亲的还是来拉人的…</span></div>
+        </div>
+        <div class="sec">怎么处理（可以选几样）</div>
+        <div style="padding:0 12px;display:grid;grid-template-columns:1fr 1fr;gap:8px;flex-shrink:0">
+          <div class="abtn gh" style="height:40px;font-size:13.5px;background:#e8f3ff;color:#165dff;border:1px solid #165dff">✓ 删掉这条消息</div>
+          <div class="abtn gh" style="height:40px;font-size:13.5px;background:#e8f3ff;color:#165dff;border:1px solid #165dff">✓ 把他移出这个群</div>
+          <div class="abtn gh" style="height:40px;font-size:13.5px">封禁他的账号</div>
+          <div class="abtn gh" style="height:40px;font-size:13.5px">关闭这个群</div>
+        </div>
+        <div class="act2"><div class="abtn gh">不处理</div><div class="abtn" style="flex:1.6">按选的处理（2 样）</div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>一屏看完再决定</b>：原因、被举报的人（什么时候注册的、有没有做真人认证）、谁举报的、在哪个群，下面是那条消息和它前后几句。</div>
+        <div><b>能做的四样</b>，可以一次选几样：删掉这条消息、把他移出这个群、封禁他的账号、关闭这个群。举报的是「一个人」时没有前两样；举报的是「一个群」时主要是关群。</div>
+        <div><b>「不处理」</b>也算处理完，这条挪到已处理。举报人不会收到处理结果的通知 <span class="tbd">待定</span>（要不要告诉他「已处理」）。</div>
+        <div>处理举报的接口大部分已经有了（列表、删消息、关群）；「一次选几样」和「移出群、封号」连在一起是要新写的。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ F：说明 ============ -->
+<section data-s="f">
+  <h2><b>6</b>说明（不是界面）</h2>
+  <div class="plan">
+    <div class="pc">
+      <h3><i>1</i>五块里哪些已经有接口，哪些要新写</h3>
+      <ul>
+        <li><b>用户列表、搜索、封禁</b> <span class="have">已有</span></li>
+        <li><b>显示在广场</b> <span class="have">已有</span>（11-28 实测过）</li>
+        <li><b>设为领队、默认领队、返佣比例</b> <span class="todo">要新写</span>，要给用户表加列（先备份、先问你）</li>
+        <li><b>线路审核</b> <span class="todo">要新写</span>，和第 2 步「领队旅行」一起做</li>
+        <li><b>群列表、成员、聊天记录、关群 / 恢复、移出</b> <span class="have">已有</span>（群聊第 1 步做的）</li>
+        <li><b>举报列表、删消息、关群</b> <span class="have">已有</span>；一次选几样、连着封号 <span class="todo">要新写</span></li>
+        <li><b>页面本身</b> 全部 <span class="todo">要新写</span>：现在后台一个页面都没有。</li>
+      </ul>
+    </div>
+    <div class="pc">
+      <h3><i>2</i>「设置」里放什么（没画，都是一行一行的）</h3>
+      <ul>
+        <li><b>默认的返佣比例</b>（现在 70%）。</li>
+        <li><b>视频见面每分钟多少牵豆</b>（现在 0.02）、<b>视频见面要不要互相喜欢</b>的开关——这两个已经有接口，现在是我用脚本改。</li>
+        <li><b>给某个账号加牵豆</b>（收款接好之前，测试号、审核用的号从这里加）——已有接口。</li>
+        <li><b>操作记录</b>：谁在什么时候封了谁、改了谁的比例、关了哪个群、审了哪条线路 <span class="mine">我定的</span>。以后有第二个管理员时查得清。</li>
+        <li><b>改密码、退出登录。</b></li>
+      </ul>
+    </div>
+    <div class="pc">
+      <h3><i>3</i>后台改了，App 那边怎么跟上</h3>
+      <ul>
+        <li>都是<b>当场生效</b>，走 WebSocket 推给相关的人，App 不用重新打开（你要求的）。</li>
+        <li>设为 / 取消领队 → 本人「我的」页那一行出现 / 消失。</li>
+        <li>线路通过 / 不通过 → 领队后台那条线路的状态变；通过的线路出现在领队页上。</li>
+        <li>关群、移出 → 群里的人当场看到（第 1 步已经做好）。</li>
+        <li>关掉「显示在广场」→ 别人下次打开或刷新广场时就没有他了；<b>正停在广场上的人不会看到他当场消失</b> <span class="mine">我定的</span>（广场列表本来就不是实时的，为这个推全体用户不值得）。</li>
+      </ul>
+    </div>
+    <div class="pc warn">
+      <h3><i>4</i>安全，和还等你定的</h3>
+      <ul>
+        <li><b>这个后台能看聊天、能封号</b>。第一版只有账号密码；网址不在任何地方公开。<span class="tbd">待定</span> 上线前加不加第二道验证。</li>
+        <li><b>管理员现在只有一个账号</b>。以后要给别人用（客服、审核员），要做「谁能做什么」——这一版不做。</li>
+        <li><span class="tbd">待定</span> 有新的线路要审、有新举报时，要不要主动提醒你（短信 / 微信 / 邮件）。</li>
+        <li><span class="tbd">待定</span> 举报处理完要不要告诉举报人。</li>
+        <li><b>协议要改</b>：「平台可以查看被举报的群的聊天记录、可以关群、可以移出成员」现在协议里没有，上线前必须加（协议正文在 <code>deploy/agreement_sync.py</code>）。</li>
+      </ul>
+    </div>
+    <div class="pc">
+      <h3><i>5</i>怎么做、做完怎么验</h3>
+      <ul>
+        <li>用现在网页端同一套技术另做一个入口（和 App 的网页分开打包），放在 <code>/admin/</code> <span class="mine">我定的</span>。</li>
+        <li>我能自己真测：用浏览器按手机宽度打开，拿两个测试号当被操作的人（设领队、关广场、改比例、建测试群再关掉），一项一项点。</li>
+        <li><b>先后顺序</b> <span class="mine">我定的</span>：① 用户页（显示在广场——马上能用；设为领队、比例——加列以后）→ ② 群、举报（接口现成）→ ③ 线路审核（跟着第 2 步一起）。</li>
+      </ul>
+    </div>
+    <div class="pc">
+      <h3><i>6</i>这一版不做的</h3>
+      <ul>
+        <li>数据统计（每天注册多少、多少对互相喜欢…）。</li>
+        <li>动态的审核（现在靠举报）、相亲画像的审核。</li>
+        <li>收款、提现、对账（钱那一块还没开始）。</li>
+        <li>电脑上的宽屏排版——电脑浏览器能打开，就是手机那么宽的一条。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<script src="common.js"></script>
+</body>
+</html>

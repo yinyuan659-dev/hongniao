@@ -15,6 +15,7 @@ import { NEED_PROFILE_CODE, NeedProfileException } from '../common/need-profile'
 import { NEED_KYC_CODE, NeedKycException } from '../common/kyc-gate';
 import { ChatGateException } from '../common/chat-gate';
 import { GroupGateException } from './group.service';
+import { WatchRegistry } from './watch.registry';
 
 @WebSocketGateway({ path: '/ws', maxPayload: 128 * 1024 })
 export class ImGateway implements OnGatewayConnection, OnGatewayDisconnect {
@@ -33,6 +34,7 @@ export class ImGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly jwt: JwtService,
     private readonly registry: ConnectionRegistry,
     private readonly im: ImService,
+    private readonly watch: WatchRegistry,
   ) {}
 
   async handleConnection(ws: WebSocket, req: IncomingMessage) {
@@ -70,6 +72,7 @@ export class ImGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async handleDisconnect(ws: WebSocket) {
     const userId = this.socketUser.get(ws);
     if (userId !== undefined) {
+      this.watch.drop(ws, userId);
       await this.registry.unregister(userId, ws);
     }
   }
@@ -122,6 +125,10 @@ export class ImGateway implements OnGatewayConnection, OnGatewayDisconnect {
           await this.im.markRead(userId, BigInt(f.conversationId), BigInt(f.msgId));
           break;
         }
+        case 'watch':
+          // 正停在某一类页面上（旅行首页、排行榜…）：登记 / 取消，服务器只把那一类的变化推给登记着的人
+          this.watch.set(ws, userId, String(frame.topic ?? ''), frame.on !== false);
+          break;
       }
     } catch (e: any) {
       ws.send(JSON.stringify({

@@ -22,6 +22,7 @@ import { GeoModule } from './geo/geo.module';
 import { HnModule } from './hn/hn.module';
 import { MatchModule } from './match/match.module';
 import { KycModule } from './kyc/kyc.module';
+import { TripModule } from './trip/trip.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { KycModule } from './kyc/kyc.module';
     HnModule,
     MatchModule,
     KycModule,
+    TripModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: RateLimitGuard }],
 })

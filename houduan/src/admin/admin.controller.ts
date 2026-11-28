@@ -10,6 +10,7 @@ import { MessageService } from '../im/message.service';
 import { GroupService } from '../im/group.service';
 import { AiWalletService } from '../ai/ai-wallet.service';
 import { DeepService } from '../hn/deep.service';
+import { TripService } from '../trip/trip.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { getMatchConfig, setMatchConfig } from '../common/chat-gate';
 import { getKycRequired, setKycRequired } from '../common/kyc-gate';
@@ -26,6 +27,7 @@ export class AdminController {
     private readonly groups: GroupService,
     private readonly aiWallet: AiWalletService,
     private readonly deep: DeepService,
+    private readonly trips: TripService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -269,6 +271,71 @@ export class AdminController {
   @UseGuards(AdminGuard)
   setStatus(@Param('id') id: string, @Body() body: { status: number }) {
     return this.admin.setUserStatus(BigInt(id), body.status);
+  }
+
+  // ---------- 领队、返佣比例、线路审核（第 2 步「领队旅行」，规则见 trip.service.ts） ----------
+
+  /** 设为 / 取消领队 { leader }。取消时他上架中的线路全部下架、线路群解散，返回 offTrips = 下架了几条 */
+  @Post('users/:id/leader')
+  @UseGuards(AdminGuard)
+  setLeader(@Param('id') id: string, @Body() body: { leader?: boolean }) {
+    return this.trips.adminSetLeader(BigInt(id), !!body?.leader);
+  }
+
+  /** 返佣比例 { rate }：0～100 的整数；传 null 恢复成默认的。每个人单独设，和是不是领队无关 */
+  @Post('users/:id/referral-rate')
+  @UseGuards(AdminGuard)
+  setReferralRate(@Param('id') id: string, @Body() body: { rate?: number | null }) {
+    return this.trips.adminSetRate(BigInt(id), body?.rate);
+  }
+
+  /** 审领队改的一句话介绍 { pass } */
+  @Post('users/:id/leader-intro')
+  @UseGuards(AdminGuard)
+  reviewLeaderIntro(@Param('id') id: string, @Body() body: { pass?: boolean }) {
+    return this.trips.adminReviewIntro(BigInt(id), !!body?.pass);
+  }
+
+  /** 旅行的设置：默认领队是谁（没有推荐人的用户看到的那位）、默认返佣比例 */
+  @Get('trip/config')
+  @UseGuards(AdminGuard)
+  tripConfig() {
+    return this.trips.adminConfig();
+  }
+
+  /** { defaultLeader?: 用户 id（空 = 不指定）, defaultRate?: 0～100 } */
+  @Put('trip/config')
+  @UseGuards(AdminGuard)
+  setTripConfig(@Body() body: { defaultLeader?: string; defaultRate?: number }) {
+    return this.trips.adminSetConfig(body ?? {});
+  }
+
+  /** 线路列表：cat = review 等审核的（默认）| on | rejected | off | all；另带 intros = 等审核的领队介绍 */
+  @Get('trips')
+  @UseGuards(AdminGuard)
+  tripList(@Query('cat') cat?: string, @Query('page') page?: string, @Query('size') size?: string) {
+    return this.trips.adminTrips(cat, Number(page) || 1, Number(size) || 20);
+  }
+
+  /** 审一条线路 { pass, reason? }：不通过要写原因 */
+  @Post('trips/:id/review')
+  @UseGuards(AdminGuard)
+  tripReview(@Param('id') id: string, @Body() body: { pass?: boolean; reason?: string }) {
+    return this.trips.adminReview(BigInt(id), !!body?.pass, body?.reason);
+  }
+
+  /** 平台下架一条线路（线路群跟着解散） */
+  @Post('trips/:id/off')
+  @UseGuards(AdminGuard)
+  tripOff(@Param('id') id: string) {
+    return this.trips.adminOff(BigInt(id));
+  }
+
+  /** 彻底删掉一条自测的线路（标题以【自测】开头的才行）：约单记录、线路群一起删 */
+  @Post('trips/:id/delete-test')
+  @UseGuards(AdminGuard)
+  tripDeleteTest(@Param('id') id: string) {
+    return this.trips.adminDeleteTest(BigInt(id));
   }
 
   // ---------- 通话日志 ----------

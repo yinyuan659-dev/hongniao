@@ -69,6 +69,19 @@ fun MeScreen(modifier: Modifier = Modifier, initialUser: UserProfile?, onNav: (S
             deviceCount = (d["devices"] as? kotlinx.serialization.json.JsonArray)?.size ?: deviceCount
         }
     }
+    // 平台把我设成领队 / 取消领队：服务器推 { op: 'trip', data: { event: 'leader', on } }，「领队后台」那一行当场出现 / 消失
+    DisposableEffect(Unit) {
+        val remove = com.wh.hongniang.net.WsClient.addListener { frame ->
+            if ((frame["op"] as? kotlinx.serialization.json.JsonPrimitive)?.content == "trip") {
+                val d = frame["data"] as? kotlinx.serialization.json.JsonObject
+                if ((d?.get("event") as? kotlinx.serialization.json.JsonPrimitive)?.content == "leader") {
+                    val on = (d["on"] as? kotlinx.serialization.json.JsonPrimitive)?.content == "true"
+                    me = me?.copy(isLeader = on)
+                }
+            }
+        }
+        onDispose { remove() }
+    }
     val scope = rememberCoroutineScope()
     // 扫一扫（统一处理见 QrScan.kt rememberScanHandler）：邀请名片
     val startScan = rememberQrScan(onNav)
@@ -155,6 +168,12 @@ fun MeScreen(modifier: Modifier = Modifier, initialUser: UserProfile?, onNav: (S
             // 牵豆（原来叫 AI 余额，1 元 = 1 牵豆）：视频见面、AI 功能、真人认证都从这里扣；点进去是网页
             MeGroup("牵豆") {
                 MeCell(IC_WALLET, Color(0xFF34C759), "我的牵豆", first = true, onClick = { onNav(hnH5("/ai-fee")) }) { MeValue(aiBalance) }
+            }
+            // 领队后台：只有平台设成领队的人有这一组（发布线路、看约单、改名额）；点进去是网页
+            if (u.isLeader) {
+                MeGroup("领队") {
+                    MeCell(IC_CAR, Color(0xFFFF3D63), "领队后台", first = true, onClick = { onNav(hnH5("/leader")) }) { MeValue() }
+                }
             }
             // 账号与安全：真人认证（后台要求且还没做时才出现）、登录设备（换手机刷脸找回后会多出来，可以移除）；点进去都是网页
             MeGroup("账号与安全", footer = if (needKyc) "做过真人认证才能发动态、评论、视频见面。认证一次 1 牵豆。" else null) {

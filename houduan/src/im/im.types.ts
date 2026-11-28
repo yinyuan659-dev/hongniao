@@ -8,6 +8,9 @@
  *     file 的 content 为 {url,name,size,mime}，url 来自 POST /upload/file（见 im.service sanitizeFile）
  *   { op: "read", conversationId, msgId }
  *   { op: "ping" }
+ *   { op: "watch", topic: "trip", on: true|false }
+ *       正停在某一类页面上（旅行首页、排行榜、领队页、线路详情）：登记 / 取消。服务器只把那一类的变化推给登记着的人（见 watch.registry.ts）。
+ *       连接断了自动取消，重连后要重新发。
  *
  * 服务端 -> 客户端：
  *   { op: "msg", data: MessagePayload }
@@ -23,6 +26,9 @@
  *       group 是最新的群信息（名字、公告、人数、status…），userId 是这件事说的是谁（进群 / 退群 / 被移出的人）。
  *       客户端拿它直接改页面，不用再去问服务器。
  *   { op: "conv_refresh" }                                                 消息列表有变化，重新拉一次列表
+ *   { op: "trip", data: { event, tripId?, leaderId?, pass?, on? } }
+ *       领队旅行有变化（见 trip.service.ts）：event = trip（某条线路变了）| rank（排行榜变了）——只推给发过 watch 的人；
+ *       review（审核结果，给领队）| leader（被设为 / 取消领队，给本人）。客户端收到后重新取那一页。
  *
  * 群聊：msg 帧里 convType=2，带 groupId、groupName；type=sys 是群里中间那行灰色小字，content 是 {k, text}。
  * 群用不了时 error 帧带 code：group_left（我不在群里了）/ group_dissolved / group_closed。

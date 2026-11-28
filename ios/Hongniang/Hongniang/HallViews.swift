@@ -15,6 +15,7 @@ struct HallView: View {
     @State private var chatTarget: ChatTarget?
     @State private var webTarget: WebTarget?
     @State private var mediaTarget: MediaTarget?
+    @State private var h5Target: H5Target?
 
     var body: some View {
         Group {
@@ -23,7 +24,8 @@ struct HallView: View {
                     url: hallUrl,
                     onOpenChat: { target in chatTarget = target },
                     onOpenWeb: { target in webTarget = target },
-                    onViewMedia: { target in mediaTarget = target }
+                    onViewMedia: { target in mediaTarget = target },
+                    onOpenH5: { route in h5Target = H5Target(route: route) }
                 )
             } else {
                 EmptyHint(text: t("common.loading"))
@@ -41,6 +43,10 @@ struct HallView: View {
         // 活动页、小游戏：独立原生 WebView 全屏打开，不影响大厅页（只开我们自己的网页，见 openWeb）
         .fullScreenCover(item: $webTarget) { t in
             GameWebSheet(url: t.url, title: t.title, landscape: t.landscape)
+        }
+        // 另开一页内嵌网页（真人认证）：大厅这个网页容器不给摄像头、也不让跳去别的网站，认证要在 HnWebPage 里做
+        .fullScreenCover(item: $h5Target) { t in
+            NavStack { HnWebPage(route: t.route) }
         }
         .onChange(of: webTarget?.id) { id in
             GameLog.log("hall: webTarget changed -> \(id == nil ? "nil(dismiss)" : "present \(webTarget?.url.absoluteString ?? "") landscape=\(webTarget?.landscape ?? false)")")
@@ -72,6 +78,12 @@ func withIndexCacheBuster(_ url: String) -> String {
     let tail = parts.count > 1 ? "#" + String(parts[1]) : ""
     let sep = head.contains("?") ? "&" : "?"
     return "\(head)\(sep)_t=\(Int(Date().timeIntervalSince1970))\(tail)"
+}
+
+/// 大厅网页让 App 另开的那一页内嵌网页（route 是网页里 # 后面的路径）
+struct H5Target: Identifiable {
+    let id = UUID()
+    let route: String
 }
 
 /// 原生全屏网页目标（小游戏等）；landscape 为横屏游戏（仅该页旋转）
@@ -183,15 +195,17 @@ private struct HallWebView: UIViewRepresentable {
     let onOpenChat: (ChatTarget) -> Void
     let onOpenWeb: (WebTarget) -> Void
     var onViewMedia: (MediaTarget) -> Void = { _ in }
+    var onOpenH5: (String) -> Void = { _ in }
 
-    func makeCoordinator() -> Coordinator { Coordinator(onOpenChat: onOpenChat, onOpenWeb: onOpenWeb, onViewMedia: onViewMedia) }
+    func makeCoordinator() -> Coordinator { Coordinator(onOpenChat: onOpenChat, onOpenWeb: onOpenWeb, onViewMedia: onViewMedia, onOpenH5: onOpenH5) }
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
         config.userContentController.add(context.coordinator, name: "peiwan")
         // 桥版本标记：H5 据此判断 viewMedia 等新桥是否可用（老版本 App 没有这个标记就走网页灯箱）
-        config.userContentController.addUserScript(WKUserScript(source: "window.__peiwanBridgeV2=true;", injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        // __hnHallH5：这一版认识 openH5（另开一页内嵌网页），网页据此决定真人认证是交给 App 另开一页、还是在网页里跳
+        config.userContentController.addUserScript(WKUserScript(source: "window.__peiwanBridgeV2=true;window.__hnHallH5=true;", injectionTime: .atDocumentStart, forMainFrameOnly: true))
         // H5 console / JS 报错转原生日志（[Game] hall: [H5 ...]）
         config.userContentController.addUserScript(GameLog.consoleForwardScript)
         let web = WKWebView(frame: .zero, configuration: config)
@@ -211,11 +225,13 @@ private struct HallWebView: UIViewRepresentable {
         let onOpenChat: (ChatTarget) -> Void
         let onOpenWeb: (WebTarget) -> Void
         let onViewMedia: (MediaTarget) -> Void
+        let onOpenH5: (String) -> Void
         let navLogger = WebNavLogger(scope: "hall")
-        init(onOpenChat: @escaping (ChatTarget) -> Void, onOpenWeb: @escaping (WebTarget) -> Void, onViewMedia: @escaping (MediaTarget) -> Void) {
+        init(onOpenChat: @escaping (ChatTarget) -> Void, onOpenWeb: @escaping (WebTarget) -> Void, onViewMedia: @escaping (MediaTarget) -> Void, onOpenH5: @escaping (String) -> Void) {
             self.onOpenChat = onOpenChat
             self.onOpenWeb = onOpenWeb
             self.onViewMedia = onViewMedia
+            self.onOpenH5 = onOpenH5
         }
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -233,9 +249,24 @@ private struct HallWebView: UIViewRepresentable {
                 let targetId = body["targetId"] as? String ?? ""
                 let title = body["title"] as? String ?? ""
                 let onOpenChat = onOpenChat
+                // 1 = 单聊（targetId 是对方的用户 id）；2 = 群聊（约单以后进线路群，targetId 是群 id）。别的不认
+                guard convType == 1 || convType == 2 else {
+                    GameLog.log("hall: openChat rejected, convType=\(convType) is not supported")
+                    return
+                }
                 DispatchQueue.main.async {
                     onOpenChat(ChatTarget(convId: convId, convType: convType, targetId: targetId, title: title))
                 }
+            case "openH5":
+                // 另开一页内嵌网页：route 是网页里 # 后面的路径，开的一定是我们自己的网页（HnWebPage 自己拼域名）
+                let route = body["route"] as? String ?? ""
+                let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/_-?=&%.")
+                guard route.hasPrefix("/"), route.count <= 200, route.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {
+                    GameLog.log("hall: openH5 rejected, bad route")
+                    return
+                }
+                let onOpenH5 = onOpenH5
+                DispatchQueue.main.async { onOpenH5(route) }
             case "openWeb":
                 // 只开我们自己的网页（Api.isOwnWebUrl），别的地址不开
                 guard let raw = body["url"] as? String,

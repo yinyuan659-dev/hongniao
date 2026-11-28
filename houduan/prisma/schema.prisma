@@ -52,6 +52,16 @@ model User {
   allowVideo   Boolean  @default(false) @map("allow_video")
   /// 并号：这个号已经作废、并进了哪个账号（同一张身份证的老账号）。有值的同时 status=1，不能再登录、不再出现在任何列表里
   mergedInto   BigInt?  @map("merged_into")
+  /// 领队：平台在后台设置（和 isGuide 无关，那是旧项目留下的）。打开后「我的」页多出「领队后台」，能发布线路
+  isLeader     Boolean  @default(false) @map("is_leader")
+  /// 什么时候被设成领队的（排行榜上约单数一样多时，先成为领队的在前）
+  leaderAt     DateTime? @map("leader_at")
+  /// 领队页上的一句话介绍（平台审过的）
+  leaderIntro  String   @default("") @map("leader_intro") @db.VarChar(120)
+  /// 领队新改的介绍，等平台审核；通过后挪到 leaderIntro
+  leaderIntroPending String? @map("leader_intro_pending") @db.VarChar(120)
+  /// 返佣比例（百分数 0～100），每个人可以单独设，和是不是领队无关；空 = 用默认的（设置项 referral_default_rate，没设过是 70）
+  referralRate Int?     @map("referral_rate")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
@@ -61,6 +71,59 @@ model User {
   @@index([gender, isGuide, cityCode])
   @@index([inviterId])
   @@map("user")
+}
+
+/// 领队发布的旅行线路（第 2 步「领队旅行」，样稿 design/13-travel.html）。一条线路 = 一个出发日期 = 一个群。
+/// 先审后发：status 0 审核中 → 1 已上架。上架以后「招募中 / 已出发 / 已结束」不存库，按日期当场算（见 trip.service.ts 的 phaseOf）。
+model Trip {
+  id          BigInt    @id @default(autoincrement())
+  leaderId    BigInt    @map("leader_id")
+  title       String    @db.VarChar(60)
+  /// 带队视频、封面（封面是客户端取的视频第一帧）
+  videoUrl    String    @map("video_url") @db.VarChar(255)
+  coverUrl    String    @default("") @map("cover_url") @db.VarChar(255)
+  /// 出发日期，北京时间的 YYYY-MM-DD（存成字符串，不用操心时区）
+  startDate   String    @map("start_date") @db.VarChar(10)
+  days        Int
+  gatherPlace String    @map("gather_place") @db.VarChar(40)
+  /// 起价，元
+  price       Int
+  /// 总名额；confirmed = 领队自己记的「已经定下来的人数」，页面上「还剩几位」= quota - confirmed
+  quota       Int
+  confirmed   Int       @default(0)
+  itinerary   String    @db.Text
+  feeNote     String    @map("fee_note") @db.Text
+  /// 0=审核中 1=已上架 2=没通过 3=领队自己下架 4=平台下架
+  status      Int       @default(0) @db.TinyInt
+  rejectReason String   @default("") @map("reject_reason") @db.VarChar(200)
+  /// 已上架的线路改了内容、等审核的那一版（JSON：title、videoUrl、coverUrl、startDate、days、gatherPlace、price、itinerary、feeNote）。
+  /// 审核期间用户看到的还是上面各列；通过后覆盖过去
+  pending     Json?
+  pendingAt   DateTime? @map("pending_at")
+  /// 这条线路的群（审核通过时建）
+  groupId     BigInt?   @map("group_id")
+  submittedAt DateTime  @default(now()) @map("submitted_at")
+  reviewedAt  DateTime? @map("reviewed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@index([leaderId, status])
+  @@index([status, startDate])
+  @@map("trip")
+}
+
+/// 约单记录：用户点了「约单并进群」记一笔。之后退群不删。排行榜数的就是它（最近 30 天、按人去重）。
+model TripOrder {
+  id        BigInt   @id @default(autoincrement())
+  tripId    BigInt   @map("trip_id")
+  leaderId  BigInt   @map("leader_id")
+  userId    BigInt   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([tripId, userId])
+  @@index([leaderId, createdAt])
+  @@index([userId])
+  @@map("trip_order")
 }
 
 /// 登录设备：一个账号可以挂多台设备（手机 + 网页）。账号认人（身份证），设备只是登录这个账号的钥匙。

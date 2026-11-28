@@ -1,0 +1,124 @@
+/* 领队旅行（第 2 步）的页面样式。样稿 design/13-travel.html，颜色和圆角沿用 hn.css 那一套。 */
+
+/* 大厅顶上的两个 tab */
+.tp-tt { display: flex; gap: 24px; padding: 10px 20px 6px; align-items: center; flex-shrink: 0; }
+.tp-tt span { color: var(--hn-ink2); font-size: 16px; position: relative; padding-bottom: 7px; cursor: pointer; }
+.tp-tt span.on { color: var(--hn-ink); font-weight: 800; font-size: 20px; }
+.tp-tt span.on::after { content: ""; position: absolute; left: 50%; transform: translateX(-50%); bottom: 0; width: 22px; height: 4px; border-radius: 2px; background: var(--hn-grad); }
+.tp-hall { min-height: 100%; background: #fbf7f5; color: var(--hn-ink); padding-bottom: 16px; }
+.tp-empty { text-align: center; color: var(--hn-ink2); font-size: 14px; line-height: 1.8; padding: 70px 30px; }
+
+/* 领队头像：有头像用头像，没有画一个带首字的圆 */
+.tp-av { border-radius: 50%; flex-shrink: 0; border: 2px solid #fff; box-shadow: 0 3px 10px rgba(43, 28, 34, 0.14); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 800; background: linear-gradient(135deg, #4a6b5d, #9fbf8f) center / cover; overflow: hidden; }
+.tp-ldr { display: flex; align-items: center; gap: 12px; padding: 6px 16px 8px; cursor: pointer; }
+.tp-mytag { font-size: 10.5px; height: 18px; padding: 0 7px; border-radius: 9px; background: var(--hn-soft); color: var(--hn-rose); font-weight: 700; display: inline-flex; align-items: center; margin-left: 5px; white-space: nowrap; vertical-align: 2px; }
+.tp-cert { font-size: 10.5px; height: 18px; padding: 0 7px; border-radius: 9px; background: #e3f7ec; color: #12a25e; font-weight: 700; display: inline-flex; align-items: center; margin-left: 5px; white-space: nowrap; vertical-align: 2px; }
+
+/* 「领队排行榜」入口那一行 */
+.tp-rkin { margin: 2px 16px 12px; height: 50px; border-radius: 16px; background: #fff; display: flex; align-items: center; padding: 0 12px 0 14px; gap: 9px; box-shadow: 0 4px 14px rgba(43, 28, 34, 0.06); font-size: 14px; cursor: pointer; }
+.tp-rkin .cup { width: 28px; height: 28px; border-radius: 9px; background: #fff2d6; color: #d98a00; display: flex; align-items: center; justify-content: center; }
+.tp-rkin .stack { display: flex; margin-left: auto; }
+.tp-rkin .stack .tp-av { margin-left: -7px; }
+
+/* 线路卡 */
+.tp-trip { margin: 0 16px 12px; border-radius: 20px; overflow: hidden; background: #fff; box-shadow: 0 8px 22px rgba(43, 28, 34, 0.08); cursor: pointer; }
+.tp-cv { position: relative; overflow: hidden; color: #fff; background: linear-gradient(160deg, #3d6b8f 0%, #7fa7b8 38%, #d9c7a3 70%, #8a6a4a 100%) center / cover; }
+.tp-cv.shade::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 45%, rgba(20, 12, 16, 0.6) 100%); pointer-events: none; }
+.tp-play { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); width: 48px; height: 48px; border-radius: 24px; background: rgba(255, 255, 255, 0.28); border: 1.5px solid rgba(255, 255, 255, 0.7); display: flex; align-items: center; justify-content: center; z-index: 2; pointer-events: none; }
+.tp-play::before { content: ""; border-left: 14px solid #fff; border-top: 8px solid transparent; border-bottom: 8px solid transparent; margin-left: 4px; }
+.tp-trip .in { padding: 11px 14px 13px; }
+.tp-trip h4 { font-size: 15.5px; font-weight: 800; line-height: 1.4; margin: 0; }
+.tp-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+.tp-meta span { font-size: 11.5px; padding: 2px 8px; border-radius: 9px; background: #f6f1f2; color: var(--hn-ink2); }
+.tp-meta span.hot { background: var(--hn-soft); color: var(--hn-rose); font-weight: 600; }
+.tp-price { font-size: 17px; font-weight: 800; color: var(--hn-rose); font-variant-numeric: tabular-nums; }
+.tp-price small { font-size: 11.5px; font-weight: 500; color: var(--hn-ink2); margin-left: 3px; }
+.tp-sbtn { height: 34px; padding: 0 18px; border-radius: 17px; border: none; background: var(--hn-grad); color: #fff; font-size: 13.5px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 6px 14px rgba(255, 61, 99, 0.28); white-space: nowrap; cursor: pointer; font-family: inherit; }
+.tp-sbtn.gh { background: #fff; color: var(--hn-ink2); box-shadow: 0 2px 8px rgba(43, 28, 34, 0.08); font-weight: 500; }
+.tp-sbtn.in2 { background: #fff; color: var(--hn-rose); box-shadow: none; border: 1.5px solid rgba(255, 61, 99, 0.5); }
+.tp-sbtn.off { background: #f1eeef; color: var(--hn-ink3); box-shadow: none; cursor: default; }
+
+/* 排行榜 */
+.tp-rkhead { margin: 0 16px 8px; font-size: 12px; color: var(--hn-ink2); display: flex; align-items: center; gap: 6px; }
+.tp-rkhead i { width: 6px; height: 6px; border-radius: 3px; background: #12b76a; }
+.tp-rk { display: flex; align-items: center; gap: 11px; margin: 0 16px 8px; padding: 10px 13px 10px 10px; border-radius: 18px; background: #fff; box-shadow: 0 4px 14px rgba(43, 28, 34, 0.05); cursor: pointer; border: 1.5px solid transparent; }
+.tp-rk.me { border-color: rgba(255, 61, 99, 0.45); background: #fff8f9; }
+.tp-rk .no { width: 26px; text-align: center; font-size: 15px; font-weight: 800; color: var(--hn-ink3); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.tp-rk .no.t { height: 26px; border-radius: 13px; color: #fff; font-size: 13px; display: flex; align-items: center; justify-content: center; }
+.tp-rk .no.n1 { background: linear-gradient(135deg, #ffb020, #ff8a00); }
+.tp-rk .no.n2 { background: linear-gradient(135deg, #b9c2cf, #8d99ab); }
+.tp-rk .no.n3 { background: linear-gradient(135deg, #d9a273, #b9773f); }
+.tp-rk .num { text-align: right; flex-shrink: 0; }
+.tp-rk .num b { font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; display: block; line-height: 1.15; }
+.tp-rk .num span { font-size: 10.5px; color: var(--hn-ink3); }
+.tp-ell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 领队页 */
+.tp-lhero { height: 150px; flex-shrink: 0; position: relative; background: linear-gradient(170deg, #f2a65a 0%, #d9703c 40%, #7a3b2e 100%); }
+.tp-lhero .bar { position: absolute; left: 14px; right: 14px; top: 10px; display: flex; justify-content: space-between; }
+.tp-gbtn { width: 36px; height: 36px; border-radius: 18px; background: rgba(255, 255, 255, 0.24); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.4); color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.tp-lcard { margin: -46px 16px 0; background: #fff; border-radius: 22px; padding: 14px 15px 13px; box-shadow: 0 10px 26px rgba(43, 28, 34, 0.1); position: relative; z-index: 5; }
+.tp-s3 { display: flex; margin-top: 11px; padding-top: 11px; border-top: 1px solid var(--hn-line); }
+.tp-s3 > div { flex: 1; text-align: center; }
+.tp-s3 b { font-size: 17px; font-weight: 800; display: block; font-variant-numeric: tabular-nums; }
+.tp-s3 span { font-size: 11px; color: var(--hn-ink2); }
+.tp-lab { font-size: 13px; color: var(--hn-ink2); margin: 13px 20px 8px; display: flex; align-items: center; }
+
+/* 线路详情 */
+.tp-box { margin: 10px 16px 0; background: #fff; border-radius: 18px; padding: 13px 15px; box-shadow: 0 4px 16px rgba(43, 28, 34, 0.05); }
+.tp-box h5 { font-size: 14px; font-weight: 800; margin: 0 0 5px; }
+.tp-box p { font-size: 13px; line-height: 1.7; color: #4b3d43; margin: 0; white-space: pre-wrap; word-break: break-word; }
+.tp-video { width: 100%; height: 230px; display: block; background: #1a1418; object-fit: cover; }
+.tp-dockb { position: absolute; left: 14px; right: 14px; bottom: calc(14px + env(safe-area-inset-bottom)); z-index: 20; display: flex; gap: 10px; padding: 9px; border-radius: 30px; align-items: center; }
+/* .hn-btn 默认占满一行，在这里要按字的宽度来，不然左边那两行说明被挤成一竖条 */
+.tp-dockb .hn-btn { width: auto; flex-shrink: 0; white-space: nowrap; }
+.tp-faces { display: flex; }
+.tp-faces .hn-meav { width: 28px; height: 28px; margin-right: -6px; }
+
+/* 约单确认（底下弹上来） */
+.tp-hd { width: 38px; height: 4px; border-radius: 2px; background: #e6dcdf; margin: 10px auto 14px; }
+.tp-pt { display: flex; gap: 10px; align-items: flex-start; margin-top: 11px; font-size: 13.5px; line-height: 1.55; color: #4b3d43; }
+.tp-pt i { width: 22px; height: 22px; border-radius: 11px; background: var(--hn-soft); color: var(--hn-rose); flex-shrink: 0; margin-top: 1px; }
+.tp-pt b { color: var(--hn-ink); }
+
+/* 领队后台 */
+.tp-g4 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 16px; }
+.tp-g4 > div { background: #fff; border-radius: 16px; padding: 10px 12px; box-shadow: 0 4px 14px rgba(43, 28, 34, 0.05); }
+.tp-g4 b { font-size: 19px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.tp-g4 span { font-size: 11px; color: var(--hn-ink2); display: block; margin-top: 1px; }
+.tp-wb { margin: 0 16px; background: #fff; border-radius: 16px; box-shadow: 0 4px 14px rgba(43, 28, 34, 0.05); overflow: hidden; }
+.tp-li { display: flex; align-items: center; gap: 11px; padding: 10px 13px; font-size: 14px; min-height: 50px; cursor: pointer; }
+.tp-li + .tp-li { border-top: 1px solid var(--hn-line); }
+.tp-li .tp-cv { width: 42px; height: 42px; border-radius: 11px; flex-shrink: 0; }
+.tp-li .end { margin-left: auto; color: var(--hn-ink3); font-size: 12.5px; display: flex; align-items: center; gap: 3px; flex-shrink: 0; }
+.tp-li > i.lead { color: var(--hn-rose); width: 22px; }
+.tp-st { font-size: 11px; padding: 1px 8px; border-radius: 9px; font-weight: 600; flex-shrink: 0; white-space: nowrap; }
+.tp-st.on { background: #e3f7ec; color: #12a25e; }
+.tp-st.wait { background: #fff4d9; color: #b54708; }
+.tp-st.off { background: #f1eeef; color: var(--hn-ink3); }
+.tp-st.no { background: #fee4e2; color: #d92d20; }
+.tp-stp { display: flex; align-items: center; margin-left: auto; flex-shrink: 0; }
+.tp-stp button { width: 30px; height: 30px; border-radius: 15px; border: none; background: #f6f1f2; font-size: 17px; color: var(--hn-ink2); cursor: pointer; font-family: inherit; }
+.tp-stp button:disabled { opacity: 0.4; }
+.tp-stp b { width: 34px; text-align: center; font-size: 15px; font-variant-numeric: tabular-nums; }
+.tp-red { margin: 12px 16px 0; height: 48px; border-radius: 16px; background: #fff; color: #f04438; font-size: 15px; font-weight: 600; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(43, 28, 34, 0.05); cursor: pointer; }
+
+/* 发布线路 */
+.tp-swt { font-size: 13px; color: var(--hn-rose); font-weight: 700; white-space: nowrap; min-width: 34px; text-align: right; cursor: pointer; }
+.tp-vmsg { width: 132px; height: 78px; border-radius: 18px 6px 18px 18px; flex-shrink: 0; box-shadow: 0 6px 16px rgba(43, 28, 34, 0.14); }
+.tp-pv { background: #fff; border-radius: 6px 20px 20px 20px; padding: 12px 14px; box-shadow: 0 10px 26px rgba(255, 90, 120, 0.16); max-width: 72vw; border: 1.5px solid rgba(255, 61, 99, 0.22); }
+.tp-kv { display: flex; gap: 8px; font-size: 12.5px; line-height: 1.5; margin-top: 6px; color: var(--hn-ink); white-space: pre-wrap; word-break: break-word; }
+.tp-kv span { color: var(--hn-ink2); width: 30px; flex-shrink: 0; }
+.tp-kv em { font-style: normal; color: var(--hn-ink3); }
+.tp-fld { background: #fff; border-radius: 16px; padding: 0 14px; min-height: 48px; display: flex; align-items: center; font-size: 14px; box-shadow: 0 3px 12px rgba(43, 28, 34, 0.05); margin: 0 16px 9px; }
+.tp-fld > span { color: var(--hn-ink2); width: 62px; flex-shrink: 0; }
+.tp-fld input, .tp-fld textarea { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font-size: 14px; color: var(--hn-ink); font-family: inherit; padding: 0; }
+.tp-fld textarea { resize: none; line-height: 1.6; padding: 11px 0; }
+.tp-fld.ta { align-items: flex-start; }
+.tp-fld.ta > span { padding-top: 11px; }
+.tp-f2 { display: flex; gap: 9px; margin: 0 16px 9px; }
+.tp-f2 .tp-fld { margin: 0; flex: 1; min-width: 0; }
+.tp-up { margin: 0 16px 9px; height: 96px; border-radius: 16px; overflow: hidden; cursor: pointer; position: relative; }
+.tp-up.none { border: 1.5px dashed rgba(255, 61, 99, 0.45); background: #fff7f8; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--hn-rose); font-size: 13px; gap: 5px; }
+.tp-up .tip { position: absolute; left: 12px; bottom: 9px; font-size: 12px; color: #fff; z-index: 2; }
+.tp-prog { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--hn-rose); z-index: 3; transition: width 0.2s; }

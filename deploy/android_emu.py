@@ -36,10 +36,45 @@ ADB = os.path.join(SDK, 'platform-tools', 'adb.exe')
 EMU = os.path.join(SDK, 'emulator', 'emulator.exe')
 PKG = 'com.wh.hongniang'
 AVD = 'elder35'
+# 我们的模拟器固定用这一对端口（控制台 5580、adb 5581），在 adb 里叫 emulator-5580。见 our_serial 的说明
+PORT = 5580
+
+
+_serial = None
+
+
+def our_serial():
+    """
+    我们自己那台虚拟机（名字是 AVD）的序列号；没开着返回 None。
+    这台电脑上可能同时开着别的模拟器：2026-11-28 就碰到一台雷电模拟器，在 adb 里也叫 emulator-5554，
+    当时这个脚本只看「有没有 emulator- 开头的设备」，结果把包装到了那一台上（已卸掉）。
+    所以只认名字对得上的那一台，所有命令都带着它的序列号发；别的设备一律不碰。
+
+    名字要从设备自己身上问（getprop，和后面发命令走的是同一条连接）。不能用 `adb emu avd name`：那是去问本机 5554 端口上的控制台，
+    别的模拟器占着 adb 的 5555、我们的模拟器占着控制台的 5554 时，问到的是我们的名字，命令却发给了别人（第二次就是这么错的）。
+    所以我们的模拟器固定开在 PORT 这一对端口上，不和别的模拟器抢 5554 / 5555。
+    """
+    out = subprocess.run([ADB, 'devices'], capture_output=True, timeout=30).stdout.decode('utf-8', 'replace')
+    for line in out.splitlines()[1:]:
+        parts = line.split()
+        if len(parts) < 2 or parts[0] != 'emulator-%d' % PORT or parts[1] != 'device':
+            continue
+        try:
+            got = subprocess.run([ADB, '-s', parts[0], 'shell', 'getprop', 'ro.boot.qemu.avd_name'], capture_output=True, timeout=15).stdout.decode('utf-8', 'replace').strip()
+        except subprocess.TimeoutExpired:
+            got = ''
+        if got == AVD:
+            return parts[0]
+    return None
 
 
 def adb(*args, data=None, timeout=60, check=False):
-    r = subprocess.run([ADB] + list(args), input=data, capture_output=True, timeout=timeout)
+    global _serial
+    if _serial is None:
+        _serial = our_serial()
+        if _serial is None:
+            raise SystemExit('我们的模拟器（%s）没开着，先 start。连着的别的设备不是我们的，不碰。' % AVD)
+    r = subprocess.run([ADB, '-s', _serial] + list(args), input=data, capture_output=True, timeout=timeout)
     if check and r.returncode != 0:
         raise SystemExit('adb %s 失败：%s' % (args[0], (r.stderr or r.stdout).decode('utf-8', 'replace')[-300:]))
     return r.stdout
@@ -50,15 +85,20 @@ def sh(cmd, **kw):
 
 
 def start():
-    if b'emulator-' in adb('devices'):
+    global _serial
+    if our_serial():
         print('模拟器已经开着')
     else:
         log = open(os.path.join(os.environ['TEMP'], 'hn_emulator.log'), 'wb')
-        subprocess.Popen([EMU, '-avd', AVD, '-read-only', '-no-snapshot', '-no-boot-anim', '-no-audio', '-no-window', '-gpu', 'swiftshader_indirect'],
+        # 画面怎么渲染：默认用软件渲染（哪台电脑都能跑）。软件渲染下 App 里的内嵌网页是一片白、也点不动（原生页面正常），
+        # 要看内嵌网页就先设 $env:HN_EMU_GPU='host'（用这台电脑的显卡）再 start
+        gpu = os.environ.get('HN_EMU_GPU') or 'swiftshader_indirect'
+        subprocess.Popen([EMU, '-avd', AVD, '-port', str(PORT), '-read-only', '-no-snapshot', '-no-boot-anim', '-no-audio', '-no-window', '-gpu', gpu],
                          stdout=log, stderr=log, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS)
     end = time.time() + 300
     while time.time() < end:
-        if sh('getprop sys.boot_completed').strip() == '1':
+        _serial = _serial or our_serial()
+        if _serial and sh('getprop sys.boot_completed').strip() == '1':
             break
         time.sleep(3)
     else:

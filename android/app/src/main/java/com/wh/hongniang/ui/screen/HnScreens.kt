@@ -232,7 +232,46 @@ private fun CardPill(text: String, solid: Boolean, onClick: () -> Unit) {
     ) { Text(text, color = if (solid) HnRose else Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
 }
 
-// ---------- 内嵌网页：相亲画像、AI 费用 ----------
+// ---------- 内嵌网页：相亲画像、AI 费用、领队旅行 ----------
+
+/**
+ * 内嵌网页里的 <input type="file">（领队发布线路时选带队视频）：交给系统的文件选择器，选完把结果还给网页。
+ * WebView 默认不处理这个，不接的话网页里点「选视频」没有任何反应。用法：在 WebChromeClient.onShowFileChooser 里直接返回它的结果。
+ * 用的是系统自带的「选文件」（ACTION_GET_CONTENT），不需要申请存储权限。
+ */
+@Composable
+fun rememberWebFileChooser(): (android.webkit.ValueCallback<Array<android.net.Uri>>, android.webkit.WebChromeClient.FileChooserParams) -> Boolean {
+    // 网页在等的那个回话；一定要回（哪怕回 null = 没选），不然网页里的选择框再也点不开
+    val pending = remember { arrayOfNulls<android.webkit.ValueCallback<Array<android.net.Uri>>>(1) }
+    val launcher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()) { res ->
+        pending[0]?.onReceiveValue(android.webkit.WebChromeClient.FileChooserParams.parseResult(res.resultCode, res.data))
+        pending[0] = null
+    }
+    return remember(launcher) {
+        { callback, params ->
+            pending[0]?.onReceiveValue(null)
+            pending[0] = callback
+            // 网页写的 accept（比如 video/mp4,video/quicktime）。系统自己拼的选择器只认第一种，这里把几种都带上
+            val types = params.acceptTypes.orEmpty().flatMap { it.split(",") }.map { it.trim() }.filter { it.contains('/') }
+            val intent = android.content.Intent(android.content.Intent.ACTION_GET_CONTENT).addCategory(android.content.Intent.CATEGORY_OPENABLE).apply {
+                type = when {
+                    types.isEmpty() -> "*/*"
+                    types.size == 1 -> types[0]
+                    types.all { it.startsWith("video/") } -> "video/*"
+                    types.all { it.startsWith("image/") } -> "image/*"
+                    else -> "*/*"
+                }
+                if (types.size > 1) putExtra(android.content.Intent.EXTRA_MIME_TYPES, types.toTypedArray())
+            }
+            runCatching { launcher.launch(intent) }.onFailure {
+                GameLog.w("web: file chooser failed: ${it.message}")
+                pending[0] = null
+                callback.onReceiveValue(null)
+            }
+            true
+        }
+    }
+}
 
 /**
  * 用 App 的登录身份打开 AI 红娘的某个网页（route 是 # 后面的路径）。网页自己带顶栏和返回键，这里不再画标题栏。
@@ -261,6 +300,8 @@ fun HnWebScreen(
         camRequest = null
     }
     val bridge = remember { HnJsBridge(onBack, onNav, onOpenChat, onSession) }
+    // 网页里选文件（领队发布线路时选带队视频）
+    val fileChooser = rememberWebFileChooser()
     // 系统返回键：网页里有上一页先后退，没有就关掉
     BackHandler { if (webView?.canGoBack() == true) webView?.goBack() else onBack() }
     DisposableEffect(Unit) {
@@ -312,6 +353,10 @@ fun HnWebScreen(
                     override fun onPermissionRequestCanceled(request: android.webkit.PermissionRequest) {
                         if (camRequest == request) camRequest = null
                     }
+
+                    override fun onShowFileChooser(
+                        view: WebView, callback: android.webkit.ValueCallback<Array<android.net.Uri>>, params: android.webkit.WebChromeClient.FileChooserParams,
+                    ): Boolean = fileChooser(callback, params)
                 }
                 addJavascriptInterface(bridge, "PeiwanNative")
                 GameLog.d("hn: open ${url.substringBefore("token=")}token=***")
@@ -398,10 +443,19 @@ private class HnJsBridge(
         }
     }
 
-    /** 画像网页上的「发消息」：打开原生聊天页 */
+    /**
+     * 打开原生聊天页。convType 1 = 单聊（画像网页上的「发消息」，targetId 是对方的用户 id）；
+     * 2 = 群聊（领队后台的「进线路群」，targetId 是群 id）。别的不认。
+     */
     @android.webkit.JavascriptInterface
     fun openChat(convId: String, convType: String, targetId: String, title: String) {
-        if ((convType.toIntOrNull() ?: 1) != 1) return
-        main.post { onOpenChat(convId, targetId, title) }
+        when (convType.toIntOrNull() ?: 1) {
+            1 -> main.post { onOpenChat(convId, targetId, title) }
+            2 -> {
+                val conv = convId.filter { it.isDigit() }
+                val group = targetId.filter { it.isDigit() }
+                if (conv.isNotEmpty() && group.isNotEmpty()) main.post { onNav(groupChatRoute(conv, group, title.take(60))) }
+            }
+        }
     }
 }

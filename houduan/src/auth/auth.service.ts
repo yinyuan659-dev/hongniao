@@ -140,6 +140,8 @@ export class AuthService {
       cityName: u.cityName,
       signature: u.signature,
       isGuide: u.isGuide,
+      /** 是不是领队（平台在后台设的）：是的话「我的」页多出「领队后台」 */
+      isLeader: !!u.isLeader,
       /** 视频见面开关（默认关） */
       allowVideo: !!u.allowVideo,
       // 实人认证状态（只返回是否通过，不返回姓名和证号）

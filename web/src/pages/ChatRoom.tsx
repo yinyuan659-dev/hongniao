@@ -18,6 +18,7 @@ import { decodeQrFromImage, ScanIcon } from '../components/QrScanner';
 import { ScanFlow } from './ChatList';
 import { t } from '../i18n';
 import { Relation, ReportSheet as UserReportSheet } from '../match';
+import { TripPin } from '../trip';
 import { expireTip, GROUP_END_TEXT, GROUP_REASON_STATE, GroupEvent, GroupView, OwnerBadge, stateAfter, sysText } from '../group';
 
 /** 「11 月 23 日」 */
@@ -894,7 +895,8 @@ export function ChatRoomPage() {
           )}
         </span>
       </div>
-      {/* 样稿里群聊页顶上还钉着这个群对应的线路 / 活动卡片：线路、活动是第 2、3 步才做的，到时候加在这里 */}
+      {/* 线路群顶上钉着这条线路（点了看线路详情）。活动群的卡片第 3 步做活动时加在这里 */}
+      {groupId && g?.kind === 'trip' && g.refId && g.refId !== '0' && <TripPin tripId={g.refId} onOpen={() => nav(`/trip/${g.refId}`)} />}
       {pins.length > 0 && (
         <PinBar
           pins={pins}

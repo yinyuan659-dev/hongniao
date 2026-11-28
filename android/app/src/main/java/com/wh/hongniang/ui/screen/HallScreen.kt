@@ -31,7 +31,11 @@ fun HallScreen(
     onOpenWeb: (url: String, title: String, landscape: Boolean) -> Unit = { _, _, _ -> },
     /** 大厅 tab 是否当前可见（各 tab 常驻，只有可见时才接管返回键） */
     active: Boolean = true,
+    /** 大厅网页要打开别的原生页面（群聊页、另一个内嵌网页）：给的是导航路由 */
+    onNav: (String) -> Unit = {},
 ) {
+    // 网页里选文件（领队在大厅里点进自己的线路改内容时会选视频）
+    val fileChooser = rememberWebFileChooser()
     var url by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         val webviewPkg = if (android.os.Build.VERSION.SDK_INT >= 26) {
@@ -109,9 +113,9 @@ fun HallScreen(
                     setBackgroundColor(Bg.toArgb())
                     webViewClient = GameLog.webViewClient("hall", ownSiteOnly = true) { canGoBack = it }
                     // H5 的 console.log / JS 报错转到 logcat（tag=YGameXd），排查黑屏/点击无反应
-                    webChromeClient = GameLog.chromeClient("hall")
+                    webChromeClient = GameLog.chromeClient("hall", fileChooser)
                     // JS 桥（window.PeiwanNative）：H5 聊天入口唤起原生聊天页 / 小游戏唤起原生全屏网页
-                    addJavascriptInterface(HallJsBridge(ctx, onOpenChat, onOpenWeb, onViewMedia = { groups, g, i -> viewer = Triple(groups, g, i) }), "PeiwanNative")
+                    addJavascriptInterface(HallJsBridge(ctx, onOpenChat, onOpenWeb, onViewMedia = { groups, g, i -> viewer = Triple(groups, g, i) }, onNav = onNav), "PeiwanNative")
                     // 布局尺寸变化打日志：大厅黑屏时先确认 WebView 有没有拿到真实尺寸
                     addOnLayoutChangeListener { v, l, t, r, b, ol, ot, or, ob ->
                         if (r - l != or - ol || b - t != ob - ot) GameLog.d("hall: webview layout ${r - l}x${b - t}")
@@ -143,7 +147,10 @@ private class HallJsBridge(
     private val onOpenChat: (String, String, String) -> Unit,
     private val onOpenWeb: (String, String, Boolean) -> Unit,
     private val onViewMedia: (List<List<com.wh.hongniang.ui.MediaItem>>, Int, Int) -> Unit = { _, _, _ -> },
+    private val onNav: (String) -> Unit = {},
 ) {
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+
     /**
      * H5 点图放大 / 点视频：原生全屏查看器（上下滑切帖子、左右滑切图、缩放、原生播放器）。
      * groupsJson: [[{type:image|video,url,cover}], ...] 按显示顺序的所有帖子；group/index = 点开的位置
@@ -164,17 +171,40 @@ private class HallJsBridge(
     @android.webkit.JavascriptInterface
     fun viewMedia(itemsJson: String, index: String) = viewMediaGroups("[$itemsJson]", "0", index)
 
-    /** 打开原生单聊页（convType 只认 1） */
+    /**
+     * 打开原生聊天页。convType 1 = 单聊（targetId 是对方的用户 id）；
+     * 2 = 群聊（约单以后进线路群，targetId 是群 id）。别的不认。
+     */
     @android.webkit.JavascriptInterface
     fun openChat(convId: String, convType: String, targetId: String, title: String) {
         GameLog.d("bridge.openChat conv=$convId type=$convType target=$targetId title=$title")
-        if ((convType.toIntOrNull() ?: 1) != 1) {
-            GameLog.w("bridge.openChat rejected: only convType=1 is supported")
+        when (convType.toIntOrNull() ?: 1) {
+            1 -> main.post { onOpenChat(convId, targetId, title) }
+            2 -> {
+                val conv = convId.filter { it.isDigit() }
+                val group = targetId.filter { it.isDigit() }
+                if (conv.isEmpty() || group.isEmpty()) {
+                    GameLog.w("bridge.openChat rejected: bad group conversation")
+                    return
+                }
+                main.post { onNav(groupChatRoute(conv, group, title.take(60))) }
+            }
+            else -> GameLog.w("bridge.openChat rejected: convType=$convType is not supported")
+        }
+    }
+
+    /**
+     * 另开一页内嵌网页（[HnWebScreen]）：route 是网页里 # 后面的路径，开的一定是我们自己的网页。
+     * 大厅这个网页容器不给摄像头、也不让跳去别的网站，所以真人认证（约单前要做）不能在这里面做，要另开一页。
+     */
+    @android.webkit.JavascriptInterface
+    fun openH5(route: String) {
+        GameLog.d("bridge.openH5 route=$route")
+        if (route.length > 200 || !Regex("^/[A-Za-z0-9/_\\-?=&%.]*$").matches(route)) {
+            GameLog.w("bridge.openH5 rejected: bad route")
             return
         }
-        android.os.Handler(android.os.Looper.getMainLooper()).post {
-            onOpenChat(convId, targetId, title)
-        }
+        main.post { onNav(hnH5(route)) }
     }
 
     /**
@@ -274,8 +304,15 @@ object GameLog {
         }
     }
 
-    /** H5 console 输出转 logcat */
-    fun chromeClient(scope: String) = object : android.webkit.WebChromeClient() {
+    /** H5 console 输出转 logcat。onFileChooser：网页里选文件时交给谁（见 rememberWebFileChooser）；不给就是不支持选文件 */
+    fun chromeClient(
+        scope: String,
+        onFileChooser: ((android.webkit.ValueCallback<Array<android.net.Uri>>, android.webkit.WebChromeClient.FileChooserParams) -> Boolean)? = null,
+    ) = object : android.webkit.WebChromeClient() {
+        override fun onShowFileChooser(
+            view: android.webkit.WebView, callback: android.webkit.ValueCallback<Array<android.net.Uri>>, params: android.webkit.WebChromeClient.FileChooserParams,
+        ): Boolean = onFileChooser?.invoke(callback, params) ?: false
+
         override fun onConsoleMessage(m: android.webkit.ConsoleMessage): Boolean {
             val line = "$scope: [H5 ${m.messageLevel()}] ${m.message()} (${m.sourceId().substringAfterLast('/')}:${m.lineNumber()})"
             when (m.messageLevel()) {

@@ -1,18 +1,25 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Ic, Nav } from '../hn';
 import { t } from '../i18n';
+import { TravelTab } from './Trip';
+import '../trip.css';
 
 /**
- * 大厅：内容直接写在这里，不走后台配置（样稿 design/07-hall.html，用户 2026-11-25 过关）。
- *   活动「前 10 对结婚的新人送旅行」→ 活动页（现在是占位版，规则还没定）
- * 大厅里有什么以发出去的这一版为准：要加别的活动就改这个文件、发新版本，不靠后台开关变出来。
+ * 大厅：顶上两个 tab「旅行 / 相亲活动」，下面直接是列表（样稿 design/13-travel.html 第 1 组，用户 2026-11-28 过关；
+ * tab 的做法是 2026-11-27 定的，见 design/11-hall-travel.html）。内容直接写在这里，不走后台配置：
+ * 大厅里有什么以发出去的这一版为准，要加别的就改这个文件、发新版本，不靠后台开关变出来。
+ *   旅行      第 2 步「领队旅行」：我的领队 + 领队排行榜入口 + 他的线路（pages/Trip.tsx 的 TravelTab）
+ *   相亲活动  第 3 步，还没做，现在只有一句「即将开放」。【送审的版本里不能有空 tab：第 3 步做完再送审】
+ * 这一页在 App 里是内嵌网页（/hall-embed），浏览器里是底部「大厅」。
  *
+ * 原来大厅上的活动卡「前 10 对结婚的新人送旅行」2026-11-27 起先拿掉了（要不要留用户还没定），活动页 TripPage 和路由还在，只是没有入口。
  * 「相亲物语」那张卡 2026-11-27 用户说先不要了：入口拿掉、wuyu.html 不再构建和部署，程序留在 src/wuyu/ 和 web/wuyu.html。
- * 要加回来：这个文件的入口（wuyuUrl / openWuyu / 第二张卡）、theme.css 的 .hall-wuyu、两个语言文件的 hall.wuyu.* 都在提交 1a8972a 里；
+ * 要加回来：入口（wuyuUrl / openWuyu / 卡片）、theme.css 的 .hall-wuyu、两个语言文件的 hall.wuyu.* 都在提交 1a8972a 里；
  * vite.config.ts 的 input 里加回 wuyu；封面图从 src/wuyu/cover.jpg 放回 public/wuyu-cover.jpg。
  */
 
-/** 活动卡右下角的小飞机（装饰） */
+/** 活动页右下角的小飞机（装饰） */
 function Plane({ size }: { size: number }) {
   return (
     <svg className="hall-plane" viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
@@ -21,28 +28,34 @@ function Plane({ size }: { size: number }) {
   );
 }
 
+const TAB_KEY = 'hn_hall_tab';
+
 export function HallPage() {
-  const nav = useNavigate();
+  // 记住停在哪个 tab：看完线路回来还在原来的地方
+  const [tab, setTabState] = useState<'trip' | 'event'>(() => {
+    try { return sessionStorage.getItem(TAB_KEY) === 'event' ? 'event' : 'trip'; } catch { return 'trip'; }
+  });
+  const setTab = (v: 'trip' | 'event') => {
+    setTabState(v);
+    try { sessionStorage.setItem(TAB_KEY, v); } catch { /* 存不了就算了 */ }
+  };
 
   return (
-    <div className="hall">
-      <div className="hall-lt">{t('tab.hall')}</div>
-
-      <div className="hall-lab">{t('hall.sec.activity')}</div>
-      <div className="hall-act" onClick={() => nav('/activity/trip')}>
-        <span className="hall-tag">{t('hall.trip.tag')}</span>
-        <h3>{t('hall.trip.title')}</h3>
-        <p>{t('hall.trip.desc', { app: t('app.name') })}</p>
-        <span className="hall-act-go">{t('hall.trip.go')}<Ic n="right" s={13} /></span>
-        <Plane size={120} />
+    <div className="tp-hall">
+      <div className="tp-tt">
+        <span className={tab === 'trip' ? 'on' : ''} data-tab="trip" onClick={() => setTab('trip')}>旅行</span>
+        <span className={tab === 'event' ? 'on' : ''} data-tab="event" onClick={() => setTab('event')}>相亲活动</span>
       </div>
+      {tab === 'trip' ? <TravelTab /> : (
+        <div className="tp-empty">相亲活动即将开放。{'\n'}到时候可以在这里发起同城的户外活动，或者参加别人发起的。</div>
+      )}
     </div>
   );
 }
 
 /**
- * 活动页「新婚旅行礼」。现在是占位版：只说有这件事，规则还没有，按钮点不了。
- * 【送审前必须换成有完整规则的真实活动页】（谁能参加、怎么证明、送什么、起止时间、举办方）——占位内容不能送审。
+ * 活动页「新婚旅行礼」。现在是占位版：只说有这件事，规则还没有，按钮点不了。大厅上现在没有入口进这一页。
+ * 【要放回大厅、送审前必须换成有完整规则的真实活动页】（谁能参加、怎么证明、送什么、起止时间、举办方）——占位内容不能送审。
  * 送审时的样子见 design/07-hall.html 第 2 组，要用户给的 6 项规则记在 AI进度文档.md §8.2.1。
  */
 export function TripPage() {

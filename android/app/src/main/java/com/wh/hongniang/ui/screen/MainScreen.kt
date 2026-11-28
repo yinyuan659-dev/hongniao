@@ -32,6 +32,11 @@ fun MainScreen(
     onOpenChat: (convId: String, targetId: String, title: String) -> Unit,
     onOpenChatWithUser: (userId: String, nickname: String) -> Unit,
     onNav: (String) -> Unit,
+    /**
+     * 主页上面有没有盖着别的页面（聊天页、内嵌网页…）。盖着的时候大厅不能接管系统返回键：
+     * 不然在大厅的线路详情里点「进入群聊」进了群聊页，按返回退的是下面大厅网页的那一页，群聊页还盖在上面。
+     */
+    covered: Boolean = false,
 ) {
     // rememberSaveable：从详情页等返回时恢复所在 tab
     var tab by androidx.compose.runtime.saveable.rememberSaveable { mutableIntStateOf(0) }
@@ -98,7 +103,8 @@ fun MainScreen(
                 val imeBottom = with(androidx.compose.ui.platform.LocalDensity.current) { WindowInsets.ime.getBottom(this).toDp() }
                 HallScreen(
                     modifier = Modifier.padding(bottom = (imeBottom - pad.calculateBottomPadding()).coerceAtLeast(0.dp)),
-                    active = tab == 1,
+                    active = tab == 1 && !covered,
+                    onNav = onNav,
                     onOpenChat = onOpenChat,
                     onOpenWeb = { url, title, landscape ->
                         val route = "web?url=${android.net.Uri.encode(url)}&title=${android.net.Uri.encode(title)}&landscape=$landscape"

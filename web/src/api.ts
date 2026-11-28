@@ -159,6 +159,8 @@ export interface UserProfile {
   cityName: string;
   signature: string;
   isGuide: boolean;
+  /** 是不是领队（平台在后台设的）：是的话「我的」页多出「领队后台」 */
+  isLeader?: boolean;
   /** 视频见面开关（默认关；双方都打开才能互相发起视频通话） */
   allowVideo?: boolean;
   /** 是否已完成资料收集（只有 /user/me 返回） */

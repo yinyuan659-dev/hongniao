@@ -22,6 +22,8 @@ struct MeView: View {
     @State private var needKyc = false
     /// 能登录这个账号的设备有几台；nil = 还没取到
     @State private var deviceCount: Int?
+    /// 取消「听服务器推送」用（见下面的 .task）
+    @State private var removeListener: (() -> Void)?
 
     var body: some View {
         NavStack {
@@ -52,11 +54,18 @@ struct MeView: View {
                 }
         }
         .task {
+            // 平台把我设成领队 / 取消领队：服务器推 { op: 'trip', data: { event: 'leader', on } }，「领队后台」那一行当场出现 / 消失
+            removeListener?()
+            removeListener = WsClient.shared.addListener { frame in
+                guard frame["op"] as? String == "trip", let d = frame["data"] as? [String: Any], d["event"] as? String == "leader" else { return }
+                state.user?.isLeader = (d["on"] as? Bool) ?? false
+            }
             if let u: UserProfile = try? await Api.request("/user/me") {
                 me = u
                 state.user = u
             }
         }
+        .onDisappear { removeListener?(); removeListener = nil }
     }
 
     @ViewBuilder
@@ -177,6 +186,12 @@ struct MeView: View {
             // 牵豆（原来叫 AI 余额，1 元 = 1 牵豆）：视频见面、AI 功能、真人认证都从这里扣；点进去是网页
             meGroup("牵豆") {
                 navRow("creditcard.fill", Self.green, "我的牵豆", value: aiBalance, route: .web("/ai-fee"), first: true)
+            }
+            // 领队后台：只有平台设成领队的人有这一组（发布线路、看约单、改名额）；点进去是网页
+            if u.isLeader == true {
+                meGroup("领队") {
+                    navRow("car.fill", Theme.accent, "领队后台", route: .web("/leader"), first: true)
+                }
             }
             // 账号与安全：真人认证（后台要求且还没做时才出现）、登录设备（换手机刷脸找回后会多出来，可以移除）；点进去都是网页
             meGroup("账号与安全", footer: needKyc ? "做过真人认证才能发动态、评论、视频见面。认证一次 1 牵豆。" : nil) {

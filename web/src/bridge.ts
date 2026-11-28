@@ -60,6 +60,30 @@ export function hnNative(action: 'close' | 'interview' | 'editProfile' | 'deep' 
   return false;
 }
 
+/**
+ * 大厅那个内嵌网页里用：让 App 另开一页内嵌网页（route 是 # 后面的路径）。成功返回 true。
+ * 大厅的网页容器不给摄像头、也不让跳去别的网站，所以真人认证不能在它里面做（约单前要认证），要让 App 另开一页。
+ * 普通浏览器、老版本 App、已经在另开的那种网页容器里：返回 false，调用方照常在网页里跳。
+ */
+export function openNativeH5(route: string): boolean {
+  const w = window as any;
+  try {
+    // Android：只有大厅的桥有 openH5
+    if (w.PeiwanNative?.openH5) {
+      w.PeiwanNative.openH5(route);
+      return true;
+    }
+    // iOS：大厅的网页容器认识 openH5 的版本会注入 __hnHallH5
+    if (w.__hnHallH5 && w.webkit?.messageHandlers?.peiwan) {
+      w.webkit.messageHandlers.peiwan.postMessage({ type: 'openH5', route });
+      return true;
+    }
+  } catch {
+    /* 交给调用方在网页里跳 */
+  }
+  return false;
+}
+
 /** 是否运行在 App 原生 WebView 里（任一桥存在） */
 export function inNativeApp(): boolean {
   const w = window as any;

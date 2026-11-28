@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>一线牵 · 第 2 步：领队旅行（含领队排行榜）细样稿</title>
+<!--
+  给用户确认用的样稿，不是产品代码。人是 AI 生成的假人，领队、线路、价格、数字都是示意；视频封面用色块代替。
+  双击用浏览器打开就能看。网址后面加 ?only=a / b / c / d / e / f 只显示其中一组（截图用）。
+  观感沿用 11-hall-travel.html（规划图）、12-group.html（群聊）。这一份是规划图里「领队旅行」那一块的细样稿。
+
+  用户定过的（都在 AI进度文档.md §8.10～§8.18）：
+    大厅顶上两个 tab「旅行 / 相亲活动」，直接是列表；通过哪位领队的分享注册的，旅行这里看到的就是他，没有来源的看平台指定的默认领队；
+    看线路 → 点「约单」→ 进这条线路的群（群聊第 1 步已经做好）；第一期约单不付钱；线路先审后发；
+    发布线路默认和 AI 聊着发，表单做兜底，AI 的费用从领队自己的牵豆里扣；领队后台放在 App「我的」里；
+    数据更新全部走 WebSocket；领队由平台在后台设置；
+    2026-11-28 新加：领队排行榜——「旅行」顶上一个入口，点进去是排行榜页，点一行进那位领队的页面；按最近 30 天约单人数排，一样多的看总约单数。
+-->
+<link rel="stylesheet" href="common.css">
+<style>
+  .tt { display: flex; gap: 24px; padding: 6px 20px 6px; align-items: center; flex-shrink: 0; }
+  .tt span { color: var(--ink-2); font-size: 16px; position: relative; padding-bottom: 7px; }
+  .tt span.on { color: var(--ink); font-weight: 800; font-size: 20px; }
+  .tt span.on::after { content: ""; position: absolute; left: 50%; transform: translateX(-50%); bottom: 0; width: 22px; height: 4px; border-radius: 2px; background: var(--grad); }
+  .cv { position: relative; overflow: hidden; color: #fff; }
+  .cv.a { background: linear-gradient(160deg, #3d6b8f 0%, #7fa7b8 38%, #d9c7a3 70%, #8a6a4a 100%); }
+  .cv.b { background: linear-gradient(170deg, #f2a65a 0%, #d9703c 40%, #7a3b2e 100%); }
+  .cv.c { background: linear-gradient(165deg, #2f5d50 0%, #6fa07a 45%, #cfe3b4 100%); }
+  .cv.d { background: linear-gradient(170deg, #5b6ee1 0%, #9aa7f0 45%, #f3d9c6 100%); }
+  .cv.e { background: linear-gradient(165deg, #1f3a5f 0%, #4f7cac 50%, #c0d6df 100%); }
+  .cv.shade::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 45%, rgba(20, 12, 16, .78) 100%); }
+  .cv > * { position: relative; z-index: 2; }
+  .play { position: absolute !important; left: 50%; top: 46%; transform: translate(-50%, -50%); width: 48px; height: 48px; border-radius: 24px; background: rgba(255, 255, 255, .28); border: 1.5px solid rgba(255, 255, 255, .7); display: flex; align-items: center; justify-content: center; }
+  .play::before { content: ""; border-left: 14px solid #fff; border-top: 8px solid transparent; border-bottom: 8px solid transparent; margin-left: 4px; }
+  .dur { position: absolute !important; right: 10px; top: 10px; font-size: 11px; background: rgba(0, 0, 0, .45); border-radius: 9px; padding: 1px 7px; }
+  .av { border-radius: 50%; flex-shrink: 0; border: 2px solid #fff; box-shadow: 0 3px 10px rgba(43, 28, 34, .14); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 800; }
+  .av.g1 { background: linear-gradient(135deg, #4a6b5d, #9fbf8f); } .av.g2 { background: linear-gradient(135deg, #b5651d, #f2a65a); }
+  .av.g3 { background: linear-gradient(135deg, #3d5a80, #98c1d9); } .av.g4 { background: linear-gradient(135deg, #6d597a, #b56576); }
+  .av.g5 { background: linear-gradient(135deg, #2a9d8f, #8ecae6); } .av.g6 { background: linear-gradient(135deg, #7f5539, #ddb892); }
+  .ldr { display: flex; align-items: center; gap: 12px; padding: 6px 16px 8px; flex-shrink: 0; }
+  .mytag { font-size: 10.5px; height: 18px; padding: 0 7px; border-radius: 9px; background: var(--soft); color: var(--rose); font-weight: 700; display: inline-flex; align-items: center; margin-left: 5px; white-space: nowrap; }
+  .cert { font-size: 10.5px; height: 18px; padding: 0 7px; border-radius: 9px; background: #e3f7ec; color: #12a25e; font-weight: 700; display: inline-flex; align-items: center; margin-left: 5px; white-space: nowrap; }
+  .rkin { margin: 2px 16px 12px; height: 50px; border-radius: 16px; background: #fff; display: flex; align-items: center; padding: 0 12px 0 14px; gap: 9px; box-shadow: 0 4px 14px rgba(43, 28, 34, .06); flex-shrink: 0; font-size: 14px; }
+  .rkin .cup { width: 28px; height: 28px; border-radius: 9px; background: #fff2d6; color: #d98a00; display: flex; align-items: center; justify-content: center; }
+  .rkin .stack { display: flex; margin-left: auto; }
+  .rkin .stack .av { width: 26px; height: 26px; font-size: 11px; margin-left: -7px; }
+  .trip { margin: 0 16px 12px; border-radius: 20px; overflow: hidden; background: #fff; box-shadow: 0 8px 22px rgba(43, 28, 34, .08); flex-shrink: 0; }
+  .trip .in { padding: 11px 14px 13px; }
+  .trip h4 { font-size: 15.5px; font-weight: 800; line-height: 1.4; }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+  .meta span { font-size: 11.5px; padding: 2px 8px; border-radius: 9px; background: #f6f1f2; color: var(--ink-2); }
+  .meta span.hot { background: var(--soft); color: var(--rose); font-weight: 600; }
+  .price { font-size: 17px; font-weight: 800; color: var(--rose); font-variant-numeric: tabular-nums; }
+  .price small { font-size: 11.5px; font-weight: 500; color: var(--ink-2); margin-left: 3px; }
+  .sbtn { height: 34px; padding: 0 18px; border-radius: 17px; background: var(--grad); color: #fff; font-size: 13.5px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 6px 14px rgba(255, 61, 99, .28); white-space: nowrap; }
+  .sbtn.gh { background: #fff; color: var(--ink-2); box-shadow: 0 2px 8px rgba(43, 28, 34, .08); font-weight: 500; }
+  .sbtn.in2 { background: #fff; color: var(--rose); box-shadow: none; border: 1.5px solid rgba(255, 61, 99, .5); }
+  .sbtn.off { background: #f1eeef; color: var(--ink-3); box-shadow: none; }
+  .box { margin: 10px 16px 0; background: #fff; border-radius: 18px; padding: 13px 15px; box-shadow: 0 4px 16px rgba(43, 28, 34, .05); flex-shrink: 0; }
+  .box h5 { font-size: 14px; font-weight: 800; margin-bottom: 5px; }
+  .box p, .box li { font-size: 13px; line-height: 1.7; color: #4b3d43; }
+  .box ul { padding-left: 18px; }
+  .dockb { position: absolute; left: 14px; right: 14px; bottom: 18px; z-index: 20; display: flex; gap: 10px; padding: 9px; border-radius: 30px; align-items: center; }
+  /* 排行榜 */
+  .rkhead { margin: 0 16px 8px; font-size: 12px; color: var(--ink-2); display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+  .rkhead i { width: 6px; height: 6px; border-radius: 3px; background: #12b76a; }
+  .rk { display: flex; align-items: center; gap: 11px; margin: 0 16px 8px; padding: 10px 13px 10px 10px; border-radius: 18px; background: #fff; box-shadow: 0 4px 14px rgba(43, 28, 34, .05); flex-shrink: 0; }
+  .rk.me { border: 1.5px solid rgba(255, 61, 99, .45); background: #fff8f9; }
+  .rk .no { width: 26px; text-align: center; font-size: 15px; font-weight: 800; color: var(--ink-3); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  .rk .no.t { width: 26px; height: 26px; border-radius: 13px; color: #fff; font-size: 13px; display: flex; align-items: center; justify-content: center; }
+  .rk .no.n1 { background: linear-gradient(135deg, #ffb020, #ff8a00); } .rk .no.n2 { background: linear-gradient(135deg, #b9c2cf, #8d99ab); } .rk .no.n3 { background: linear-gradient(135deg, #d9a273, #b9773f); }
+  .rk .av { width: 44px; height: 44px; font-size: 16px; }
+  .rk b { font-size: 14.5px; }
+  .rk .num { text-align: right; flex-shrink: 0; }
+  .rk .num b { font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; display: block; line-height: 1.15; }
+  .rk .num span { font-size: 10.5px; color: var(--ink-3); }
+  /* 领队页 */
+  .lhero { height: 150px; flex-shrink: 0; position: relative; }
+  .lcard { margin: -46px 16px 0; background: #fff; border-radius: 22px; padding: 14px 15px 13px; box-shadow: 0 10px 26px rgba(43, 28, 34, .1); position: relative; z-index: 5; flex-shrink: 0; }
+  .s3 { display: flex; margin-top: 11px; padding-top: 11px; border-top: 1px solid var(--line); }
+  .s3 > div { flex: 1; text-align: center; }
+  .s3 b { font-size: 17px; font-weight: 800; display: block; font-variant-numeric: tabular-nums; }
+  .s3 span { font-size: 11px; color: var(--ink-2); }
+  .lab { font-size: 13px; color: var(--ink-2); margin: 13px 20px 8px; flex-shrink: 0; display: flex; align-items: center; }
+  /* 群聊页 */
+  .gcard { margin: 0 14px 10px; border-radius: 16px; background: #fff; padding: 10px 12px; display: flex; gap: 10px; align-items: center; box-shadow: 0 4px 14px rgba(43, 28, 34, .07); flex-shrink: 0; }
+  .gcard .cv { width: 50px; height: 50px; border-radius: 12px; flex-shrink: 0; }
+  .nm { font-size: 11px; color: var(--ink-3); margin: 0 0 3px 47px; }
+  .who { font-size: 10px; color: #fff; background: var(--rose); border-radius: 7px; padding: 0 5px; margin-left: 5px; font-weight: 700; }
+  .sys { text-align: center; font-size: 11.5px; color: var(--ink-3); margin: 2px 0 12px; }
+  .hd { width: 38px; height: 4px; border-radius: 2px; background: #e6dcdf; margin: 10px auto 14px; }
+  .pt { display: flex; gap: 10px; align-items: flex-start; margin-top: 11px; font-size: 13.5px; line-height: 1.55; color: #4b3d43; }
+  .pt i { width: 22px; height: 22px; border-radius: 11px; background: var(--soft); color: var(--rose); flex-shrink: 0; margin-top: 1px; }
+  .states { margin-top: 14px; background: #fff; border-radius: 16px; padding: 12px 14px; box-shadow: 0 6px 18px rgba(255, 90, 120, .08); }
+  .states .r { display: flex; align-items: center; gap: 10px; font-size: 12.5px; color: #4b3d43; line-height: 1.5; }
+  .states .r + .r { margin-top: 9px; }
+  .states .sbtn { width: 86px; height: 30px; padding: 0; font-size: 12.5px; flex-shrink: 0; }
+  /* 领队后台 */
+  .g4 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 16px; flex-shrink: 0; }
+  .g4 > div { background: #fff; border-radius: 16px; padding: 10px 12px; box-shadow: 0 4px 14px rgba(43, 28, 34, .05); }
+  .g4 b { font-size: 19px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .g4 span { font-size: 11px; color: var(--ink-2); display: block; margin-top: 1px; }
+  .pad { padding: 0 16px; flex-shrink: 0; }
+  .wb { background: #fff; border-radius: 16px; box-shadow: 0 4px 14px rgba(43, 28, 34, .05); overflow: hidden; }
+  .li { display: flex; align-items: center; gap: 11px; padding: 10px 13px; font-size: 14px; }
+  .li + .li { border-top: 1px solid var(--line); }
+  .li .cv { width: 42px; height: 42px; border-radius: 11px; flex-shrink: 0; }
+  .li .end { margin-left: auto; color: var(--ink-3); font-size: 12.5px; display: flex; align-items: center; gap: 3px; flex-shrink: 0; }
+  .st { font-size: 11px; padding: 1px 8px; border-radius: 9px; font-weight: 600; flex-shrink: 0; white-space: nowrap; }
+  .st.on { background: #e3f7ec; color: #12a25e; } .st.wait { background: #fff4d9; color: #b54708; } .st.off { background: #f1eeef; color: var(--ink-3); } .st.no { background: #fee4e2; color: #d92d20; }
+  .stp { display: flex; align-items: center; gap: 0; margin-left: auto; flex-shrink: 0; }
+  .stp span { width: 30px; height: 30px; border-radius: 15px; background: #f6f1f2; display: flex; align-items: center; justify-content: center; font-size: 17px; color: var(--ink-2); }
+  .stp b { width: 34px; text-align: center; font-size: 15px; font-variant-numeric: tabular-nums; }
+  .avs { display: flex; gap: 6px; }
+  .avs .me-av { width: 30px; height: 30px; }
+  /* 发布线路 */
+  .vmsg { width: 132px; height: 78px; border-radius: 18px 6px 18px 18px; flex-shrink: 0; box-shadow: 0 6px 16px rgba(43, 28, 34, .14); }
+  .pv { background: #fff; border-radius: 6px 20px 20px 20px; padding: 12px 14px; box-shadow: 0 10px 26px rgba(255, 90, 120, .16); width: 262px; border: 1.5px solid rgba(255, 61, 99, .22); }
+  .kv { display: flex; gap: 8px; font-size: 12.5px; line-height: 1.5; margin-top: 6px; color: var(--ink); }
+  .kv span { color: var(--ink-2); width: 30px; flex-shrink: 0; }
+  .swt { font-size: 13px; color: var(--rose); font-weight: 700; white-space: nowrap; min-width: 34px; text-align: right; }
+  .fld { background: #fff; border-radius: 16px; padding: 0 14px; height: 48px; display: flex; align-items: center; font-size: 14px; box-shadow: 0 3px 12px rgba(43, 28, 34, .05); margin: 0 16px 9px; flex-shrink: 0; }
+  .fld span { color: var(--ink-2); width: 62px; flex-shrink: 0; }
+  .fld em { font-style: normal; color: var(--ink-3); }
+  .fld.ta { height: auto; padding: 11px 14px; align-items: flex-start; line-height: 1.6; }
+  .f2 { display: flex; gap: 9px; margin: 0 16px 9px; flex-shrink: 0; }
+  .f2 .fld { margin: 0; flex: 1; }
+  .up { margin: 0 16px 9px; height: 84px; border-radius: 16px; overflow: hidden; flex-shrink: 0; }
+  /* 规则卡片 */
+  .plan { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; width: 800px; }
+  .pc { background: #fff; border-radius: 22px; padding: 16px 18px; box-shadow: 0 12px 30px rgba(255, 90, 120, .1); font-size: 13.5px; line-height: 1.7; color: #4b3d43; }
+  .pc h3 { font-size: 16px; color: var(--ink); margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+  .pc h3 i { width: 26px; height: 26px; border-radius: 9px; background: var(--soft); color: var(--rose); display: inline-flex; align-items: center; justify-content: center; font-style: normal; font-weight: 800; font-size: 13px; }
+  .pc ul { padding-left: 18px; } .pc li { margin-bottom: 4px; } .pc b { color: var(--ink); }
+  .pc.warn { background: #fffaf0; box-shadow: 0 12px 30px rgba(240, 160, 60, .12); }
+  .pc.warn h3 i { background: #ffedd0; color: #b54708; }
+  .tbd { color: #b54708; background: #fff4e5; border: 1px dashed #f0b56a; border-radius: 5px; padding: 0 5px; font-weight: 600; white-space: nowrap; }
+  .mine { color: #b54708; background: #fff4e5; border-radius: 4px; padding: 0 4px; font-weight: 600; white-space: nowrap; }
+  .flow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0 4px; }
+  .flow .st { font-size: 12px; padding: 2px 9px; }
+  .flow em { font-style: normal; color: var(--ink-3); }
+</style>
+</head>
+<body>
+
+<div class="intro">
+  <h1>第 2 步：领队旅行（含领队排行榜）</h1>
+  <p>这是规划图里「领队旅行」那一块的细样稿，<b>过关了我再写代码</b>。领队、线路、价格、人数都是示意；视频封面用色块代替。</p>
+  <p>2026-11-28 你新加的<b>领队排行榜</b>在第 1、2 组：「旅行」顶上一个入口 → 排行榜页 → 点一行进那位领队的页面；按最近 30 天约单人数排。</p>
+  <p>标了 <span class="mine">我定的</span> 的是你没说、我按理解先定的；标了 <span class="tbd">待定</span> 的要你给。第 6 组是规则和这一步要动哪些东西（不是界面）。</p>
+</div>
+
+<!-- ============ A：大厅 · 旅行 + 排行榜 ============ -->
+<section data-s="a">
+  <h2><b>1</b>大厅「旅行」，和领队排行榜</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">大厅 · 旅行 <small>还是先看到我的领队</small></div>
+      <div class="phone"><div class="island"></div><div class="screen" style="background:#fbf7f5">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="tt"><span class="on">旅行</span><span>相亲活动</span></div>
+        <div class="ldr">
+          <div class="av g1" style="width:52px;height:52px;font-size:19px">猫</div>
+          <div class="grow"><div style="font-size:16.5px;font-weight:800">老猫<span class="mytag">我的领队</span></div><div class="t2" style="margin-top:3px;font-size:12px">坦克 300 车队 · 4 条线路 · 排行榜第 2 名</div></div>
+          <i data-ic="right" data-s="16" style="color:var(--ink-3)"></i>
+        </div>
+        <div class="rkin">
+          <span class="cup"><i data-ic="star" data-s="16"></i></span><b>领队排行榜</b>
+          <span class="stack"><span class="av g2">峰</span><span class="av g1">猫</span><span class="av g3">雪</span></span>
+          <i data-ic="right" data-s="16" style="color:var(--ink-3)"></i>
+        </div>
+        <div class="trip">
+          <div class="cv a shade" style="height:140px"><span class="play"></span><span class="dur">01:42</span></div>
+          <div class="in">
+            <h4>川西环线 7 天：稻城亚丁、新都桥、塔公草原</h4>
+            <div class="meta"><span class="hot">12 月 6 日出发</span><span>成都集合</span><span>8 人已约单</span><span>还剩 6 位</span></div>
+            <div class="row" style="margin-top:10px"><span class="price">¥3,980<small>/ 人起</small></span><span class="grow"></span><span class="sbtn">约单</span></div>
+          </div>
+        </div>
+        <div class="trip" style="margin-bottom:0">
+          <div class="cv b shade" style="height:104px"><span class="play"></span><span class="dur">00:58</span></div>
+          <div class="in">
+            <h4>阿拉善穿沙 5 天：腾格里、月亮湖</h4>
+            <div class="meta"><span class="hot">12 月 20 日出发</span><span>银川集合</span><span>3 人已约单</span></div>
+          </div>
+        </div>
+        <div class="tabbar"><div class="tab">广场</div><div class="tab on">大厅</div><div class="tab"><div class="plus"><i data-ic="plus" data-s="18"></i></div></div><div class="tab">消息</div><div class="tab">我的</div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>和规划图一样的</b>：最上面是「我的领队」，下面是他的线路（一条视频一条线路）。通过谁的分享注册的就是谁，没有来源的是你指定的默认领队。</div>
+        <div><b>新加的一行「领队排行榜」</b>（你定的位置）：点了进右边那一屏。右边三个小头像是现在的前三名。</div>
+        <div>点「我的领队」那一行 = 进他的领队页（第 2 组左屏那种页面）。</div>
+        <div>线路卡上多写了「几人已约单」。点视频进线路详情；点「约单」先弹一句确认（第 3 组）。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">领队排行榜 <small>点一行进他的领队页</small></div>
+      <div class="phone"><div class="island"></div><div class="screen" style="background:#fbf7f5">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">领队排行榜</div><span style="width:34px"></span></div>
+        <div class="rkhead"><i></i>按最近 30 天的约单人数排 · 有人约单马上更新</div>
+        <div class="rk"><span class="no t n1">1</span><div class="av g2">峰</div><div class="grow"><b>阿峰</b><div class="t3" style="margin-top:3px;font-size:11.5px">西北大环线 · 5 条线路</div></div><div class="num"><b>132</b><span>人约单</span></div></div>
+        <div class="rk me"><span class="no t n2">2</span><div class="av g1">猫</div><div class="grow"><b>老猫</b><span class="mytag">我的领队</span><div class="t3" style="margin-top:3px;font-size:11.5px">坦克 300 车队 · 4 条线路</div></div><div class="num"><b>86</b><span>人约单</span></div></div>
+        <div class="rk"><span class="no t n3">3</span><div class="av g3">雪</div><div class="grow"><b>雪山阿雪</b><div class="t3" style="margin-top:3px;font-size:11.5px">川藏线 318 · 3 条线路</div></div><div class="num"><b>71</b><span>人约单</span></div></div>
+        <div class="rk"><span class="no">4</span><div class="av g4">北</div><div class="grow"><b>大北</b><div class="t3" style="margin-top:3px;font-size:11.5px">东北雪乡 · 2 条线路</div></div><div class="num"><b>54</b><span>人约单</span></div></div>
+        <div class="rk"><span class="no">5</span><div class="av g5">海</div><div class="grow"><b>海哥</b><div class="t3" style="margin-top:3px;font-size:11.5px">环海南岛 · 3 条线路</div></div><div class="num"><b>40</b><span>人约单</span></div></div>
+        <div class="rk"><span class="no">6</span><div class="av g6">驼</div><div class="grow"><b>骆驼</b><div class="t3" style="margin-top:3px;font-size:11.5px">新疆独库公路 · 2 条线路</div></div><div class="num"><b>33</b><span>人约单</span></div></div>
+        <div class="rk"><span class="no">7</span><div class="av g3">岩</div><div class="grow"><b>岩哥</b><div class="t3" style="margin-top:3px;font-size:11.5px">贵州赤水丹霞 · 1 条线路</div></div><div class="num"><b>21</b><span>人约单</span></div></div>
+        <div class="rk"><span class="no">8</span><div class="av g4">晴</div><div class="grow"><b>小晴</b><div class="t3" style="margin-top:3px;font-size:11.5px">云南滇西北 · 2 条线路</div></div><div class="num"><b>18</b><span>人约单</span></div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>怎么排</b>（你定的）：最近 30 天约单的人数，多的在前；一样多的看这位领队总共的约单数。同一个人对同一位领队 30 天里只算 1 人 <span class="mine">我定的</span>，免得一个人反复退群再约来刷。</div>
+        <div><b>谁在榜上</b> <span class="mine">我定的</span>：你在后台设成领队、并且至少有 1 条正在招募的线路的人。没有线路的领队不上榜（点进去是空的）。</div>
+        <div>我的领队那一行有红框和「我的领队」小标。每行写：名次、名字、一句话介绍、几条线路、约单人数。</div>
+        <div><b>数字是活的</b>：停在这一页时有人约单，那一行的数字和名次当场变（走 WebSocket，不用下拉刷新）。</div>
+        <div>从这里进了别的领队、约了他的单，<b>你的推荐人不变</b>：「旅行」首页还是原来那位领队，以后的推荐奖励也还是归他。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ B：领队页 + 线路详情 ============ -->
+<section data-s="b">
+  <h2><b>2</b>领队页，和线路详情</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">领队页 <small>从排行榜点「阿峰」进来</small></div>
+      <div class="phone"><div class="island"></div><div class="screen" style="background:#fbf7f5">
+        <div class="cv b lhero">
+          <div class="status w"><span>9:41</span><span>5G</span></div>
+          <div style="position:absolute;left:16px;right:16px;top:52px;display:flex;justify-content:space-between"><span class="gbtn" style="width:36px;padding:0"><i data-ic="left"></i></span><span class="gbtn" style="width:36px;padding:0"><i data-ic="send" data-s="15"></i></span></div>
+        </div>
+        <div class="lcard">
+          <div class="row">
+            <div class="av g2" style="width:58px;height:58px;font-size:21px;margin-top:-34px">峰</div>
+            <div class="grow"><div style="font-size:17px;font-weight:800">阿峰<span class="cert">认证领队</span></div></div>
+            <span class="sbtn gh" style="height:32px;padding:0 14px"><i data-ic="chat" data-s="14" style="margin-right:5px"></i>发消息</span>
+          </div>
+          <div class="t2" style="margin-top:8px;line-height:1.6;font-size:12.5px">西北大环线跑了 9 年，越野车队自驾。带过的人里成了 3 对。</div>
+          <div class="s3"><div><b>第 1 名</b><span>排行榜</span></div><div><b>132</b><span>近 30 天约单</span></div><div><b>5</b><span>招募中的线路</span></div></div>
+        </div>
+        <div class="lab">他的线路</div>
+        <div class="trip">
+          <div class="cv e shade" style="height:112px"><span class="play"></span><span class="dur">02:10</span></div>
+          <div class="in">
+            <h4>青甘大环线 8 天：青海湖、茶卡、敦煌</h4>
+            <div class="meta"><span class="hot">12 月 12 日出发</span><span>西宁集合</span><span>21 人已约单</span></div>
+            <div class="row" style="margin-top:10px"><span class="price">¥4,580<small>/ 人起</small></span><span class="grow"></span><span class="sbtn">约单</span></div>
+          </div>
+        </div>
+        <div class="trip" style="margin-bottom:0"><div class="cv d shade" style="height:70px"><span class="dur">01:05</span></div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>领队页</b>：上面是这位领队（名字、认证、一句话介绍、三个数），下面是他正在招募的线路。「我的领队」点进去也是这一页。</div>
+        <div><b>三个数都是系统数的</b> <span class="mine">我定的</span>：排行榜名次、近 30 天约单人数、招募中的线路数。规划图里「带队 86 次 · 2,300 人同行」那种数系统数不出来，只能领队自己说，这一版不显示；想写可以写进一句话介绍里。</div>
+        <div><b>一句话介绍</b>领队自己在领队后台写，最多 60 个字，<b>改了要平台看过才显示</b> <span class="mine">我定的</span>（和线路一样先审后发）。</div>
+        <div><b>「发消息」</b>= 和领队单聊（聊天现在是放开的）。右上角是分享这位领队的页面。</div>
+        <div>领队如果被你在后台关掉了「显示在广场」，这里照常显示——那个开关只管广场。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">线路详情 <small>点线路的视频进来</small></div>
+      <div class="phone"><div class="island"></div><div class="screen" style="background:#fbf7f5">
+        <div class="cv a shade" style="height:230px;flex-shrink:0"><span class="play" style="top:56%"></span><span class="dur" style="top:56px">01:42</span>
+          <div class="status w"><span>9:41</span><span>5G</span></div>
+          <div style="position:absolute;left:16px;top:52px"><span class="gbtn" style="width:36px;padding:0"><i data-ic="left"></i></span></div>
+        </div>
+        <div class="box" style="margin-top:-20px;position:relative;z-index:5">
+          <div style="font-size:17px;font-weight:800;line-height:1.4">川西环线 7 天：稻城亚丁、新都桥、塔公草原</div>
+          <div class="row" style="margin-top:8px"><span class="price">¥3,980<small>/ 人起</small></span><span class="grow"></span><span class="t2" style="font-size:12px">12 月 6 日出发 · 成都集合</span></div>
+          <div class="row" style="margin-top:9px;padding-top:9px;border-top:1px solid var(--line)"><div class="avs"><div class="me-av photo" style="background-image:url(img/f1.jpg);background-position:center 20%"></div><div class="me-av photo" style="background-image:url(img/p2.jpg)"></div><div class="me-av photo" style="background-image:url(img/f2.jpg);background-position:center 20%"></div></div><span class="t2" style="font-size:12.5px">8 人已约单 · 名额 14，还剩 6 位</span></div>
+        </div>
+        <div class="box"><h5>行程</h5><ul><li>第 1 天 成都 → 康定 → 新都桥</li><li>第 2–3 天 理塘、稻城亚丁</li><li>第 4–7 天 塔公草原、丹巴，回成都</li></ul></div>
+        <div class="box"><h5>费用</h5><p>含车辆和油费、住宿、领队全程；不含餐费、门票。</p></div>
+        <div class="box"><div class="row"><div class="av g1" style="width:38px;height:38px;font-size:14px">猫</div><div class="grow"><b style="font-size:14px">老猫</b><span class="cert">认证领队</span><div class="t3" style="margin-top:2px">坦克 300 车队 · 4 条线路</div></div><i data-ic="right" data-s="16" style="color:var(--ink-3)"></i></div></div>
+        <div class="dockb glass"><div class="grow" style="padding-left:10px"><div class="t3">约单 = 进这条线路的群</div><b style="font-size:13.5px">不付钱，随时可以退群</b></div><div class="btn" style="height:46px;padding:0 26px;font-size:15px">约单</div></div>
+      </div></div>
+      <div class="notes">
+        <div>视频、标题、价格、出发日期、集合地、行程、费用说明，都是领队发布时填的（或者和 AI 聊出来的）。</div>
+        <div><b>「8 人已约单」</b>是系统数的；<b>「名额 14，还剩 6 位」</b>是领队自己在后台改的 <span class="mine">我定的</span>：第一期约单不付钱，约了不等于去，谁算占了名额只有领队知道（见第 4 组右屏）。</div>
+        <div>下面那一行领队，点了进他的领队页。</div>
+        <div>线路要平台审过才显示（你定的）。这一页没有举报按钮——举报在群里（长按消息）和领队页右上角 <span class="tbd">待定</span>：线路详情要不要也放一个「举报这条线路」。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ C：约单 → 进群 ============ -->
+<section data-s="c">
+  <h2><b>3</b>约单：先说清楚，再进群</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">点「约单」以后 <small>从底下弹上来</small></div>
+      <div class="phone"><div class="island"></div><div class="screen" style="background:#fbf7f5">
+        <div class="cv a shade" style="height:230px;flex-shrink:0"><span class="play" style="top:56%"></span>
+          <div class="status w"><span>9:41</span><span>5G</span></div>
+        </div>
+        <div class="box" style="margin-top:-20px;position:relative;z-index:5">
+          <div style="font-size:17px;font-weight:800;line-height:1.4">川西环线 7 天：稻城亚丁、新都桥、塔公草原</div>
+          <div class="row" style="margin-top:8px"><span class="price">¥3,980<small>/ 人起</small></span></div>
+        </div>
+        <div class="dim"></div>
+        <div class="sheet">
+          <div class="hd"></div>
+          <div style="font-size:19px;font-weight:800">约这条线路</div>
+          <div class="t2" style="margin-top:4px">川西环线 7 天 · 12 月 6 日出发 · 领队 老猫</div>
+          <div class="pt"><i data-ic="chat" data-s="13"></i><span><b style="color:var(--ink)">约单 = 进这条线路的群。</b>领队和已经约单的人都在群里，细节在群里问。</span></div>
+          <div class="pt"><i data-ic="wallet" data-s="13"></i><span><b style="color:var(--ink)">现在不付钱。</b>定金、尾款怎么付，由领队在群里跟你说。平台不代收。</span></div>
+          <div class="pt"><i data-ic="shield" data-s="13"></i><span>不想去了随时可以退群。<b style="color:var(--ink)">出发前不要给不认识的人私下转账</b>，有问题直接举报。</span></div>
+          <div class="btn" style="margin-top:18px">约单并进群</div>
+          <div style="text-align:center;color:var(--ink-2);font-size:14px;margin-top:13px">再看看</div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div><b>点「约单」先弹这一层</b> <span class="mine">我定的</span>：把三件事说清楚——约单就是进群、现在不付钱、别私下转账。点「约单并进群」才真的进群。</div>
+        <div>规划图里是点了直接进群。我加这一层，是因为进群以后别人会看到你，而且「钱怎么付」不说清楚容易出纠纷。你觉得多余可以去掉。</div>
+        <div><b>谁能约单</b> <span class="mine">我定的</span>：要做过真人认证（和发动态、视频见面同一个门槛）。没做的点了会带去认证。男女都能约，不分性别。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">进了这条线路的群 <small>群聊第 1 步已经做好</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">川西环线 12-06 团（9）</div><span class="ic-btn"><i data-ic="more"></i></span></div>
+        <div class="gcard"><div class="cv a"></div><div class="grow"><b style="font-size:13.5px">川西环线 7 天</b><div class="t3" style="margin-top:3px">12 月 6 日出发 · ¥3,980 / 人起</div></div><span class="t2" style="font-size:12.5px;white-space:nowrap">看线路 ›</span></div>
+        <div class="body">
+          <div class="sys">你通过「约单」加入了群聊</div>
+          <div class="nm">老猫<span class="who">领队</span></div>
+          <div class="br"><div class="av g1" style="width:38px;height:38px;font-size:14px">猫</div><div class="bb ai">欢迎，这趟 6 台车。你是自己开车还是坐车？</div></div>
+          <div class="br me"><div class="bb me">坐车，一个人。高反严重吗？</div><div class="me-av photo" style="background-image:url(img/p1.jpg)"></div></div>
+          <div class="nm">小林</div>
+          <div class="br"><div class="me-av photo" style="background-image:url(img/f1.jpg);background-position:center 20%"></div><div class="bb ai">我上次第二天有点头疼，带点葡萄糖</div></div>
+        </div>
+        <div class="dock"><div class="ibar" style="margin-top:0"><div class="box" style="margin:0;border-radius:23px;height:46px;display:flex;align-items:center;padding:0 18px;flex:1;color:var(--ink-3);font-size:14px">发消息…</div><div class="send"><i data-ic="plus" data-s="20"></i></div></div></div>
+      </div></div>
+      <div class="notes">
+        <div>群是第 1 步做好的那一套。这一步补上的只有<b>顶上钉着的线路卡</b>（点「看线路」回线路详情）和<b>群主小标写「领队」</b>。</div>
+        <div>一条线路一个群，线路审核通过时自动建好，领队是群主；行程结束 7 天后自动解散（第 1 步定的）。</div>
+      </div>
+      <div class="states">
+        <div style="font-size:13px;font-weight:800;margin-bottom:9px">「约单」按钮的几种样子</div>
+        <div class="r"><span class="sbtn">约单</span><span>还没约过，线路在招募</span></div>
+        <div class="r"><span class="sbtn in2">进入群聊</span><span>已经约过了（在群里），点了直接进群</span></div>
+        <div class="r"><span class="sbtn off">名额已满</span><span>领队把剩余名额改成 0 了；已经在群里的人不受影响</span></div>
+        <div class="r"><span class="sbtn off">已出发</span><span>过了出发日期，不能再约；线路不再出现在列表里</span></div>
+        <div class="r"><span class="sbtn off">不能约单</span><span>被这位领队移出过这个群的人（第 1 步的规矩：进不回来）</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ D：领队后台 ============ -->
+<section data-s="d">
+  <h2><b>4</b>领队后台：「我的 → 领队后台」，只有领队看得到</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">领队后台</div>
+      <div class="phone"><div class="island"></div><div class="screen" style="background:#fbf7f5">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">领队后台</div><span style="width:34px"></span></div>
+        <div class="g4">
+          <div><b>第 2 名</b><span>领队排行榜</span></div>
+          <div><b>86</b><span>近 30 天约单（人）</span></div>
+          <div><b>128</b><span>通过我注册（人）</span></div>
+          <div><b>90%</b><span>推荐奖励比例</span></div>
+        </div>
+        <div class="pad" style="margin-top:9px"><div class="wb">
+          <div class="li"><div class="av g1" style="width:38px;height:38px;font-size:14px">猫</div><div class="grow"><b>我的领队页</b><div class="t3" style="margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">坦克 300 车队，川西跑了 6 年…</div></div><span class="end">编辑介绍 <i data-ic="right" data-s="14"></i></span></div>
+          <div class="li"><i data-ic="link" data-s="18" style="color:var(--rose);width:38px"></i><div class="grow"><b>分享链接和海报</b><div class="t3" style="margin-top:2px">从这里注册的人，旅行页就是你</div></div><span class="end">去分享 <i data-ic="right" data-s="14"></i></span></div>
+        </div></div>
+        <div class="lab">我的线路<span class="grow"></span><span style="color:var(--rose);font-weight:700">＋ 发布线路</span></div>
+        <div class="pad"><div class="wb">
+          <div class="li"><div class="cv a"></div><div class="grow"><b>川西环线 7 天</b><div class="t3" style="margin-top:3px">12-06 出发 · 约单 8 · 剩 6 位</div></div><span class="st on">招募中</span></div>
+          <div class="li"><div class="cv b"></div><div class="grow"><b>阿拉善穿沙 5 天</b><div class="t3" style="margin-top:3px">12-20 出发 · 约单 3 · 剩 11 位</div></div><span class="st on">招募中</span></div>
+          <div class="li"><div class="cv d"></div><div class="grow"><b>独库公路 9 天</b><div class="t3" style="margin-top:3px">明年 6 月 · 提交于 11-27</div></div><span class="st wait">审核中</span></div>
+          <div class="li"><div class="cv e"></div><div class="grow"><b>若尔盖草原 4 天</b><div class="t3" style="margin-top:3px">没写费用包含什么，改了再提交</div></div><span class="st no">没通过</span></div>
+          <div class="li"><div class="cv c"></div><div class="grow"><b>赤水丹霞 3 天</b><div class="t3" style="margin-top:3px">11-15 出发 · 约单 12</div></div><span class="st off">已结束</span></div>
+        </div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>入口</b>：你在网页后台把某个人「设为领队」，他的「我的」页就多出「领队后台」这一行；取消了这一行就没了。不另做一套后台（规划图定的）。</div>
+        <div><b>四个数</b>：排行榜名次、近 30 天约单人数、通过他注册的人数、他的推荐奖励比例（你给他设的；没单独设就是默认的 70%）。</div>
+        <div><b>我的领队页</b>：改一句话介绍。<b>分享链接和海报</b>：现在已有的邀请名片那一套，注册时绑定到他。</div>
+        <div><b>线路的五种状态</b>：招募中、审核中、没通过（下面一行写原因，能改了再提交）、已结束、已下架。点一条进右边那一屏。</div>
+        <div>推荐奖励的钱要等「结婚谢媒」做出来才有，这里现在只显示比例（规划图定的）。收款方式是第二期，这一版不放。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">管一条线路 <small>点「川西环线 7 天」进来</small></div>
+      <div class="phone"><div class="island"></div><div class="screen" style="background:#fbf7f5">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">川西环线 7 天</div><span style="width:34px"></span></div>
+        <div class="pad"><div class="wb"><div class="li" style="padding:12px 13px"><div class="cv a" style="width:54px;height:54px;border-radius:13px"></div><div class="grow"><b style="font-size:14.5px">川西环线 7 天：稻城亚丁、新都桥…</b><div class="t3" style="margin-top:4px">12 月 6 日出发 · ¥3,980 / 人起</div></div><span class="st on">招募中</span></div></div></div>
+        <div class="lab">名额</div>
+        <div class="pad"><div class="wb">
+          <div class="li"><div class="grow"><b>已经定下来的人数</b><div class="t3" style="margin-top:2px">总名额 14，页面上显示「还剩 6 位」</div></div><div class="stp"><span>−</span><b>8</b><span>＋</span></div></div>
+          <div class="li"><div class="grow"><b>约单的人</b><div class="t3" style="margin-top:2px">9 人在群里</div></div><div class="avs"><div class="me-av photo" style="background-image:url(img/f1.jpg);background-position:center 20%"></div><div class="me-av photo" style="background-image:url(img/p2.jpg)"></div><div class="me-av photo" style="background-image:url(img/f2.jpg);background-position:center 20%"></div></div><i data-ic="right" data-s="14" style="color:var(--ink-3)"></i></div>
+        </div></div>
+        <div class="lab">这条线路</div>
+        <div class="pad"><div class="wb">
+          <div class="li"><i data-ic="chat" data-s="18" style="color:var(--rose)"></i><div class="grow"><b>进线路群</b></div><span class="end">9 人 <i data-ic="right" data-s="14"></i></span></div>
+          <div class="li"><i data-ic="users" data-s="18" style="color:var(--rose)"></i><div class="grow"><b>改总名额</b></div><span class="end">14 人 <i data-ic="right" data-s="14"></i></span></div>
+          <div class="li"><i data-ic="pencil" data-s="18" style="color:var(--rose)"></i><div class="grow"><b>改线路内容</b><div class="t3" style="margin-top:2px">视频、日期、价格、行程；改了要重新审核</div></div><span class="end"><i data-ic="right" data-s="14"></i></span></div>
+          <div class="li"><i data-ic="eye" data-s="18" style="color:var(--rose)"></i><div class="grow"><b>看看用户看到的样子</b></div><span class="end"><i data-ic="right" data-s="14"></i></span></div>
+        </div></div>
+        <div class="pad" style="margin-top:12px"><div class="wb" style="height:48px;display:flex;align-items:center;justify-content:center;color:#f04438;font-weight:600;font-size:15px">下架这条线路</div></div>
+        <div class="t3" style="text-align:center;margin-top:10px;line-height:1.6;padding:0 24px">下架后不再出现在列表里，线路群同时解散（记录还能看）。</div>
+      </div></div>
+      <div class="notes">
+        <div><b>名额是领队自己管的</b> <span class="mine">我定的</span>：「已经定下来的人数」点加减号改，页面上的「还剩几位」= 总名额 − 这个数。改成满了，用户那边按钮变成「名额已满」。改名额不用审核。</div>
+        <div><b>约单的人</b>：就是线路群里的人，点进去是名单（头像、昵称、什么时候约的），能点进画像、能移出群。</div>
+        <div><b>改线路内容要重新审核</b> <span class="mine">我定的</span>：审核期间用户看到的还是改之前的那一版，通过了才换。免得审过以后把价格、行程改成别的。</div>
+        <div><b>下架</b>：线路从列表里拿掉，群解散（群里出一行「活动已取消，群聊已解散」，这句第 1 步已经有）。已经出发的线路不能下架，到行程结束自己变成「已结束」。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ E：发布线路 ============ -->
+<section data-s="e">
+  <h2><b>5</b>发布线路：默认和 AI 聊，表单兜底</h2>
+  <div class="phones">
+
+    <div class="col">
+      <div class="cap">发布线路 <small>默认是这一屏</small></div>
+      <div class="phone"><div class="island"></div><div class="screen mesh">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">发布线路<span class="aib">人工智能</span></div><span class="swt">自己填</span></div>
+        <div class="body">
+          <div class="br me" style="margin-bottom:8px"><div class="vmsg cv a"><span class="play" style="width:34px;height:34px;top:50%"></span><span class="dur" style="top:6px;right:6px">01:42</span></div><div style="width:38px;flex-shrink:0"></div></div>
+          <div class="br me"><div class="bb me">川西环线 7 天，12 月 6 号成都出发，3980 起，收 14 个人</div><div class="av g1" style="width:38px;height:38px;font-size:14px">猫</div></div>
+          <div class="br"><div class="orb"><i data-ic="heart" data-s="18"></i></div><div class="bb ai">收到。还差两样：每天大概去哪？费用包含什么、不含什么？</div></div>
+          <div class="br me"><div class="bb me">康定、稻城亚丁、塔公。含车和住宿，不含餐和门票</div><div class="av g1" style="width:38px;height:38px;font-size:14px">猫</div></div>
+          <div class="br"><div class="orb"><i data-ic="heart" data-s="18"></i></div><div class="pv">
+            <div class="row" style="gap:9px"><div class="cv a" style="width:40px;height:40px;border-radius:10px;flex-shrink:0"></div><b style="font-size:14px;line-height:1.4">川西环线 7 天：稻城亚丁、新都桥、塔公草原</b></div>
+            <div class="kv"><span>出发</span>12 月 6 日 · 7 天 · 成都集合</div>
+            <div class="kv"><span>价格</span>¥3,980 / 人起 · 名额 14 人</div>
+            <div class="kv"><span>行程</span>康定、稻城亚丁、塔公，成都往返</div>
+            <div class="kv"><span>费用</span>含车辆、住宿；不含餐费、门票</div>
+            <div class="t3" style="margin-top:7px;line-height:1.5">都对就点「提交审核」。要改直接跟我说。</div>
+          </div></div>
+        </div>
+        <div class="dock">
+          <div class="row"><div class="btn ghost" style="flex:1;height:46px;font-size:15px">再改改</div><div class="btn" style="flex:1.5;height:46px;font-size:15px">提交审核</div></div>
+          <div class="cost">这次 AI 用了 <b>0.01 牵豆</b> · 还剩 <b>4.97</b> <i data-ic="right" data-s="12"></i></div>
+        </div>
+      </div></div>
+      <div class="notes">
+        <div>和规划图一样（你定的）：把带队视频发进来，一句话说线路，AI 认出各项，<b>差什么问什么</b>；认完出一张卡，领队自己点「提交审核」。</div>
+        <div><b>AI 的费用从领队自己的牵豆里扣</b>，底下一行写这次用了多少、还剩多少（和 AI 深聊那一页同一个写法）。领队填了自己的 Key 的不扣。</div>
+        <div>右上角「自己填」切到右边的表单；AI 已经认出来的内容带过去。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="cap">表单 <small>兜底：自己想填、牵豆不够、AI 出错</small></div>
+      <div class="phone"><div class="island"></div><div class="screen" style="background:#fbf7f5">
+        <div class="status"><span>9:41</span><span>5G</span></div>
+        <div class="nav"><span class="ic-btn"><i data-ic="left"></i></span><div class="mid">发布线路</div><span class="swt">AI 帮我填</span></div>
+        <div class="up cv a shade"><span class="play" style="width:38px;height:38px;top:50%"></span><span class="dur">01:42</span><span style="position:absolute;left:12px;bottom:9px;font-size:12px">带队视频 · 点了换一个</span></div>
+        <div class="fld"><span>标题</span>川西环线 7 天：稻城亚丁、新都桥…</div>
+        <div class="f2"><div class="fld"><span>出发</span>12 月 6 日</div><div class="fld"><span>天数</span>7 天</div></div>
+        <div class="fld"><span>集合地</span>成都</div>
+        <div class="f2"><div class="fld"><span>价格</span>¥3,980 起</div><div class="fld"><span>名额</span>14 人</div></div>
+        <div class="fld ta"><span>行程</span><div>第 1 天 成都 → 康定 → 新都桥<br>第 2–3 天 理塘、稻城亚丁<br>第 4–7 天 塔公、丹巴，回成都</div></div>
+        <div class="fld ta"><span>费用</span><div>含车辆和油费、住宿、领队全程；不含餐费、门票</div></div>
+        <div class="t3" style="margin:2px 28px 0;line-height:1.6">提交后平台审核，通过了才会出现在你的领队页上，同时自动建好这条线路的群。</div>
+        <div class="dockb" style="padding:0"><div class="btn" style="flex:1">提交审核</div></div>
+      </div></div>
+      <div class="notes">
+        <div><b>七样必填</b>：视频、标题、出发日期和天数、集合地、价格、名额、行程；费用说明也必填 <span class="mine">我定的</span>（最容易出纠纷的就是「含不含」）。</div>
+        <div>视频最长 3 分钟、最大 100MB <span class="mine">我定的</span>（现在聊天里发文件的上限就是 100MB）。封面取视频第一帧。</div>
+        <div>用表单发不花牵豆。右上角「AI 帮我填」回到左边那一屏，已经填的内容带过去。</div>
+        <div>以后改一条线路也是这两种办法（规划图定的）。</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ F：规则和要动的东西 ============ -->
+<section data-s="f">
+  <h2><b>6</b>规则，和这一步要动哪些东西（不是界面）</h2>
+  <div class="plan">
+    <div class="pc">
+      <h3><i>1</i>排行榜怎么算</h3>
+      <ul>
+        <li><b>排的是</b>：最近 30 天约单的人数；一样多的看总约单数（你定的）；还一样的，先成为领队的在前 <span class="mine">我定的</span>。</li>
+        <li><b>「约单」怎么记</b>：用户点了「约单并进群」记一笔（哪个人、哪条线路、哪位领队、什么时候）。之后退群不删这一笔。</li>
+        <li><b>防刷</b> <span class="mine">我定的</span>：同一个人对同一位领队 30 天里只算 1 人；领队自己、被封号的账号不算。</li>
+        <li><b>谁在榜上</b>：设成了领队、有至少 1 条招募中的线路。全部列出来（18 位不用翻页）。</li>
+        <li><span class="tbd">待定</span> 要不要让你在后台把某位领队「不上榜」（比如刚来还在试的）。我倾向先不做，用「没有线路就不上榜」就够了。</li>
+      </ul>
+    </div>
+    <div class="pc">
+      <h3><i>2</i>谁看到谁（没变，写在这里对一下）</h3>
+      <ul>
+        <li>通过领队 A 的分享注册的人：「旅行」首页永远是 A；以后的推荐奖励归 A。注册时绑定一次，不能改。</li>
+        <li>没有来源的人：「旅行」首页是你在后台指定的默认领队；推荐奖励没有人拿。</li>
+        <li><b>排行榜是新开的一扇门</b>：谁都能从榜上进别的领队的页面、约别的领队的单。这不改变上面两条。</li>
+        <li>领队自己打开「旅行」：看到的是自己（「我的领队」那里写「我自己」），点进去是自己的领队页 <span class="mine">我定的</span>。</li>
+      </ul>
+    </div>
+    <div class="pc">
+      <h3><i>3</i>一条线路从头到尾</h3>
+      <div class="flow"><span class="st wait">审核中</span><em>→</em><span class="st on">招募中</span><em>→</em><span class="st off">已出发</span><em>→</em><span class="st off">已结束</span></div>
+      <div class="flow"><span class="st wait">审核中</span><em>→</em><span class="st no">没通过</span><em>→ 改了再提交 →</em><span class="st wait">审核中</span></div>
+      <ul>
+        <li><b>审核通过</b>的那一刻：线路出现在领队页上，自动建好线路群（领队是群主）。</li>
+        <li><b>到了出发日期</b>：不能再约单，从列表里拿掉；群照常聊。</li>
+        <li><b>行程最后一天过了</b>：变成「已结束」；群里提示「行程已结束，7 天后自动解散」（第 1 步做好的）。</li>
+        <li><b>领队下架</b>（出发前）：从列表里拿掉，群当场解散。<b>平台下架</b>（违规）：同样，另外可以在后台关群、取消领队。</li>
+      </ul>
+    </div>
+    <div class="pc">
+      <h3><i>4</i>数据怎么更新（你要求全部走 WebSocket）</h3>
+      <ul>
+        <li>页面第一次打开拉一次，之后<b>都由服务器推</b>，不做定时刷新；断线重连后补拉一次（群聊已经是这么做的）。</li>
+        <li>会推的：线路上架 / 下架 / 内容变了、约单人数、剩余名额、排行榜上某一行的数字和名次、审核结果（给领队）、被设为 / 取消领队（给本人，「我的」页那一行当场出现 / 消失）。</li>
+        <li>排行榜的推送只发给<b>正停在排行榜页、领队页、旅行首页的人</b> <span class="mine">我定的</span>，不是每次有人约单就给全体用户发一遍。</li>
+      </ul>
+    </div>
+    <div class="pc warn">
+      <h3><i>5</i>这一步要动的东西（开工前照例先问你）</h3>
+      <ul>
+        <li><b>改表（只加不改，先备份）</b>：新表「线路」「约单记录」；用户表加几列——是不是领队、领队的一句话介绍、推荐奖励比例（没设 = 默认 70%）；一个设置项「默认领队是谁」。</li>
+        <li><b>后端</b>：线路的发布 / 修改 / 审核 / 下架、约单（调第 1 步的进群）、排行榜、领队页；AI 认线路（走现有的 AI 费用那一套）；后台接口：设为领队、设比例、指定默认领队、审线路。</li>
+        <li><b>三端</b>：网页、安卓、iOS 都做（群聊三端都做了，这里照样）。大厅现在线上还是「大标题 + 一张活动卡」的老样子，这一步换成两个 tab。</li>
+        <li><b>网页后台</b>：另一份样稿 <code>14-admin.html</code>。</li>
+      </ul>
+    </div>
+    <div class="pc warn">
+      <h3><i>6</i>这一版不做的，和还等你定的</h3>
+      <ul>
+        <li><b>不做</b>：付定金 / 尾款（第二期，只对接企业收款）、推荐奖励的钱（等结婚谢媒）、领队之间转让线路、用户给领队打分、线路的评论。</li>
+        <li><span class="tbd">待定</span> 「相亲活动」那个 tab 是第 3 步。这一步做完时它先显示什么？我建议先显示一句「即将开放」，<b>但送审的版本里不能有空 tab</b>，所以第 2、3 步要一起做完再送审。</li>
+        <li><span class="tbd">待定</span> 规划里原来挂着的两处：「前 10 对新人送旅行」那一行还要不要；平台要不要从旅行里抽成。</li>
+        <li><b>我没查的</b>：组织收费的旅行活动，领队和平台各要什么资质（旅行社业务经营许可之类）。规划图里提过，这里再提一次——上线前要找懂的人问。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<script src="common.js"></script>
+</body>
+</html>

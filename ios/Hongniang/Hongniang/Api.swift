@@ -20,6 +20,8 @@ struct UserProfile: Codable {
     var deepStatus: String?
     var realname: Bool?
     var realNameMasked: String?
+    /// 是不是领队（平台在后台设的）：是的话「我的」页多出「领队后台」
+    var isLeader: Bool?
     var following: Int?
     var fans: Int?
     /// 照片墙（最多 8 张）

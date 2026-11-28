@@ -47,6 +47,8 @@ data class UserProfile(
     val deepStatus: String = "none",
     val realname: Boolean = false,
     val realNameMasked: String = "",
+    /** 是不是领队（平台在后台设的）：是的话「我的」页多出「领队后台」 */
+    val isLeader: Boolean = false,
     val following: Int = 0,
     val fans: Int = 0,
     /** 照片墙（最多 8 张） */

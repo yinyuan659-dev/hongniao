@@ -101,7 +101,9 @@
 .hn-dim { position: fixed; inset: 0; background: rgba(43, 20, 28, 0.42); z-index: 90; display: flex; align-items: flex-end; justify-content: center; animation: hn-fade 0.2s ease-out; }
 .hn-dim.center { align-items: center; padding: 0 28px; }
 @keyframes hn-fade { from { opacity: 0; } to { opacity: 1; } }
-.hn-sheet { width: 100%; max-width: 480px; border-radius: 30px 30px 0 0; padding: 0 20px calc(22px + env(safe-area-inset-bottom)); background: radial-gradient(80% 30% at 50% 0%, #ffe0e6 0%, transparent 75%), #fff; animation: hn-up 0.24s ease-out; max-height: 92vh; overflow-y: auto; color: var(--hn-ink); }
+.hn-sheet { width: 100%; max-width: 480px; border-radius: 30px 30px 0 0; padding: 0 20px calc(22px + env(safe-area-inset-bottom)); background: radial-gradient(80% 30% at 50% 0%, #ffe0e6 0%, transparent 75%), #fff; animation: hn-up 0.24s ease-out; max-height: 92%; overflow-y: auto; color: var(--hn-ink); }
+/* ↑ 最高占 92%：按外面那层遮罩（铺满整屏）的高度算。原来写的是 92vh，在安卓 App 的大厅那个内嵌网页里 vh 算出来是 0，
+   弹层被压成只剩底部留白那一条、内容全在屏幕外面（2026-11-28 在模拟器里看到约单说明弹不出来）。 */
 @keyframes hn-up { from { transform: translateY(100%); } to { transform: none; } }
 .hn-dialog { width: 100%; max-width: 360px; border-radius: 24px; background: #fff; padding: 20px; color: var(--hn-ink); }
 .hn-dialog textarea { width: 100%; min-height: 88px; border: none; outline: none; resize: none; border-radius: 16px; background: #faf6f6; padding: 12px 14px; font-size: 15px; line-height: 1.6; font-family: inherit; color: var(--hn-ink); margin-top: 12px; }
