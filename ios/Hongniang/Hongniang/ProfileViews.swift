@@ -20,10 +20,6 @@ struct MeView: View {
     @State private var aiBalance: String?
     /// 后台要求先做实人认证、而我还没做：显示一行「真人认证 · 未完成」（做过才能发动态 / 评论 / 视频见面）
     @State private var needKyc = false
-    /// 还没做真人认证：「账号与安全」里一直有「真人认证」这一行（2026-11-28 改的）。
-    /// 原来只有后台打开「必须先认证」时才有；开关关着的时候没认证的人找不到去认证的地方，而约旅行线路、刷脸找回账号都要认证过。
-    /// 后台要求的写「未完成」带橙点，不要求的写「未认证」。
-    @State private var unverified = false
     /// 能登录这个账号的设备有几台；nil = 还没取到
     @State private var deviceCount: Int?
     /// 取消「听服务器推送」用（见下面的 .task）
@@ -52,10 +48,7 @@ struct MeView: View {
                     Task {
                         if let u: UserProfile = try? await Api.request("/user/me") { state.user = u }
                         if let w: AiWalletBrief = try? await Api.request("/ai-wallet") { aiBalance = w.balance }
-                        if let k: KycStatusBrief = try? await Api.request("/kyc/status") {
-                            needKyc = (k.required ?? false) && !(k.realname ?? false)
-                            unverified = !(k.realname ?? false)
-                        }
+                        if let k: KycStatusBrief = try? await Api.request("/kyc/status") { needKyc = (k.required ?? false) && !(k.realname ?? false) }
                         if let d: DeviceListBrief = try? await Api.request("/devices") { deviceCount = d.devices?.count }
                     }
                 }
@@ -201,11 +194,11 @@ struct MeView: View {
                 }
             }
             // 账号与安全：真人认证（后台要求且还没做时才出现）、登录设备（换手机刷脸找回后会多出来，可以移除）；点进去都是网页
-            meGroup("账号与安全", footer: kycFooter) {
-                if unverified {
-                    navRow("checkmark.shield.fill", .orange, "真人认证", value: needKyc ? "未完成" : "未认证", dot: needKyc, route: .web("/kyc?next=/me"), first: true)
+            meGroup("账号与安全", footer: needKyc ? "做过真人认证才能发动态、评论、视频见面。认证一次 1 牵豆。" : nil) {
+                if needKyc {
+                    navRow("checkmark.shield.fill", .orange, "真人认证", value: "未完成", dot: true, route: .web("/kyc?next=/me"), first: true)
                 }
-                navRow("lock.fill", .blue, "登录设备", value: deviceCount.map { "\($0) 台" }, route: .web("/devices"), first: !unverified)
+                navRow("lock.fill", .blue, "登录设备", value: deviceCount.map { "\($0) 台" }, route: .web("/devices"), first: !needKyc)
             }
             // 专属邀请网页（链接 + 二维码）：女生发给男生 / 男生发给女生，下载后自动归因到我
             meGroup(t("me.group.tools")) {
@@ -235,13 +228,6 @@ struct MeView: View {
     }
 
     private static let green = Color(red: 0.204, green: 0.78, blue: 0.349)
-
-    /// 「账号与安全」下面那行小字：没认证的人才有
-    private var kycFooter: String? {
-        if needKyc { return "做过真人认证才能发动态、评论、视频见面。认证一次 1 牵豆。" }
-        if unverified { return "约旅行线路、换手机后刷脸找回账号，都要先做真人认证。认证一次 1 牵豆。" }
-        return nil
-    }
 
     /// 开关的说明：写在「设置」这一组下面
     private func settingsFooter(_ u: UserProfile) -> String {

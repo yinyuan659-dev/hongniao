@@ -168,7 +168,7 @@ def main():
                 ok('看 TA 的画像' in menu and '看 TA 的领队页' not in menu, '领队这一边的菜单还是「看 TA 的画像」（对方不是领队）', menu)
             else:
                 ok(tip == 1 and '看 TA 的画像' in menu and '看 TA 的领队页' not in menu, '对方不是领队：照旧有那句提示，菜单是「看 TA 的画像」', (tip, menu))
-            print('【4 没做真人认证的人：「我的」页和自己的相亲画像上都有去认证的入口】')
+            print('【4 没做真人认证的人：自己的相亲画像上有去认证的入口（「我的」页不另外放）】')
             # 两个测试号都认证过了，先看真数据（不该有入口），再在浏览器里把两个接口的回话改成「没认证」看入口（服务器上什么都没改，也不会真去认证）
             go(F, '#/me')
             F.get_by_text('账号与安全', exact=True).wait_for(state='visible', timeout=8000)
@@ -193,9 +193,9 @@ def main():
             F.get_by_text('账号与安全', exact=True).wait_for(state='visible', timeout=8000)
             F.wait_for_timeout(1500)
             body = F.locator('body').inner_text()
-            ok('真人认证\n未认证' in body.replace('\n\n', '\n') and '约旅行线路、换手机后刷脸找回账号，都要先做真人认证。认证一次 1 牵豆。' in body,
-               '（改成没认证）「我的 → 账号与安全」多出「真人认证 · 未认证」一行，下面有一句说明', body[body.find('账号与安全'):][:160])
-            shot(F, 'hall-refresh-3-me-unverified.png')
+            sec = body[body.find('账号与安全'):][:120]
+            # 「我的」页不放去认证的入口（2026-11-28 22:01 用户说重复了：入口在相亲画像上）。后台要求先认证时那一行「真人认证 · 未完成」还是原来的样子，这里不测
+            ok('真人认证' not in sec and '未认证' not in body, '（改成没认证、后台不要求）「我的 → 账号与安全」里没有「真人认证」那一行', sec)
             go(F, '#/card/me')
             chip = F.locator('[data-act="go-kyc"]')
             chip.wait_for(state='visible', timeout=8000)

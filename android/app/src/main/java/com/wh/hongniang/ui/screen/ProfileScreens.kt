@@ -54,12 +54,6 @@ fun MeScreen(modifier: Modifier = Modifier, initialUser: UserProfile?, onNav: (S
     var aiBalance by remember { mutableStateOf<String?>(null) }
     /** 后台要求先做实人认证、而我还没做：显示一行「真人认证 · 未完成」（做过才能发动态 / 评论 / 视频见面） */
     var needKyc by remember { mutableStateOf(false) }
-    /**
-     * 还没做真人认证：「账号与安全」里一直有「真人认证」这一行（2026-11-28 改的）。
-     * 原来只有后台打开「必须先认证」时才有；开关关着的时候没认证的人找不到去认证的地方，而约旅行线路、刷脸找回账号都要认证过。
-     * 后台要求的写「未完成」带橙点，不要求的写「未认证」。
-     */
-    var unverified by remember { mutableStateOf(false) }
     /** 能登录这个账号的设备有几台；null = 还没取到 */
     var deviceCount by remember { mutableStateOf<Int?>(null) }
     LaunchedEffect(HnEvents.version) {
@@ -70,7 +64,6 @@ fun MeScreen(modifier: Modifier = Modifier, initialUser: UserProfile?, onNav: (S
         runCatching { Api.request("/kyc/status") as? kotlinx.serialization.json.JsonObject }.getOrNull()?.let { s ->
             fun flag(k: String) = (s[k] as? kotlinx.serialization.json.JsonPrimitive)?.content == "true"
             needKyc = flag("required") && !flag("realname")
-            unverified = !flag("realname")
         }
         runCatching { Api.request("/devices") as? kotlinx.serialization.json.JsonObject }.getOrNull()?.let { d ->
             deviceCount = (d["devices"] as? kotlinx.serialization.json.JsonArray)?.size ?: deviceCount
@@ -183,18 +176,11 @@ fun MeScreen(modifier: Modifier = Modifier, initialUser: UserProfile?, onNav: (S
                 }
             }
             // 账号与安全：真人认证（后台要求且还没做时才出现）、登录设备（换手机刷脸找回后会多出来，可以移除）；点进去都是网页
-            MeGroup(
-                "账号与安全",
-                footer = when {
-                    needKyc -> "做过真人认证才能发动态、评论、视频见面。认证一次 1 牵豆。"
-                    unverified -> "约旅行线路、换手机后刷脸找回账号，都要先做真人认证。认证一次 1 牵豆。"
-                    else -> null
-                },
-            ) {
-                if (unverified) {
-                    MeCell(IC_SHIELD, Color(0xFFFF9500), "真人认证", first = true, onClick = { onNav(hnH5("/kyc?next=/me")) }) { MeValue(if (needKyc) "未完成" else "未认证", dot = needKyc) }
+            MeGroup("账号与安全", footer = if (needKyc) "做过真人认证才能发动态、评论、视频见面。认证一次 1 牵豆。" else null) {
+                if (needKyc) {
+                    MeCell(IC_SHIELD, Color(0xFFFF9500), "真人认证", first = true, onClick = { onNav(hnH5("/kyc?next=/me")) }) { MeValue("未完成", dot = true) }
                 }
-                MeCell(IC_LOCK, Color(0xFF007AFF), "登录设备", first = !unverified, onClick = { onNav(hnH5("/devices")) }) { MeValue(deviceCount?.let { "$it 台" }) }
+                MeCell(IC_LOCK, Color(0xFF007AFF), "登录设备", first = !needKyc, onClick = { onNav(hnH5("/devices")) }) { MeValue(deviceCount?.let { "$it 台" }) }
             }
             MeGroup(
                 t("me.group.settings"),
